@@ -2520,6 +2520,34 @@
     if (customBgStatus) customBgStatus.textContent = 'Custom wallpaper active';
   }
 
+  // API Endpoint configuration controls
+  const apiInput = $('apiEndpointInput');
+  const saveApiBtn = $('saveApiEndpointBtn');
+  const resetApiBtn = $('resetApiEndpointBtn');
+  if (apiInput) {
+    apiInput.value = localStorage.getItem('astra_api_base_url') || (window.ASTRA_API_BASE_URL || '');
+    if (saveApiBtn) {
+      saveApiBtn.onclick = () => {
+        const val = (apiInput.value || '').trim();
+        if (val) {
+          localStorage.setItem('astra_api_base_url', val);
+          window.ASTRA_API_BASE_URL = val;
+          toast('Saved API endpoint: ' + val);
+        } else {
+          localStorage.removeItem('astra_api_base_url');
+          toast('Reset to default API endpoint');
+        }
+      };
+    }
+    if (resetApiBtn) {
+      resetApiBtn.onclick = () => {
+        localStorage.removeItem('astra_api_base_url');
+        apiInput.value = window.ASTRA_API_BASE_URL || 'https://astra-ai-agent-production.up.railway.app';
+        toast('Restored default API endpoint');
+      };
+    }
+  }
+
   // User Auth Modal Controls & Gear Icon Routing
   if ($('userAuthBtn')) {
     $('userAuthBtn').onclick = (e) => {
@@ -2761,4 +2789,30 @@
       return false;
     }
   }, true);
+
+  // ── Mobile Virtual Keyboard Auto-Scroll & Viewport Handling ────────────────
+  if (window.visualViewport) {
+    const handleViewportChange = () => {
+      const stage = $('centerStage');
+      if (stage && !stage.classList.contains('welcome-mode')) {
+        const stream = $('messages');
+        if (stream) {
+          stream.scrollTop = stream.scrollHeight;
+        }
+      }
+    };
+    window.visualViewport.addEventListener('resize', handleViewportChange);
+    window.visualViewport.addEventListener('scroll', handleViewportChange);
+  }
+
+  const msgInput = $('message');
+  if (msgInput) {
+    msgInput.addEventListener('focus', () => {
+      setTimeout(() => {
+        const stream = $('messages');
+        if (stream) stream.scrollTop = stream.scrollHeight;
+        msgInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 300);
+    });
+  }
 })();

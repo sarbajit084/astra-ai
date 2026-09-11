@@ -527,6 +527,22 @@
             </div>
             <div id="customBgStatus" class="custom-bg-status-msg">Default fluid wallpaper active</div>
           </div>
+
+          <!-- 3. Backend Server & API Endpoint Configuration -->
+          <div class="settings-group">
+            <div class="settings-group-header">
+              <span class="settings-group-icon">🌐</span>
+              <div class="settings-group-text">
+                <strong class="settings-group-title">Backend API Endpoint</strong>
+                <p class="settings-group-desc">Connect to Production Cloud or custom LAN/local server.</p>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
+              <input type="text" id="apiEndpointInput" placeholder="https://astra-ai-agent-production.up.railway.app" style="flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.12); background: rgba(255,255,255,0.7); font-family: monospace; font-size: 13px;">
+              <button type="button" id="saveApiEndpointBtn" class="settings-btn primary-glass-btn" style="padding: 8px 14px; font-size: 13px;">Save</button>
+              <button type="button" id="resetApiEndpointBtn" class="settings-btn secondary-glass-btn" style="padding: 8px 14px; font-size: 13px;">Reset</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -855,6 +855,12 @@ def admin_queries(
     }
 
 
+@app.get("/healthcheck")
+@app.get("/health")
+def healthcheck() -> dict:
+    return {"status": "ok", "app": "astra-ai", "version": "3.0.0"}
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 if __name__ == "__main__":

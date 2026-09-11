@@ -122,59 +122,16 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Background Wallpaper (Matches Uploaded Artwork 100%) with Subtle Wavy Ambient Glow */
+/* Background Wallpaper (Matches Uploaded Artwork 100%) */
 .astra-background {
   position: fixed;
-  inset: -5%;
-  width: 110%;
-  height: 110%;
+  inset: 0;
   z-index: -1;
   background-image: url('astra_bg.jpg');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   pointer-events: none;
-  animation: astraSubtleFlow 24s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-/* Subtle, soft wavy ambient light overlay */
-.astra-background::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at 30% 20%, rgba(244, 114, 182, 0.08) 0%, transparent 60%),
-              radial-gradient(circle at 75% 70%, rgba(56, 189, 248, 0.07) 0%, transparent 55%),
-              radial-gradient(circle at 50% 90%, rgba(168, 85, 247, 0.06) 0%, transparent 50%);
-  animation: astraWaveShimmer 16s ease-in-out infinite alternate;
-  pointer-events: none;
-}
-
-@keyframes astraSubtleFlow {
-  0% {
-    transform: scale(1) translate3d(0, 0, 0);
-  }
-  50% {
-    transform: scale(1.03) translate3d(-1%, -1%, 0);
-  }
-  100% {
-    transform: scale(1.02) translate3d(1%, 0.5%, 0);
-  }
-}
-
-@keyframes astraWaveShimmer {
-  0% {
-    opacity: 0.5;
-    transform: rotate(0deg) scale(1);
-  }
-  50% {
-    opacity: 0.85;
-    transform: rotate(1deg) scale(1.04);
-  }
-  100% {
-    opacity: 0.6;
-    transform: rotate(-1deg) scale(1.02);
-  }
 }
 
 /* Main Shell */

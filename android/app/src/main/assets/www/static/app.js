@@ -681,6 +681,7 @@
   let savedNormalConvId = '';
   let savedNormalChatHistory = [];   // deep-copy of activeChatHistory at activation moment
   let savedNormalWelcomeHidden = false;
+  let savedNormalMessagesNodes = []; // preserved real DOM message nodes of public chat
   let activeTempHistory = [];        // in-session history for temp LLM context (not persisted)
 
   function _ensureTempBanner() {
@@ -725,49 +726,76 @@
     if ($('sidebarDisappearingBtn')) $('sidebarDisappearingBtn').classList.toggle('active', isIncognito);
 
     const banner = _ensureTempBanner();
+    const msgContainer = $('messages');
+    const welcomeEl = $('welcome');
 
     if (isIncognito) {
-      // ── ACTIVATING ─────────────────────────────────────────────────────────
+      // ── ACTIVATING TEMPORARY CHAT ─────────────────────────────────────────
       // 1. Snapshot current persistent state so we can restore it on deactivation
       savedNormalConvId = currentConversationId;
       savedNormalChatHistory = activeChatHistory.slice(); // shallow copy of plain objects
-      savedNormalWelcomeHidden = $('welcome') ? $('welcome').classList.contains('hidden') : false;
+      savedNormalWelcomeHidden = welcomeEl ? welcomeEl.classList.contains('hidden') : false;
       activeTempHistory = [];
 
-      // 2. Apply CSS mode
+      // 2. Preserve public chat DOM nodes safely in an array and clear container for temporary chat
+      savedNormalMessagesNodes = [];
+      if (msgContainer) {
+        while (msgContainer.firstChild) {
+          savedNormalMessagesNodes.push(msgContainer.firstChild);
+          msgContainer.removeChild(msgContainer.firstChild);
+        }
+      }
+
+      // 3. Show clean temporary chat greeting interface
+      if (welcomeEl) {
+        welcomeEl.classList.remove('hidden');
+      }
+      updateStageMode();
+
+      // 4. Apply CSS mode
       document.body.classList.add('temporary-chat-mode', 'incognito-mode');
 
-      // 3. Show banner
+      // 5. Show banner
       banner.style.display = 'block';
 
       toast('🕶️ Temporary Chat active — messages will not be saved.');
     } else {
-      // ── DEACTIVATING ───────────────────────────────────────────────────────
-      // 1. Remove all temporary DOM message nodes
-      const msgContainer = $('messages');
+      // ── DEACTIVATING TEMPORARY CHAT (RESTORE PUBLIC CHAT) ──────────────────
+      // 1. Remove all temporary messages from DOM
       if (msgContainer) {
-        msgContainer.querySelectorAll('[data-temporary="true"]').forEach((node) => node.remove());
+        msgContainer.innerHTML = '';
+        // Restore all previous public chat DOM nodes exactly as they were
+        savedNormalMessagesNodes.forEach((node) => {
+          msgContainer.appendChild(node);
+        });
       }
+      savedNormalMessagesNodes = [];
 
-      // 2. Restore pre-temporary state
+      // 2. Restore pre-temporary persistent state
       currentConversationId = savedNormalConvId;
       activeChatHistory = savedNormalChatHistory.slice();
       activeTempHistory = [];
 
-      // Restore welcome screen visibility if it was showing before
-      const welcomeEl = $('welcome');
+      // 3. Restore welcome screen state based on public chat snapshot
       if (welcomeEl) {
-        if (!savedNormalWelcomeHidden && (!msgContainer || msgContainer.children.length === 0)) {
+        if (savedNormalWelcomeHidden && msgContainer && msgContainer.children.length > 0) {
+          welcomeEl.classList.add('hidden');
+        } else {
           welcomeEl.classList.remove('hidden');
-          updateStageMode();
         }
+        updateStageMode();
       }
 
-      // 3. Remove CSS mode
+      // 4. Remove CSS mode
       document.body.classList.remove('temporary-chat-mode', 'incognito-mode');
 
-      // 4. Hide banner
+      // 5. Hide banner
       banner.style.display = 'none';
+
+      // 6. Scroll to latest restored message if messages exist
+      if (msgContainer && msgContainer.children.length > 0) {
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+      }
 
       toast('Temporary Chat turned off. Previous conversation restored.');
     }

@@ -2,6 +2,8 @@
    ASTRA UI - 100% IDENTICAL BESPOKE GLASSMORPHISM STYLESHEET
    ========================================================================== */
 
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
+
 :root {
   --primary-dark: #111827;
   --text-charcoal: #1e293b;
@@ -953,6 +955,8 @@ html, body {
   justify-content: flex-start;
   gap: 22px;
   box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
 }
@@ -1755,6 +1759,26 @@ html, body {
   gap: 4px;
 }
 
+/* Polished Thinking State Animation */
+.assistant-content.thinking {
+  color: #64748b;
+  font-style: italic;
+  display: inline-flex;
+  align-items: center;
+  animation: thinkingPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% {
+    opacity: 0.55;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1px);
+  }
+}
+
 .source-chips,
 .source-chip {
   display: none !important;
@@ -2035,32 +2059,85 @@ html, body {
   display: none !important;
 }
 
+.mobile-nav-bar {
+  display: none;
+}
+
 @media (max-width: 860px) {
   /* Shell & Workspace Bounds */
   .astra-shell {
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px)) 8px;
-    gap: 8px;
+    padding: 0 0 env(safe-area-inset-bottom, 0px) 0;
+    gap: 0;
     height: 100dvh;
     width: 100vw;
     max-width: 100vw;
-    overflow-x: hidden;
+    overflow: hidden;
+    flex-direction: column;
   }
 
-  /* Collapsed Rail on Mobile: compact, top-left float or inline */
+  /* Dedicated Mobile Glass Navigation Bar */
+  .mobile-nav-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 52px;
+    min-height: 52px;
+    padding: 0 14px;
+    box-sizing: border-box;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.12) 100%);
+    backdrop-filter: blur(24px) saturate(130%);
+    -webkit-backdrop-filter: blur(24px) saturate(130%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.45);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+    z-index: 70;
+    flex-shrink: 0;
+  }
+
+  .mobile-nav-brand {
+    font-family: 'Instrument Serif', Georgia, serif;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    color: #111827;
+  }
+
+  [data-bg-theme="dark"] .mobile-nav-brand {
+    color: #ffffff !important;
+  }
+
+  .mobile-nav-icon-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.28);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #1e293b;
+    box-shadow: 0 2px 6px rgba(10, 25, 45, 0.05);
+    transition: transform 0.15s ease, background 0.15s ease;
+    padding: 0;
+    touch-action: manipulation;
+  }
+
+  [data-bg-theme="dark"] .mobile-nav-icon-btn {
+    color: #f8fafc !important;
+    background: rgba(255, 255, 255, 0.14) !important;
+  }
+
+  .mobile-nav-icon-btn:active {
+    transform: scale(0.92);
+    background: rgba(255, 255, 255, 0.45);
+  }
+
+  /* Collapsed Rail is replaced by top mobile-nav-bar on mobile */
   .sidebar-rail {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    bottom: 10px;
-    height: auto;
-    max-height: calc(100dvh - 20px);
-    width: 48px;
-    min-width: 48px;
-    max-width: 48px;
-    padding: 14px 0;
-    border-radius: 26px;
-    z-index: 80;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+    display: none !important;
   }
 
   /* Full Sidebar Drawer as Slide-Over Sheet */
@@ -2069,122 +2146,93 @@ html, body {
     top: 8px;
     bottom: 8px;
     left: 8px;
-    width: min(320px, calc(100vw - 32px));
+    width: min(320px, calc(100vw - 24px));
     min-width: 0;
-    max-width: calc(100vw - 32px);
+    max-width: calc(100vw - 24px);
     height: calc(100dvh - 16px);
     border-radius: 28px;
-    z-index: 90;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 100;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.38), 0 4px 16px rgba(0, 0, 0, 0.15);
     transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease;
   }
 
   .sidebar-card.closed {
-    transform: translateX(calc(-100% - 20px));
+    transform: translateX(calc(-100% - 30px));
     opacity: 0;
     pointer-events: none;
+  }
+
+  /* Main Workspace */
+  .astra-main {
+    flex: 1;
+    width: 100%;
+    height: calc(100% - 52px);
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   /* Central Stage Canvas */
   .astra-center-stage {
     width: 100%;
     max-width: 100%;
+    flex: 1;
     height: 100%;
+    min-height: 0;
     margin: 0;
-    padding: 0;
-    overflow-x: hidden;
+    padding: 10px 12px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   .astra-center-stage.welcome-mode,
   .astra-center-stage:has(#welcome:not(.hidden)) {
-    padding: 12px 6px;
-    gap: 16px;
+    justify-content: center;
+    align-items: center;
+    padding: 16px 12px;
+    gap: 18px;
   }
 
   .astra-center-stage.chat-active {
-    padding: 14px 12px 10px 12px;
-    border-radius: 24px;
+    padding: 8px 10px 8px 10px;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
     height: 100%;
     max-width: 100%;
   }
 
-  /* Floating Composer Card */
-  .composer-outer-form {
-    width: 100%;
-    max-width: 100%;
-    padding: 0;
+  .astra-center-stage.chat-active::before {
+    display: none !important;
   }
 
-  .composer-floating-card {
-    width: 100%;
-    max-width: 100%;
-  }
-
-  .composer-recessed-pill {
-    border-radius: 24px;
-    min-height: 52px;
-    padding: 4px 6px;
-    gap: 6px;
-  }
-
-  #message {
-    font-size: 17px;
-    line-height: 24px;
-    height: 26px;
-    padding: 0 4px;
-  }
-
-  #message::placeholder {
-    font-size: 17px;
-    line-height: 24px;
-  }
-
-  .capsule-squircle-btn {
-    width: 38px;
-    height: 38px;
-    border-radius: 13px;
-  }
-
-  .capsule-squircle-btn svg {
-    width: 17px;
-    height: 17px;
-  }
-
-  .composer-sub-row {
-    padding: 4px 6px 0 6px;
-  }
-
-  .composer-sub-disclaimer {
-    font-size: 11.5px;
-    max-width: 60%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .model-spec-label {
-    font-size: 12px;
-  }
-
-  /* Chat Message Bubbles on Mobile */
+  /* Messages Stream */
   .messages-stream {
-    padding: 8px 4px 12px 4px;
-    gap: 14px;
+    padding: 4px 2px 10px 2px;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
   }
 
   .message-card.user {
-    max-width: 88%;
+    max-width: 90%;
   }
 
   .user-bubble {
-    font-size: 16px;
-    line-height: 1.4;
-    padding: 9px 15px;
-    border-radius: 16px;
+    font-size: 16.5px;
+    line-height: 1.42;
+    padding: 10px 16px;
+    border-radius: 18px;
   }
 
   .assistant-row {
-    gap: 10px;
+    gap: 8px;
   }
 
   .astra-avatar-logo {
@@ -2202,10 +2250,72 @@ html, body {
     line-height: 1.48;
   }
 
+  /* Floating Composer Card */
+  .composer-outer-form {
+    width: 100%;
+    max-width: 100%;
+    padding: 2px 0 0 0;
+    margin-top: auto;
+  }
+
+  .composer-floating-card {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .composer-recessed-pill {
+    border-radius: 26px;
+    min-height: 52px;
+    padding: 4px 6px;
+    gap: 6px;
+    background: linear-gradient(180deg, rgba(225, 238, 246, 0.45) 0%, rgba(200, 220, 235, 0.32) 100%);
+    box-shadow: inset 0 1.5px 3px rgba(10, 30, 60, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.55), 0 4px 14px rgba(0, 0, 0, 0.05);
+  }
+
+  #message {
+    font-size: 17.5px;
+    line-height: 24px;
+    height: 26px;
+    padding: 0 4px;
+  }
+
+  #message::placeholder {
+    font-size: 17px;
+    line-height: 24px;
+  }
+
+  .capsule-squircle-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    touch-action: manipulation;
+  }
+
+  .capsule-squircle-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .composer-sub-row {
+    padding: 4px 6px 0 6px;
+  }
+
+  .composer-sub-disclaimer {
+    font-size: 11.5px;
+    max-width: 58%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .model-spec-label {
+    font-size: 12px;
+  }
+
   /* Attachment Dropdown on Mobile */
   .attach-dropdown {
     min-width: 210px;
-    max-width: calc(100vw - 32px);
+    max-width: calc(100vw - 28px);
     bottom: calc(100% + 8px);
     left: 0;
   }
@@ -2222,8 +2332,8 @@ html, body {
   }
 
   .glass-modal-card {
-    padding: 18px;
-    border-radius: 22px;
+    padding: 20px 16px;
+    border-radius: 24px;
     max-width: 95vw;
   }
 }
@@ -2231,7 +2341,7 @@ html, body {
 /* Extra small phones (320px - 380px) */
 @media (max-width: 380px) {
   .welcome-brand-title {
-    font-size: 40px;
+    font-size: 38px;
     letter-spacing: 3px;
   }
 
@@ -2241,22 +2351,22 @@ html, body {
   }
 
   .capsule-squircle-btn {
-    width: 34px;
-    height: 34px;
-    border-radius: 11px;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
   }
 
   .capsule-squircle-btn svg {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
   }
 
   #message {
-    font-size: 15.5px;
+    font-size: 16px;
   }
 
   #message::placeholder {
-    font-size: 15.5px;
+    font-size: 16px;
   }
 
   .composer-sub-disclaimer {

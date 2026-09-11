@@ -575,9 +575,14 @@
     if ($('sidebarToggleBtn')) $('sidebarToggleBtn').onclick = () => toggleSidebar();
     if ($('closeSidebar')) $('closeSidebar').onclick = () => toggleSidebar(false);
     if ($('railExpandBtn')) $('railExpandBtn').onclick = () => toggleSidebar(true);
+    if ($('mobileMenuToggleBtn')) $('mobileMenuToggleBtn').onclick = () => toggleSidebar();
+    if ($('mobileNewChatBtn')) $('mobileNewChatBtn').onclick = () => {
+      $('newChat').click();
+      if (window.innerWidth <= 860) toggleSidebar(false);
+    };
     if ($('railNewChatBtn')) $('railNewChatBtn').onclick = () => {
       $('newChat').click();
-      if (window.innerWidth <= 768) toggleSidebar(false);
+      if (window.innerWidth <= 860) toggleSidebar(false);
     };
     if ($('railUserBtn')) $('railUserBtn').onclick = () => $('userAuthBtn').click();
   }
@@ -1652,7 +1657,7 @@
       row.innerHTML = `
         <div class="assistant-row">
           <div class="astra-avatar-logo">
-            <img src="/static/astra_logo.svg" alt="Astra Logo" class="astra-logo-img">
+            <img src="static/astra_logo.svg" alt="Astra Logo" class="astra-logo-img" onerror="this.src='/static/astra_logo.svg'">
           </div>
           <div class="assistant-body">
             <div class="assistant-content">${formattedText}</div>

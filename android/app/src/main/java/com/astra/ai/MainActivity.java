@@ -123,7 +123,10 @@ public class MainActivity extends Activity {
             settings.setSafeBrowsingEnabled(true);
         }
 
+        // Performance & Smooth Rendering
         webView.setBackgroundColor(0xFF111827);
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override

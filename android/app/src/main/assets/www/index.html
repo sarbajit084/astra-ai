@@ -184,6 +184,25 @@
 
       <!-- Main Central Workspace -->
       <main class="astra-main">
+        <!-- Mobile Top Glass App Header -->
+        <header class="mobile-nav-bar" id="mobileNavBar" aria-label="Mobile Navigation">
+          <button type="button" id="mobileMenuToggleBtn" class="mobile-nav-icon-btn" title="Open Sidebar / Menu" aria-label="Open menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="mobile-nav-center">
+            <span class="mobile-nav-brand">ASTRA</span>
+          </div>
+          <button type="button" id="mobileNewChatBtn" class="mobile-nav-icon-btn" title="New Conversation" aria-label="New conversation">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+        </header>
+
         <!-- Hidden status and admin portal buttons preserved for health & admin navigation -->
         <div class="top-nav-mini">
           <div id="serviceStatus" class="mini-status-dot ok" title="System Ready">

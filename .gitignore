@@ -1,0 +1,42 @@
+# Environment & secrets
+.env
+.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# PyInstaller & Build
+build/
+dist/
+*.spec
+*.zip
+
+# Database & runtime data
+data/
+*.db
+
+# Temporary & profile
+tmp_cdp_profile/
+*.log
+ss_*.png
+
+# Android & Gradle tools/build
+tools/
+.gradle/
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+setup_android.py
+download_gradle.py
+download_sdk_tools.py
+install_platform.bat
+bundle_assets.py
+create_gradle_files.py

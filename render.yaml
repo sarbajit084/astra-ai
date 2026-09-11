@@ -1,0 +1,22 @@
+﻿services:
+  - type: web
+    name: astra-ai-agent
+    runtime: docker
+    plan: standard
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: GROQ_API_KEY
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: "*"
+      - key: USE_NEURAL_MODELS
+        value: "false"
+    disk:
+      name: astra-data
+      mountPath: /app/data
+      sizeGB: 5

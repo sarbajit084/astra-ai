@@ -1,0 +1,35 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://aster:aster@postgres:5432/aster
+      QDRANT_URL: http://qdrant:6333
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aster
+      POSTGRES_PASSWORD: aster
+      POSTGRES_DB: aster
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aster -d aster"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    volumes:
+      - qdrant-data:/qdrant/storage
+volumes:
+  postgres-data:
+  qdrant-data:

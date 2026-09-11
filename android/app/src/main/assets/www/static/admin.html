@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Aster — Admin Control & Monitoring Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=5">
+    <script>
+      document.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; }, true);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'F12' || e.keyCode === 123) { e.preventDefault(); return false; }
+        const isCtrl = e.ctrlKey || e.metaKey;
+        if (isCtrl && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(e.key)) { e.preventDefault(); return false; }
+        if (isCtrl && ['u', 'U', 's', 'S'].includes(e.key)) { e.preventDefault(); return false; }
+      }, true);
+    </script>
+    <style>
+      .admin-layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 30px 20px;
+        min-height: 100vh;
+      }
+      .admin-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 28px;
+      }
+      .admin-brand {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+      .admin-brand span.calligraphy {
+        font-family: "Great Vibes", cursive;
+        font-size: 2.8rem;
+        background: linear-gradient(135deg, #f59e0b, #ec4899);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .admin-brand span.tag {
+        font-family: "DM Mono", monospace;
+        font-size: 0.75rem;
+        letter-spacing: 0.15em;
+        background: rgba(236, 72, 153, 0.15);
+        color: #f472b6;
+        border: 1px solid rgba(236, 72, 153, 0.3);
+        padding: 4px 10px;
+        border-radius: 9999px;
+      }
+      .admin-search-box {
+        width: 100%;
+        margin-bottom: 20px;
+        position: relative;
+      }
+      .admin-search-input {
+        width: 100%;
+        padding: 14px 20px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 16px;
+        color: #fff;
+        font-size: 0.95rem;
+      }
+      .query-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 20px;
+        margin-bottom: 14px;
+        transition: all 0.2s ease;
+      }
+      .query-card:hover {
+        background: rgba(255, 255, 255, 0.07);
+        border-color: rgba(236, 72, 153, 0.3);
+      }
+      .query-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        font-size: 0.8rem;
+        font-family: "DM Mono", monospace;
+        color: #94a3b8;
+      }
+      .query-text {
+        font-size: 1.05rem;
+        font-weight: 600;
+        color: #f8fafc;
+        margin-bottom: 8px;
+      }
+      .answer-preview {
+        font-size: 0.9rem;
+        line-height: 1.6;
+        color: #cbd5e1;
+        background: rgba(0, 0, 0, 0.25);
+        padding: 12px 16px;
+        border-radius: 12px;
+        border-left: 3px solid #ec4899;
+      }
+      .admin-lock-screen {
+        max-width: 440px;
+        margin: 100px auto;
+        padding: 40px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Glow Orbs Background -->
+    <div class="glow-bg" aria-hidden="true">
+      <div class="orb orb-pink"></div>
+      <div class="orb orb-orange"></div>
+      <div class="orb orb-purple"></div>
+      <div class="orb orb-cyan"></div>
+    </div>
+
+    <!-- Admin Auth Lock Screen (Shown if not logged in as Admin) -->
+    <div id="adminLockScreen" class="admin-lock-screen glass-modal-card">
+      <span class="calligraphy-modal-title">Aster</span>
+      <p class="eyebrow" style="margin-top: 10px;">CONFIDENTIAL OPERATIONS</p>
+      <h2 id="adminLockHeading" style="margin: 8px 0 16px;">Admin Portal Sign In</h2>
+      <p class="muted" style="margin-bottom: 20px;">This dashboard is strictly reserved for registered system administrators.</p>
+
+      <div class="modal-tabs" style="margin-bottom: 20px;">
+        <button id="tabAdminLogin" class="modal-tab active" type="button">Sign In</button>
+        <button id="tabAdminRegister" class="modal-tab" type="button">Register Admin</button>
+      </div>
+
+      <!-- Admin Login Form -->
+      <form id="adminLoginForm">
+        <label style="text-align: left;">Admin Email
+          <input id="adminEmail" type="email" required placeholder="admin@aster.local">
+        </label>
+        <label style="text-align: left;">Admin Password
+          <input id="adminPassword" type="password" required placeholder="••••••••••••">
+        </label>
+        <button class="gradient-pill-btn full-width" style="margin-top: 16px;">Access Admin Dashboard <span>→</span></button>
+      </form>
+
+      <!-- Admin Registration Form -->
+      <form id="adminRegisterForm" class="hidden">
+        <label style="text-align: left;">Admin Email
+          <input id="regAdminEmail" type="email" required placeholder="admin@aster.local">
+        </label>
+        <label style="text-align: left;">Admin Password (min 8 chars)
+          <input id="regAdminPassword" type="password" minlength="8" required placeholder="••••••••••••">
+        </label>
+        <label style="text-align: left;">Confirm Password
+          <input id="regAdminPasswordConfirm" type="password" minlength="8" required placeholder="••••••••••••">
+        </label>
+        <button class="gradient-pill-btn full-width" style="margin-top: 16px;">Register As Admin <span>→</span></button>
+      </form>
+
+      <div style="margin-top: 24px;">
+        <a href="/" class="muted" style="font-size: 0.82rem; text-decoration: none;">← Return to Aster Chat</a>
+      </div>
+    </div>
+
+    <!-- Admin Full Dashboard (Shown once authenticated) -->
+    <div id="adminContent" class="admin-layout hidden">
+      <nav class="admin-nav">
+        <div class="admin-brand">
+          <span class="calligraphy">Aster</span>
+          <span class="tag">ADMIN PRIVILEGED</span>
+        </div>
+        <div style="display: flex; gap: 12px;">
+          <a href="/" class="pill-btn secondary-pill">← Main Chat</a>
+          <button id="adminLogoutBtn" class="pill-btn secondary-pill">Sign Out Admin</button>
+        </div>
+      </nav>
+
+      <!-- Stats Grid -->
+      <div class="stats-grid" id="adminStatsGrid">
+        <div class="stat-card">
+          <strong id="statUsers">-</strong>
+          <span>Total Users</span>
+        </div>
+        <div class="stat-card">
+          <strong id="statQueries">-</strong>
+          <span>Total Searches</span>
+        </div>
+        <div class="stat-card">
+          <strong id="statDocs">-</strong>
+          <span>Indexed Docs</span>
+        </div>
+        <div class="stat-card">
+          <strong id="statAvgLat">-</strong>
+          <span>Avg. Latency</span>
+        </div>
+        <div class="stat-card">
+          <strong id="statP95Lat">-</strong>
+          <span>p95 Latency</span>
+        </div>
+      </div>
+
+      <!-- Live Search & Audit Log -->
+      <div class="glass-card" style="padding: 24px; margin-top: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
+          <div>
+            <p class="eyebrow">REAL-TIME MONITORING</p>
+            <h2 style="font-size: 1.4rem; margin-top: 4px;">User Search & Grounding Feed</h2>
+          </div>
+          <button id="refreshQueriesBtn" class="pill-btn secondary-pill" style="font-size: 0.8rem;">🔄 Refresh</button>
+        </div>
+
+        <div class="admin-search-box">
+          <input id="queryFilterInput" type="text" class="admin-search-input" placeholder="Filter searches by keyword, model, or user ID…">
+        </div>
+
+        <div id="queriesListContainer">
+          <p class="muted">Loading search activities…</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let adminToken = localStorage.getItem('aster_admin_token') || localStorage.getItem('aster_token') || '';
+
+      const toast = (text, isErr = false) => {
+        const n = $('toast');
+        n.textContent = text;
+        n.style.background = isErr ? '#e11d48' : '#059669';
+        n.classList.remove('hidden');
+        setTimeout(() => n.classList.add('hidden'), 4000);
+      };
+
+      const formatDuration = (ms) => {
+        const v = Number(ms);
+        if (!v || v <= 0) return '15 ms';
+        if (v < 1000) return `${Math.round(v)} ms`;
+        return `${(v / 1000).toFixed(2)} s`;
+      };
+
+      const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[x]));
+
+      let allQueriesCache = [];
+
+      async function fetchAdminData() {
+        try {
+          const headers = { Authorization: `Bearer ${adminToken}` };
+          const [dash, usage, queriesRes] = await Promise.all([
+            fetch('/api/admin/dashboard', { headers }).then(r => { if (!r.ok) throw new Error('Unauthorized'); return r.json(); }),
+            fetch('/api/admin/usage', { headers }).then(r => r.json()).catch(() => ({})),
+            fetch('/api/admin/queries', { headers }).then(r => r.json()).catch(() => ({ queries: [] })),
+          ]);
+
+          $('adminLockScreen').classList.add('hidden');
+          $('adminContent').classList.remove('hidden');
+
+          $('statUsers').textContent = dash.totals.users;
+          $('statQueries').textContent = dash.totals.queries;
+          $('statDocs').textContent = dash.totals.documents;
+          $('statAvgLat').textContent = formatDuration(dash.totals.average_latency_ms);
+          $('statP95Lat').textContent = formatDuration(usage.percentiles?.p95_ms || 0);
+
+          allQueriesCache = queriesRes.queries || dash.recent_queries || [];
+          renderQueries(allQueriesCache);
+        } catch (err) {
+          $('adminLockScreen').classList.remove('hidden');
+          $('adminContent').classList.add('hidden');
+        }
+      }
+
+      function renderQueries(list) {
+        const filter = ($('queryFilterInput').value || '').toLowerCase().trim();
+        const filtered = list.filter(q => 
+          !filter || 
+          (q.query && q.query.toLowerCase().includes(filter)) || 
+          (q.answer && q.answer.toLowerCase().includes(filter)) ||
+          (q.user_id && q.user_id.toLowerCase().includes(filter))
+        );
+
+        if (!filtered.length) {
+          $('queriesListContainer').innerHTML = '<p class="muted" style="padding: 20px; text-align: center;">No search queries match.</p>';
+          return;
+        }
+
+        $('queriesListContainer').innerHTML = filtered.map(q => `
+          <div class="query-card">
+            <div class="query-header">
+              <span>USER: ${escapeHtml(q.user_id ? q.user_id.slice(0, 12) : 'guest')} · ${new Date(q.created_at).toLocaleString()}</span>
+              <span style="color: #ec4899;">${escapeHtml(q.model)} · ${formatDuration(q.latency_ms)}</span>
+            </div>
+            <div class="query-text">🔍 ${escapeHtml(q.query)}</div>
+            ${q.rewritten_query && q.rewritten_query !== q.query ? `<div class="muted" style="font-size: 0.78rem; margin-bottom: 8px;">Rewritten: ${escapeHtml(q.rewritten_query)}</div>` : ''}
+            <div class="answer-preview">${escapeHtml(q.answer)}</div>
+          </div>
+        `).join('');
+      }
+
+      // Tab switcher for Admin Login / Register
+      $('tabAdminLogin').onclick = () => {
+        $('tabAdminLogin').classList.add('active');
+        $('tabAdminRegister').classList.remove('active');
+        $('adminLoginForm').classList.remove('hidden');
+        $('adminRegisterForm').classList.add('hidden');
+        $('adminLockHeading').textContent = 'Admin Portal Sign In';
+      };
+
+      $('tabAdminRegister').onclick = () => {
+        $('tabAdminRegister').classList.add('active');
+        $('tabAdminLogin').classList.remove('active');
+        $('adminLoginForm').classList.add('hidden');
+        $('adminRegisterForm').classList.remove('hidden');
+        $('adminLockHeading').textContent = 'Register System Admin';
+      };
+
+      $('adminLoginForm').onsubmit = async (e) => {
+        e.preventDefault();
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: $('adminEmail').value.trim(), password: $('adminPassword').value }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Login failed');
+          if (data.user?.role !== 'admin') throw new Error('This account does not have Administrator privileges');
+          adminToken = data.access_token;
+          localStorage.setItem('aster_admin_token', adminToken);
+          localStorage.setItem('aster_token', adminToken);
+          toast('Admin authentication successful');
+          fetchAdminData();
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+
+      $('adminRegisterForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const email = $('regAdminEmail').value.trim();
+        const pwd = $('regAdminPassword').value;
+        const confirmPwd = $('regAdminPasswordConfirm').value;
+        if (pwd !== confirmPwd) {
+          toast('Passwords do not match', true);
+          return;
+        }
+        try {
+          const res = await fetch('/api/auth/admin/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password: pwd }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || 'Admin registration failed');
+          if (data.user?.role !== 'admin') throw new Error('Failed to obtain administrator privileges');
+          adminToken = data.access_token;
+          localStorage.setItem('aster_admin_token', adminToken);
+          localStorage.setItem('aster_token', adminToken);
+          toast(`Admin account registered: ${data.user.email}`);
+          fetchAdminData();
+        } catch (err) {
+          toast(err.message, true);
+        }
+      };
+
+      $('queryFilterInput').oninput = () => renderQueries(allQueriesCache);
+      $('refreshQueriesBtn').onclick = fetchAdminData;
+      $('adminLogoutBtn').onclick = () => {
+        localStorage.removeItem('aster_admin_token');
+        adminToken = '';
+        $('adminContent').classList.add('hidden');
+        $('adminLockScreen').classList.remove('hidden');
+      };
+
+      if (adminToken) {
+        fetchAdminData();
+      }
+    </script>
+  </body>
+</html>

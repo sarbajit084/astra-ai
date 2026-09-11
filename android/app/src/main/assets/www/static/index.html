@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#111827">
+    <title>Astra</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="alternate icon" type="image/png" href="/static/favicon-32x32.png">
+    <link rel="apple-touch-icon" href="/static/favicon-192x192.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css?v=2260">
+    <script>
+      // Disable Right-Click Context Menu
+      document.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        return false;
+      }, true);
+
+      // Disable DevTools & View Source Keyboard Shortcuts
+      document.addEventListener('keydown', (e) => {
+        // F12 key
+        if (e.key === 'F12' || e.keyCode === 123) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+
+        const isCtrl = e.ctrlKey || e.metaKey;
+
+        // Ctrl+Shift+I (Inspect), Ctrl+Shift+J (Console), Ctrl+Shift+C (Element picker)
+        if (isCtrl && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+
+        // Ctrl+U (View Page Source), Ctrl+S (Save Page)
+        if (isCtrl && ['u', 'U', 's', 'S'].includes(e.key)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      }, true);
+    </script>
+  </head>
+  <body>
+    <!-- Fluid Silk Wave Background Wallpaper -->
+    <div class="astra-background" aria-hidden="true"></div>
+
+    <!-- Main Workspace Application Shell -->
+    <div id="appView" class="astra-shell">
+      <!-- Mobile Backdrop Overlay -->
+      <div id="sidebarBackdrop" class="sidebar-backdrop hidden" aria-hidden="true"></div>
+
+      <!-- Collapsed Sidebar Glass Rail (100% Matching Mockup) -->
+      <nav id="sidebarRail" class="sidebar-rail hidden" aria-label="Collapsed sidebar">
+        <!-- Top Button: Expand Sidebar -->
+        <button type="button" id="railExpandBtn" class="rail-icon-btn" title="Open Sidebar" aria-label="Open sidebar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+        </button>
+
+        <!-- Bottom Button: User Account / Login Button -->
+        <button type="button" id="railUserBtn" class="rail-icon-btn" title="Account / Login" aria-label="Account login">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+        </button>
+      </nav>
+
+      <!-- Glassmorphic Floating Left Sidebar Card -->
+      <aside id="sidebar" class="sidebar-card">
+        <!-- Top Row: Disappearing chat button (left), ASTRA (center), Sidebar toggle (right) -->
+        <div class="sidebar-header">
+          <button type="button" id="sidebarDisappearingBtn" class="icon-pill-btn disappearing-chat-btn" title="Toggle Disappearing / Temporary Chat" aria-label="Toggle disappearing chat">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+              <line x1="3" y1="3" x2="21" y2="21"></line>
+            </svg>
+          </button>
+
+          <span class="sidebar-brand-title">ASTRA</span>
+
+          <button type="button" id="closeSidebar" class="icon-pill-btn" title="Toggle Sidebar" aria-label="Toggle sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- New Conversation Pill Button -->
+        <button type="button" id="newChat" class="new-conv-pill">
+          <span class="green-plus-circle">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#228b6d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="16"></line>
+              <line x1="8" y1="12" x2="16" y2="12"></line>
+            </svg>
+          </span>
+          <span class="new-conv-text">NEW CONVERSATION</span>
+        </button>
+
+        <!-- Recents Section -->
+        <div class="sidebar-section">
+          <div class="section-title">RECENTS</div>
+          <div id="conversationList" class="recents-card-box">
+            <!-- Dynamic conversations rendered by JS -->
+            <p class="muted-box-msg">No conversations yet</p>
+          </div>
+        </div>
+
+        <!-- Upload Files Box (Dashed Outline) -->
+        <label id="uploadDrop" class="upload-dashed-card">
+          <input id="fileInput" type="file" multiple accept=".pdf,.txt,.md,.csv,.json,.py,.html,.docx" style="display: none;">
+          <div class="upload-red-circle">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e05252" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"></line>
+              <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
+          </div>
+          <span class="upload-main-text">UPLOAD FILES HERE</span>
+          <span class="upload-sub-text">PDF, TXT, DOC etc.</span>
+        </label>
+
+        <!-- Uploaded Documents Section -->
+        <div class="sidebar-section">
+          <div class="section-title">UPLOADED DOCUMENTS</div>
+          <div id="documentList" class="docs-card-box">
+            <!-- Dynamic documents rendered by JS -->
+            <p class="muted-box-msg">No documents uploaded yet.</p>
+          </div>
+        </div>
+
+        <!-- Hidden document select for JS compat -->
+        <select id="documentSelect" style="display: none;" aria-label="Document selection"></select>
+        <span id="docCount" style="display: none;">0</span>
+        <span id="convCount" style="display: none;">0</span>
+
+        <!-- Bottom Actions: User Bar -->
+        <div class="sidebar-bottom-actions">
+          <!-- Login / Account Pill Bar -->
+          <button type="button" id="userAuthBtn" class="user-profile-pill" title="User Account / Settings">
+            <span class="user-profile-left">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+            </span>
+            <span id="userAccountLabel" class="user-profile-name">LOGIN</span>
+            <span class="user-profile-right">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+            </span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Central Workspace -->
+      <main class="astra-main">
+        <!-- Hidden status and admin portal buttons preserved for health & admin navigation -->
+        <div class="top-nav-mini">
+          <div id="serviceStatus" class="mini-status-dot ok" title="System Ready">
+            <span class="dot"></span>
+            <span id="statusText" style="display:none;">Ready</span>
+          </div>
+          <a href="/admin" class="mini-admin-link" title="Admin Portal">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </a>
+        </div>
+
+        <!-- Central Container -->
+        <div id="centerStage" class="astra-center-stage welcome-mode">
+          <div id="welcome" class="welcome-greeting-container">
+            <div class="welcome-hero">
+              <h1 class="welcome-brand-title">ASTRA</h1>
+              <div id="welcomeShuffledTagline" class="welcome-hero-tagline">LETS DIVE IN !</div>
+            </div>
+          </div>
+
+          <!-- Messages Stream (when active conversations happen) -->
+          <section id="messages" class="messages-stream" aria-live="polite"></section>
+
+          <!-- Floating Composer Card (100% Matching Mockup) -->
+          <form id="chatForm" class="composer-outer-form">
+            <div class="composer-floating-card">
+              <!-- Active Document Tag Chip (small on top of textbox) -->
+              <div id="activeDocTag" class="active-doc-tag hidden">
+                <span class="active-doc-icon">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
+                </span>
+                <span id="activeDocName" class="active-doc-text">Document</span>
+                <button type="button" id="removeActiveDocBtn" class="remove-doc-tag-btn" title="Remove document focus" aria-label="Remove document focus">✕</button>
+              </div>
+
+              <!-- Recessed Capsule Input Area matching screenshot (Type here) -->
+              <div class="composer-recessed-pill">
+                <!-- Paperclip Button inside/integrated -->
+                <div class="composer-attach-wrapper">
+                  <button type="button" id="composerAttachBtn" class="capsule-squircle-btn" title="Upload Document / File" aria-label="Upload document or file">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
+                  </button>
+
+                  <!-- Attachment Dropdown Menu -->
+                  <div id="attachDropdown" class="attach-dropdown hidden" role="menu">
+                    <button type="button" id="actionUploadDoc" class="attach-menu-item">
+                      <span class="attach-menu-icon doc-icon-bg">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                          <polyline points="14 2 14 8 20 8"></polyline>
+                          <line x1="12" y1="18" x2="12" y2="12"></line>
+                          <line x1="9" y1="15" x2="15" y2="15"></line>
+                        </svg>
+                      </span>
+                      <div class="attach-menu-info">
+                        <strong>Upload Document</strong>
+                        <small>PDF, DOCX, TXT, MD</small>
+                      </div>
+                    </button>
+                    <button type="button" id="actionVoiceSearch" class="attach-menu-item">
+                      <span class="attach-menu-icon voice-icon-bg">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e05252" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                          <line x1="12" y1="19" x2="12" y2="22"></line>
+                        </svg>
+                      </span>
+                      <div class="attach-menu-info">
+                        <strong>Voice Dictation</strong>
+                        <small>Speak your question</small>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <textarea id="message" rows="1" maxlength="10000" placeholder="Type here" autocomplete="off"></textarea>
+
+                <!-- Voice Mic -->
+                <div id="voiceSearchPill" class="voice-search-pill" title="Voice Search">
+                  <div id="voiceWaveform" class="voice-wave-container hidden">
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                    <span class="wave-bar"></span>
+                  </div>
+                  <button type="button" id="composerMicBtn" class="capsule-mic-btn" title="Voice Search" aria-label="Voice search">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                      <line x1="12" y1="19" x2="12" y2="22"></line>
+                    </svg>
+                  </button>
+                </div>
+
+                <!-- Upward Arrow Send Button (Squircle) -->
+                <button type="submit" id="sendButton" class="capsule-squircle-btn send-btn" aria-label="Send query" title="Send query">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Bottom Bar:
+                   On homescreen (welcome-mode): Left has Paperclip; Right has Astracore 3.1 + Mic + Send button
+                   On ongoing chat (chat-active): Left has Disclaimer text; Right has Astracore 3.1 toggle
+              -->
+              <div class="composer-sub-row">
+                <!-- Homescreen Left Group: Paperclip Squircle -->
+                <div class="composer-home-left-controls">
+                  <div class="composer-attach-wrapper">
+                    <button type="button" id="composerHomeAttachBtn" class="capsule-squircle-btn" title="Upload Document / File" aria-label="Upload document or file">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Chat-Active Disclaimer Text -->
+                <span class="composer-sub-disclaimer">Astra is AI and can make mistakes. Please double-check responses.</span>
+
+                <!-- Homescreen & Chat Right Group: Astracore 3.1 + Microphone + Send Button -->
+                <div class="composer-home-right-controls">
+                  <div class="engine-toggle-wrapper">
+                    <!-- Floating Glass Popover Menu matching mockup exactly -->
+                    <div id="modelEnginePopover" class="model-engine-popover hidden" role="menu" aria-label="Model and Mode Options">
+                      <!-- Row 1: Temporary Chat + iOS Switch -->
+                      <div class="popover-row popover-toggle-row">
+                        <span class="popover-row-label">Temporary chat</span>
+                        <label class="ios-switch" title="Toggle Temporary ephemeral chat">
+                          <input type="checkbox" id="tempChatToggle">
+                          <span class="ios-slider"></span>
+                        </label>
+                      </div>
+
+                      <!-- Row 2: Astracore 3.1 with blue checkmark -->
+                      <div class="popover-row popover-option-row active" id="popoverModelAstracore" role="menuitem">
+                        <span class="popover-row-label">Astracore 3.1</span>
+                        <span class="popover-check-icon" id="popoverAstracoreCheck">✓</span>
+                      </div>
+
+                      <!-- Row 3: Astracore O (Coming Soon) -->
+                      <div class="popover-row popover-option-row coming-soon-row" id="popoverModelAstracoreO" role="menuitem" style="opacity: 0.75; cursor: default;">
+                        <span class="popover-row-label">Astracore O</span>
+                        <span class="coming-soon-badge" style="font-family: 'Instrument Serif', Georgia, serif; font-size: 13px; font-weight: 600; color: #64748b; background: rgba(0, 0, 0, 0.06); padding: 2px 8px; border-radius: 12px; letter-spacing: 0.5px;">COMING SOON</span>
+                      </div>
+
+                      <!-- Divider line -->
+                      <hr class="popover-divider">
+
+                      <!-- Row 3: Quick (Simple mode) -->
+                      <div class="popover-row popover-option-row active" id="popoverModeQuick" role="menuitem">
+                        <span class="popover-row-label">Quick</span>
+                        <span class="popover-check-icon" id="popoverQuickCheck">✓</span>
+                      </div>
+
+                      <!-- Row 4: Extended (Detailed mode) -->
+                      <div class="popover-row popover-option-row" id="popoverModeExtended" role="menuitem">
+                        <span class="popover-row-label">Extended</span>
+                        <span class="popover-check-icon hidden" id="popoverExtendedCheck">✓</span>
+                      </div>
+
+                      <!-- Row 5: Code -->
+                      <div class="popover-row popover-option-row" id="popoverModeCode" role="menuitem">
+                        <span class="popover-row-label">Code</span>
+                        <span class="popover-check-icon hidden" id="popoverCodeCheck">✓</span>
+                      </div>
+                    </div>
+
+                    <button type="button" id="engineToggleBtn" class="model-spec-toggle-btn" title="Model & Chat Mode Options" aria-haspopup="true" aria-expanded="false">
+                      <span id="engineLabel" class="model-spec-label">Astracore 3.1</span>
+                    </button>
+                  </div>
+
+                  <!-- Microphone Button beside Send Button on Homescreen -->
+                  <button type="button" id="composerHomeMicBtn" class="capsule-mic-btn composer-home-mic-btn" title="Voice Dictation" aria-label="Voice dictation">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                      <line x1="12" y1="19" x2="12" y2="22"></line>
+                    </svg>
+                  </button>
+
+                  <!-- Homescreen Send Button (Squircle) -->
+                  <button type="button" id="composerHomeSendBtn" class="capsule-squircle-btn send-btn composer-home-send-btn" aria-label="Send query" title="Send query">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5"></line>
+                      <polyline points="5 12 12 5 19 12"></polyline>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </main>
+    </div>
+
+    <!-- User Sign In / Register Modal with 2-digit Math Calculation -->
+    <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Sign In">
+      <div class="glass-modal-card">
+        <div class="modal-header">
+          <div>
+            <span class="modal-brand-title">ASTRA</span>
+            <p class="modal-eyebrow" id="authEyebrow">SECURE ACCESS</p>
+            <h2 id="authHeading" class="modal-h2">Account Login</h2>
+          </div>
+          <button id="closeAuthModal" class="close-icon-btn">✕</button>
+        </div>
+
+        <div class="modal-tabs">
+          <button class="modal-tab active" data-mode="login">Quick Login</button>
+          <button class="modal-tab" data-mode="signup">Register</button>
+        </div>
+
+        <!-- Login Form with 2-digit Math Challenge -->
+        <form id="loginForm" class="auth-modal-form">
+          <label>Phone Number, Email, or Username
+            <input id="loginIdentifier" type="text" required autocomplete="username" placeholder="e.g. user@example.com">
+          </label>
+          
+          <div class="math-challenge-box">
+            <div class="math-challenge-header">
+              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
+              <button type="button" id="loginRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
+            </div>
+            <div id="loginMathQuestion" class="math-question-text">
+              Loading math problem…
+            </div>
+            <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
+              <input id="loginMathAnswer" type="number" required placeholder="Calculate and enter the result">
+            </label>
+            <p class="math-hint">Calculate between the two numbers to verify and login.</p>
+          </div>
+
+          <button type="submit" class="modal-primary-btn" id="loginSubmitBtn">Verify & Login</button>
+        </form>
+
+        <!-- Register Form with 2-digit Math Challenge -->
+        <form id="signupForm" class="auth-modal-form hidden">
+          <label>Username
+            <input id="signupUsername" type="text" required placeholder="Choose a username">
+          </label>
+          <label>Email Address
+            <input id="signupEmail" type="email" required autocomplete="email" placeholder="you@company.com">
+          </label>
+          <label>Phone Number (Optional)
+            <input id="signupPhone" type="tel" placeholder="+1 555-0199">
+          </label>
+          <label>Password
+            <input id="signupPassword" type="password" minlength="6" required placeholder="Create a password">
+          </label>
+
+          <div class="math-challenge-box">
+            <div class="math-challenge-header">
+              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
+              <button type="button" id="signupRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
+            </div>
+            <div id="signupMathQuestion" class="math-question-text">
+              Loading math problem…
+            </div>
+            <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
+              <input id="signupMathAnswer" type="number" required placeholder="Calculate and enter the result">
+            </label>
+            <p class="math-hint">Calculate between the two numbers to verify and register.</p>
+          </div>
+
+          <button type="submit" class="modal-primary-btn" id="signupSubmitBtn">Verify & Create Account</button>
+        </form>
+
+        <div id="authLogoutSection" class="hidden">
+          <p class="auth-status-msg">Signed in as <strong id="loggedInUserEmail"></strong></p>
+          <button id="logoutBtn" class="modal-secondary-btn">Sign Out</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings & Appearance Modal (Frost Level & Custom Wallpaper) -->
+    <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Settings">
+      <div class="glass-modal-card settings-modal-card">
+        <div class="modal-header">
+          <div>
+            <span class="modal-brand-title">ASTRA</span>
+            <p class="modal-eyebrow">PREFERENCES & APPEARANCE</p>
+            <h2 class="modal-h2">Settings</h2>
+          </div>
+          <button type="button" id="closeSettingsModal" class="close-icon-btn" title="Close Settings">✕</button>
+        </div>
+
+        <div class="settings-content">
+          <!-- 1. Glass Frosting Setting -->
+          <div class="settings-group">
+            <div class="settings-group-header">
+              <span class="settings-group-icon">❄️</span>
+              <div class="settings-group-text">
+                <strong class="settings-group-title">Glass Frosting (Blur)</strong>
+                <p class="settings-group-desc">Adjust the frosted blur intensity of the optical glass surfaces.</p>
+              </div>
+            </div>
+            <div class="frost-slider-wrapper">
+              <input type="range" id="glassFrostSlider" min="0" max="60" value="24" step="2" class="glass-range-slider" aria-label="Glass frost blur">
+              <div class="slider-labels">
+                <span>Crystal Clear (0px)</span>
+                <span id="frostValueDisplay" class="slider-val-badge">24px</span>
+                <span>Heavy Frost (60px)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Custom Background Wallpaper Upload -->
+          <div class="settings-group">
+            <div class="settings-group-header">
+              <span class="settings-group-icon">🖼️</span>
+              <div class="settings-group-text">
+                <strong class="settings-group-title">Custom Wallpaper Background</strong>
+                <p class="settings-group-desc">Upload your own background image from your device.</p>
+              </div>
+            </div>
+            <div class="custom-bg-controls">
+              <input type="file" id="customBgFileInput" accept="image/*" style="display: none;">
+              <button type="button" id="uploadBgBtn" class="settings-btn primary-glass-btn">
+                <span>📁</span> Upload Image from Device
+              </button>
+              <button type="button" id="resetBgBtn" class="settings-btn secondary-glass-btn">
+                <span>🔄</span> Reset to Default
+              </button>
+            </div>
+            <div id="customBgStatus" class="custom-bg-status-msg">Default fluid wallpaper active</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Confirmation Modal for Document Deletion -->
+    <div id="deleteConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Confirm Deletion">
+      <div class="glass-modal-card" style="max-width: 380px; text-align: center;">
+        <div style="font-size: 2rem; margin-bottom: 10px;">🗑️</div>
+        <h3 style="font-family: 'Instrument Serif', Georgia, serif; font-size: 1.35rem; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Remove Document?</h3>
+        <p id="deleteDocNameText" class="delete-confirm-text"></p>
+        <div style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
+          <button id="cancelDeleteBtn" class="modal-secondary-btn" style="flex: 1;">Cancel</button>
+          <button id="confirmDeleteBtn" class="modal-danger-btn" style="flex: 1;">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Toast Notification -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/app.js?v=2260"></script>
+  </body>
+</html>

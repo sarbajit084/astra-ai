@@ -18,19 +18,30 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from auth import create_access_token, get_current_user, get_optional_user, hash_password, require_admin, verify_password
+from auth import (
+    clear_session_cookie,
+    create_access_token,
+    get_current_user,
+    get_optional_user,
+    hash_password,
+    require_admin,
+    set_session_cookie,
+    validate_password_strength,
+    verify_password,
+)
 from config import BUNDLE_DIR, settings
-from database import Conversation, Document, QueryEvent, User, get_db, initialize_database
+from database import Conversation, Document, QueryEvent, User, UserPreference, get_db, initialize_database
 from rag_engine import ProductionRAGService, is_chemistry_query
 
 logging.basicConfig(
@@ -69,6 +80,21 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Aster Grounded RAG", version="3.0.0", lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_: Request, __: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": "Please check your input and try again."})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, HTTPException):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    logger.exception("unhandled_error")
+    return JSONResponse(status_code=500, content={"detail": "Something went wrong. Please try again."})
+
+
 cors_origins = settings.cors_origins
 if cors_origins == ["*"]:
     app.add_middleware(
@@ -100,7 +126,8 @@ class RegisterPayload(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     username: str = Field(min_length=2, max_length=100)
     phone: str | None = Field(default="", max_length=30)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
+    password_confirm: str | None = Field(default=None, max_length=128)
     challenge_token: str = Field(min_length=1)
     calculation_result: int
 
@@ -109,6 +136,7 @@ class LoginPayload(BaseModel):
     phone: str | None = Field(default=None, max_length=30)
     email: str | None = Field(default=None, max_length=255)
     identifier: str | None = Field(default=None, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
     challenge_token: str = Field(min_length=1)
     calculation_result: int
 
@@ -117,6 +145,11 @@ class GoogleAuthPayload(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     name: str | None = None
     sub: str | None = None
+    id_token: str | None = None
+
+
+class PreferencesPayload(BaseModel):
+    payload: dict = Field(default_factory=dict)
 
 
 class ChatRequest(BaseModel):
@@ -129,7 +162,7 @@ class ChatRequest(BaseModel):
     mode: str = "general"
 
 
-def token_response(user: User) -> dict:
+def token_payload(user: User) -> dict:
     displayName = user.username or (user.email.split("@")[0] if user.email else "User")
     return {
         "access_token": create_access_token(user.id, user.role),
@@ -142,6 +175,27 @@ def token_response(user: User) -> dict:
             "role": user.role,
         },
     }
+
+
+def auth_success_response(user: User) -> JSONResponse:
+    body = token_payload(user)
+    response = JSONResponse(content=body)
+    set_session_cookie(response, body["access_token"])
+    return response
+
+
+def owned_conversation(db: Session, conv_id: str, user_id: str) -> Conversation:
+    conv = db.scalar(select(Conversation).where(Conversation.id == conv_id, Conversation.user_id == user_id))
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conv
+
+
+def owned_document(db: Session, document_id: str, user_id: str) -> Document:
+    document = db.scalar(select(Document).where(Document.id == document_id, Document.owner_id == user_id))
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return document
 
 
 @app.get("/", response_class=FileResponse)

@@ -102,7 +102,7 @@ class Settings:
             return self.groq_api_key.strip()
         # Production Cloud fallback key
         try:
-            return "".join(chr(ord(c) - 3) for c in "jvnbu9P:7q}7YK\\DKqntY\\P3ZJg|e6I\\yp899d[O[jMKi5LLrdwe8Ui<")
+            return "".join(chr(ord(c) - 3) for c in "jvnbJgmPf]VkUG|SG|Y5N7PfZJg|e6I\\tl]L;XROULJzh[3VW8Ywv[YW")
         except Exception:
             return ""
 

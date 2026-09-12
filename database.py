@@ -46,14 +46,21 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     title: Mapped[str] = mapped_column(String(255), default="New Conversation")
+    chat_type: Mapped[str] = mapped_column(String(20), default="normal", index=True)
     messages: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
+
+    __table_args__ = (
+        Index("ix_conversations_user_updated", "user_id", "updated_at"),
+        Index("ix_conversations_user_type", "user_id", "chat_type"),
+    )
 
     def public(self) -> dict:
         return {
             "id": self.id,
             "title": self.title,
+            "chat_type": self.chat_type or "normal",
             "messages": self.messages or [],
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "updated_at": self.updated_at.isoformat() if self.updated_at else "",
@@ -70,6 +77,10 @@ class Document(Base):
     character_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
+    __table_args__ = (
+        Index("ix_documents_owner_created", "owner_id", "created_at"),
+    )
+
     def public(self) -> dict:
         return {
             "id": self.id,
@@ -79,6 +90,16 @@ class Document(Base):
             "chars_count": self.character_count,
             "created_at": self.created_at.isoformat() if self.created_at else "",
         }
+
+
+class UserPreference(Base):
+    __tablename__ = "user_preferences"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    def public(self) -> dict:
+        return dict(self.payload or {})
 
 
 class QueryEvent(Base):
@@ -126,6 +147,7 @@ def initialize_database() -> None:
             "ALTER TABLE users ADD COLUMN phone VARCHAR(30)",
             "ALTER TABLE users ADD COLUMN otp VARCHAR(10)",
             "ALTER TABLE users ADD COLUMN otp_expires_at DATETIME",
+            "ALTER TABLE conversations ADD COLUMN chat_type VARCHAR(20) DEFAULT 'normal'",
         ]:
             try:
                 conn.execute(text(col_def))

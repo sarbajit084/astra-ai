@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException
+from fastapi import Cookie, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -14,63 +15,119 @@ from database import User, get_db
 
 bearer = HTTPBearer(auto_error=False)
 
+SESSION_COOKIE = "astra_session"
+TOKEN_TTL = timedelta(days=30)
+BCRYPT_ROUNDS = 12
+WEAK_PASSWORDS = frozenset({
+    "password", "password1", "password123", "12345678", "123456789", "qwerty",
+    "qwerty123", "letmein", "welcome", "admin123", "iloveyou", "abc12345",
+    "passw0rd", "11111111", "00000000", "astra123", "changeme",
+})
+PASSWORD_HINT = "Use at least 8 characters with a letter and a number."
+
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    raw = password.encode("utf-8")[:72]
+    return bcrypt.hashpw(raw, bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode(), password_hash.encode())
+    if not password_hash or password_hash in ("", "none"):
+        return False
+    try:
+        raw = password.encode("utf-8")[:72]
+        return bcrypt.checkpw(raw, password_hash.encode())
+    except (ValueError, TypeError):
+        return False
+
+
+def validate_password_strength(password: str) -> str | None:
+    if not password:
+        return "Password cannot be blank."
+    if len(password) < 8:
+        return "Password must be at least 8 characters long."
+    if len(password) > 128:
+        return "Password must be 128 characters or fewer."
+    if password.lower() in WEAK_PASSWORDS or password.lower().strip() in WEAK_PASSWORDS:
+        return "This password is too common and weak. Please choose a stronger password."
+    if password.isdigit():
+        return "Password must include at least one letter."
+    if password.isalpha():
+        return "Password must include at least one number."
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        return PASSWORD_HINT
+    return None
 
 
 def create_access_token(user_id: str, role: str) -> str:
-    payload = {"sub": user_id, "role": role, "exp": datetime.now(timezone.utc) + timedelta(hours=8)}
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "exp": datetime.now(timezone.utc) + TOKEN_TTL,
+        "iat": datetime.now(timezone.utc),
+    }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    secure = settings.app_env.lower() in ("production", "prod")
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=token,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=int(TOKEN_TTL.total_seconds()),
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(key=SESSION_COOKIE, path="/")
+
+
+def _decode_user(token: str | None, db: Session) -> User | None:
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        return db.get(User, user_id)
+    except (jwt.PyJWTError, KeyError):
+        return None
+
+
+def _extract_token(
+    credentials: HTTPAuthorizationCredentials | None,
+    cookie_token: str | None,
+) -> str | None:
+    if credentials and credentials.credentials:
+        return credentials.credentials
+    if cookie_token:
+        return cookie_token
+    return None
 
 
 def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     db: Annotated[Session, Depends(get_db)],
+    astra_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> User:
-    if not credentials:
-        raise HTTPException(401, "Sign in is required")
-    try:
-        payload = jwt.decode(credentials.credentials, settings.jwt_secret, algorithms=["HS256"])
-        user = db.get(User, payload["sub"])
-    except (jwt.PyJWTError, KeyError):
-        user = None
+    user = _decode_user(_extract_token(credentials, astra_session), db)
     if not user:
-        raise HTTPException(401, "Your session has expired")
+        raise HTTPException(401, "Sign in is required")
     return user
-
-
-GUEST_USER_ID = "guest_default"
 
 
 def get_optional_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     db: Annotated[Session, Depends(get_db)],
-) -> User:
-    """Provides seamless access for normal users without forced sign-in."""
-    if credentials and credentials.credentials:
-        try:
-            payload = jwt.decode(credentials.credentials, settings.jwt_secret, algorithms=["HS256"])
-            user = db.get(User, payload.get("sub"))
-            if user:
-                return user
-        except Exception:
-            pass
-    guest = db.get(User, GUEST_USER_ID)
-    if not guest:
-        guest = User(id=GUEST_USER_ID, email="guest@aster.local", password_hash="none", role="user")
-        db.add(guest)
-        try:
-            db.commit()
-            db.refresh(guest)
-        except Exception:
-            db.rollback()
-            guest = db.get(User, GUEST_USER_ID) or User(id=GUEST_USER_ID, email="guest@aster.local", password_hash="none", role="user")
-    return guest
+    astra_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+) -> User | None:
+    """Authenticated user, or None for a true anonymous session. Never a shared guest account."""
+    return _decode_user(_extract_token(credentials, astra_session), db)
 
 
 def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:

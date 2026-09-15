@@ -614,6 +614,10 @@
       $('newChat').click();
       if (window.innerWidth <= 860) toggleSidebar(false);
     };
+    if ($('mobileUserAuthBtn')) $('mobileUserAuthBtn').onclick = () => {
+      $('userAuthBtn').click();
+      if (window.innerWidth <= 860) toggleSidebar(false);
+    };
     if ($('railNewChatBtn')) $('railNewChatBtn').onclick = () => {
       $('newChat').click();
       if (window.innerWidth <= 860) toggleSidebar(false);
@@ -857,6 +861,10 @@
     if (displayName) {
       $('userAccountLabel').textContent = displayName.toUpperCase();
       if ($('userAuthBtn')) $('userAuthBtn').setAttribute('title', `Logged in as ${displayName} (Click for Account / Sign Out)`);
+      if ($('mobileUserAuthBtn')) {
+        $('mobileUserAuthBtn').setAttribute('title', `Logged in as ${displayName} (Click for Account / Sign Out)`);
+        $('mobileUserAuthBtn').classList.add('logged-in');
+      }
       if ($('loginForm')) $('loginForm').classList.add('hidden');
       if ($('signupForm')) $('signupForm').classList.add('hidden');
       $('authLogoutSection').classList.remove('hidden');
@@ -864,6 +872,10 @@
     } else {
       $('userAccountLabel').textContent = 'LOGIN';
       if ($('userAuthBtn')) $('userAuthBtn').setAttribute('title', 'Sign In / Register');
+      if ($('mobileUserAuthBtn')) {
+        $('mobileUserAuthBtn').setAttribute('title', 'Sign In / Register');
+        $('mobileUserAuthBtn').classList.remove('logged-in');
+      }
       $('authLogoutSection').classList.add('hidden');
       switchAuthMode(authMode);
     }

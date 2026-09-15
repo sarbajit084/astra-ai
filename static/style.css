@@ -5148,6 +5148,45 @@ body.temporary-chat-mode .chat-emoji,
   animation: wavePulse 0.8s ease-in-out infinite alternate !important;
 }
 
+@keyframes wavePulse {
+  0% {
+    height: 4px;
+    opacity: 0.45;
+  }
+  50% {
+    height: 18px;
+    opacity: 1;
+  }
+  100% {
+    height: 7px;
+    opacity: 0.65;
+  }
+}
+
+@keyframes micGentleBreathe {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+.voice-search-pill.active .wave-bar:nth-child(1) { animation-delay: 0.00s !important; height: 6px !important; }
+.voice-search-pill.active .wave-bar:nth-child(2) { animation-delay: 0.15s !important; height: 12px !important; }
+.voice-search-pill.active .wave-bar:nth-child(3) { animation-delay: 0.05s !important; height: 16px !important; }
+.voice-search-pill.active .wave-bar:nth-child(4) { animation-delay: 0.25s !important; height: 10px !important; }
+.voice-search-pill.active .wave-bar:nth-child(5) { animation-delay: 0.10s !important; height: 18px !important; }
+.voice-search-pill.active .wave-bar:nth-child(6) { animation-delay: 0.30s !important; height: 14px !important; }
+.voice-search-pill.active .wave-bar:nth-child(7) { animation-delay: 0.18s !important; height: 8px !important; }
+.voice-search-pill.active .wave-bar:nth-child(8) { animation-delay: 0.22s !important; height: 15px !important; }
+.voice-search-pill.active .wave-bar:nth-child(9) { animation-delay: 0.08s !important; height: 11px !important; }
+.voice-search-pill.active .wave-bar:nth-child(10) { animation-delay: 0.28s !important; height: 17px !important; }
+.voice-search-pill.active .wave-bar:nth-child(11) { animation-delay: 0.12s !important; height: 9px !important; }
+.voice-search-pill.active .wave-bar:nth-child(12) { animation-delay: 0.20s !important; height: 13px !important; }
+
 [data-bg-theme="dark"] .astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active,
 [data-bg-theme="dark"] .voice-search-pill.active {
   background: linear-gradient(135deg, rgba(235, 95, 95, 0.45) 0%, rgba(200, 70, 70, 0.35) 100%) !important;

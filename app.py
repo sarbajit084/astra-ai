@@ -133,7 +133,7 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(self), camera=()"
     response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
     if settings.app_env.lower() in ("production", "prod"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"

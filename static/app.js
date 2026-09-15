@@ -2557,9 +2557,26 @@
   // ==========================================
   let speechRecognition = null;
   let isListening = false;
+  let isRequestingMic = false;
   let shouldRestartVoice = false;
   let voiceInitialText = '';
   let voiceSafetyTimer = null;
+  let micPermissionState = 'prompt'; // 'prompt' | 'granted' | 'denied'
+
+  // Initialize permission watcher to dynamically track browser permission changes
+  if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
+    try {
+      navigator.permissions.query({ name: 'microphone' }).then((status) => {
+        micPermissionState = status.state;
+        status.onchange = () => {
+          micPermissionState = status.state;
+          if (status.state === 'denied' && isListening) {
+            stopVoiceRecognition();
+          }
+        };
+      }).catch(() => {});
+    } catch (_) {}
+  }
 
   function setVoiceActive(active) {
     const pill = $('voiceSearchPill');
@@ -2590,6 +2607,7 @@
 
   function stopVoiceRecognition() {
     isListening = false;
+    isRequestingMic = false;
     shouldRestartVoice = false;
     if (voiceSafetyTimer) {
       clearTimeout(voiceSafetyTimer);
@@ -2618,55 +2636,63 @@
       return false;
     }
 
-    // 2. Check if mediaDevices is supported (requires HTTPS or localhost)
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast('Microphone access is not supported by your browser or connection (requires HTTPS).', true);
-      return false;
-    }
-
-    // 3. Check current permission status via Permissions API if available
-    let permissionState = 'prompt';
-    if (navigator.permissions && navigator.permissions.query) {
+    // 2. Query Permissions API if available to check state dynamically
+    if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
       try {
         const status = await navigator.permissions.query({ name: 'microphone' });
-        permissionState = status.state; // 'granted', 'prompt', or 'denied'
+        micPermissionState = status.state; // 'granted', 'prompt', or 'denied'
         status.onchange = () => {
+          micPermissionState = status.state;
           if (status.state === 'denied' && isListening) {
             stopVoiceRecognition();
           }
         };
-      } catch (_) {
-        permissionState = 'prompt';
-      }
+      } catch (_) {}
     }
 
-    // If already denied/blocked, give explicit, actionable instructions for address bar settings
-    if (permissionState === 'denied') {
-      toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+    // 3. If already granted, immediately return true without touching getUserMedia
+    // (Bypassing getUserMedia avoids hardware teardown race conditions on Windows/Chrome audio devices)
+    if (micPermissionState === 'granted') {
+      return true;
+    }
+
+    // 4. If explicitly denied, provide clear instruction to change site settings in address bar
+    if (micPermissionState === 'denied') {
+      toast('Microphone access is blocked in your browser settings. Click the lock/tune icon in the address bar to allow Microphone, then try again.', true);
       return false;
     }
 
-    // 4. Request native browser permission via getUserMedia
+    // 5. In 'prompt' state or where Permissions API is unsupported, verify mediaDevices & prompt cleanly
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      // In insecure contexts or browsers without mediaDevices
+      // Some browsers (like desktop Chrome) still allow SpeechRecognition directly
+      return true;
+    }
+
     try {
+      isRequestingMic = true;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micPermissionState = 'granted';
       if (stream) {
-        // Release tracks immediately so the microphone hardware is available for speech recognition
         stream.getTracks().forEach((track) => {
           try { track.stop(); } catch (_) {}
         });
       }
+      isRequestingMic = false;
       return true;
     } catch (err) {
+      isRequestingMic = false;
       console.warn('Microphone getUserMedia error:', err);
       const name = err.name || '';
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+        micPermissionState = 'denied';
+        toast('Microphone access was denied. Please allow microphone access in your browser settings to speak.', true);
       } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
         toast('No microphone found on your device. Please connect a microphone and try again.', true);
       } else if (name === 'NotReadableError' || name === 'TrackStartError') {
         toast('Microphone is currently in use by another application. Please free the device and try again.', true);
-      } else if (name === 'OverconstrainedError') {
-        toast('Microphone does not satisfy audio constraints.', true);
+      } else if (name === 'SecurityError') {
+        toast('Microphone access is blocked by browser security policy.', true);
       } else {
         toast('Microphone access could not be acquired. Please check browser settings.', true);
       }
@@ -2690,7 +2716,7 @@
     shouldRestartVoice = true;
     setVoiceActive(true);
 
-    // Auto-stop safety timeout after 60s of inactivity so it doesn't run forever
+    // Auto-stop safety timeout after 60s of continuous listening so it doesn't drain battery
     if (voiceSafetyTimer) clearTimeout(voiceSafetyTimer);
     voiceSafetyTimer = setTimeout(() => {
       if (isListening) stopVoiceRecognition();
@@ -2727,21 +2753,24 @@
       };
 
       speechRecognition.onerror = (event) => {
-        console.warn('Speech recognition status:', event.error);
+        console.warn('Speech recognition event error:', event.error);
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+          micPermissionState = 'denied';
+          toast('Microphone access was denied. Please allow microphone in browser settings.', true);
           stopVoiceRecognition();
         } else if (event.error === 'audio-capture') {
-          toast('Microphone device is currently unavailable or in use.', true);
+          toast('Microphone device is busy or unavailable.', true);
           stopVoiceRecognition();
         } else if (event.error === 'network') {
           toast('Speech recognition requires an active network connection.', true);
           stopVoiceRecognition();
+        } else if (event.error === 'no-speech' || event.error === 'aborted') {
+          // Graceful silence or user pause, do not stop or show error
         }
       };
 
       speechRecognition.onend = () => {
-        // Keep the animation alive! If still in listening mode, restart gracefully
+        // If still listening and not manually stopped, keep session alive
         if (isListening && shouldRestartVoice) {
           try {
             speechRecognition.start();
@@ -2752,12 +2781,14 @@
               }
             }, 250);
           }
+        } else {
+          setVoiceActive(false);
         }
       };
 
       speechRecognition.start();
     } catch (err) {
-      console.warn('Speech recognition note:', err);
+      console.warn('Speech recognition start failed:', err);
       stopVoiceRecognition();
     }
   }

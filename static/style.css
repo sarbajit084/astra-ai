@@ -5014,3 +5014,177 @@ body.temporary-chat-mode .chat-emoji,
   margin-top: 4px;
 }
 
+/* ==========================================================================
+   VOICE RECORDING PILL ANIMATION (MATCHES IMAGE 2 REFERENCE)
+   Guaranteed highest priority display in all stage modes (chat & homescreen)
+   ========================================================================== */
+
+.astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active,
+.astra-center-stage.chat-active #voiceSearchPill.active,
+.astra-center-stage #voiceSearchPill.active,
+.astra-center-stage #composerHomeMicPill.active,
+#voiceSearchPill.active,
+#composerHomeMicPill.active,
+.voice-search-pill.active {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: rgba(215, 125, 125, 0.52) !important;
+  border: 1px solid rgba(255, 255, 255, 0.65) !important;
+  backdrop-filter: blur(14px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(125%) !important;
+  padding: 4px 10px 4px 12px !important;
+  box-shadow: 0 3px 12px rgba(220, 38, 38, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.45) !important;
+  border-radius: 22px !important;
+  height: 38px !important;
+  box-sizing: border-box !important;
+  flex-shrink: 0 !important;
+  margin: 0 !important;
+  animation: voicePillPop 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+@keyframes voicePillPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active #composerMicBtn,
+.astra-center-stage.chat-active #voiceSearchPill.active #composerMicBtn,
+.astra-center-stage #voiceSearchPill.active #composerMicBtn,
+.astra-center-stage #composerHomeMicPill.active #composerHomeMicBtn,
+#voiceSearchPill.active #composerMicBtn,
+#composerHomeMicPill.active #composerHomeMicBtn,
+.voice-search-pill.active #composerMicBtn,
+.voice-search-pill.active #composerHomeMicBtn,
+.voice-search-pill.active .capsule-mic-btn,
+.voice-search-pill.active .composer-home-mic-btn {
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 26px !important;
+  min-height: 26px !important;
+  max-width: 26px !important;
+  max-height: 26px !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: #3b1d22 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transform: none !important;
+}
+
+.astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active #composerMicBtn svg,
+.astra-center-stage.chat-active #voiceSearchPill.active #composerMicBtn svg,
+.astra-center-stage #voiceSearchPill.active #composerMicBtn svg,
+.astra-center-stage #composerHomeMicPill.active #composerHomeMicBtn svg,
+#voiceSearchPill.active #composerMicBtn svg,
+#composerHomeMicPill.active #composerHomeMicBtn svg,
+.voice-search-pill.active #composerMicBtn svg,
+.voice-search-pill.active #composerHomeMicBtn svg,
+.voice-search-pill.active .capsule-mic-btn svg,
+.voice-search-pill.active .composer-home-mic-btn svg {
+  stroke: #3b1d22 !important;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  min-height: 18px !important;
+  animation: micGentleBreathe 1.5s ease-in-out infinite alternate !important;
+}
+
+.astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active .voice-wave-container,
+.voice-search-pill.active .voice-wave-container {
+  display: flex !important;
+  align-items: center !important;
+  gap: 2.5px !important;
+  height: 20px !important;
+  padding: 0 2px !important;
+  pointer-events: none !important;
+}
+
+.voice-wave-container.hidden {
+  display: none !important;
+}
+
+.voice-search-pill.active .wave-bar {
+  width: 2.2px !important;
+  border-radius: 2px !important;
+  background: #3b1d22 !important;
+  animation: wavePulse 0.8s ease-in-out infinite alternate !important;
+}
+
+[data-bg-theme="dark"] .astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active,
+[data-bg-theme="dark"] .voice-search-pill.active {
+  background: linear-gradient(135deg, rgba(235, 95, 95, 0.45) 0%, rgba(200, 70, 70, 0.35) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  box-shadow: 0 4px 18px rgba(239, 68, 68, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.5) !important;
+}
+
+[data-bg-theme="dark"] .voice-search-pill.active #composerMicBtn,
+[data-bg-theme="dark"] .voice-search-pill.active #composerHomeMicBtn,
+[data-bg-theme="dark"] .voice-search-pill.active .capsule-mic-btn,
+[data-bg-theme="dark"] .voice-search-pill.active .composer-home-mic-btn {
+  color: #ffffff !important;
+}
+
+[data-bg-theme="dark"] .voice-search-pill.active #composerMicBtn svg,
+[data-bg-theme="dark"] .voice-search-pill.active #composerHomeMicBtn svg,
+[data-bg-theme="dark"] .voice-search-pill.active .capsule-mic-btn svg,
+[data-bg-theme="dark"] .voice-search-pill.active .composer-home-mic-btn svg {
+  stroke: #ffffff !important;
+}
+
+[data-bg-theme="dark"] .voice-search-pill.active .wave-bar {
+  background: #ffffff !important;
+}
+
+@media screen and (max-width: 768px) {
+  .astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active,
+  .voice-search-pill.active {
+    height: 34px !important;
+    padding: 2px 8px 2px 10px !important;
+    gap: 4px !important;
+    border-radius: 18px !important;
+  }
+
+  .voice-wave-container {
+    height: 18px !important;
+    gap: 2px !important;
+  }
+
+  .voice-search-pill.active .wave-bar {
+    width: 2px !important;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .astra-center-stage.chat-active .composer-recessed-pill .voice-search-pill.active,
+  .voice-search-pill.active {
+    height: 32px !important;
+    padding: 2px 6px 2px 8px !important;
+    gap: 3px !important;
+    border-radius: 16px !important;
+  }
+
+  .voice-wave-container {
+    height: 16px !important;
+    gap: 1.5px !important;
+  }
+
+  .voice-search-pill.active .wave-bar {
+    width: 1.8px !important;
+  }
+}
+
+

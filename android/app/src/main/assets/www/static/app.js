@@ -2550,8 +2550,9 @@
   // ==========================================
   let speechRecognition = null;
   let isListening = false;
-  let voiceSimTimer = null;
+  let shouldRestartVoice = false;
   let voiceInitialText = '';
+  let voiceSafetyTimer = null;
 
   function setVoiceActive(active) {
     const pill = $('voiceSearchPill');
@@ -2582,9 +2583,10 @@
 
   function stopVoiceRecognition() {
     isListening = false;
-    if (voiceSimTimer) {
-      clearTimeout(voiceSimTimer);
-      voiceSimTimer = null;
+    shouldRestartVoice = false;
+    if (voiceSafetyTimer) {
+      clearTimeout(voiceSafetyTimer);
+      voiceSafetyTimer = null;
     }
     setVoiceActive(false);
 
@@ -2608,13 +2610,17 @@
     }
 
     isListening = true;
+    shouldRestartVoice = true;
     setVoiceActive(true);
+
+    // Auto-stop safety timeout after 60s of inactivity so it doesn't run forever
+    if (voiceSafetyTimer) clearTimeout(voiceSafetyTimer);
+    voiceSafetyTimer = setTimeout(() => {
+      if (isListening) stopVoiceRecognition();
+    }, 60000);
 
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
-      voiceSimTimer = setTimeout(() => {
-        stopVoiceRecognition();
-      }, 7000);
       return;
     }
 
@@ -2648,73 +2654,74 @@
       };
 
       speechRecognition.onerror = (event) => {
-        console.warn('Speech recognition notice:', event.error);
-        if (event.error === 'no-speech') return;
-        stopVoiceRecognition();
+        console.warn('Speech recognition status:', event.error);
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          toast('Microphone permission required. Please allow microphone in browser.', true);
+        }
       };
 
       speechRecognition.onend = () => {
-        stopVoiceRecognition();
+        // Keep the animation alive! If still in listening mode, restart gracefully
+        if (isListening && shouldRestartVoice) {
+          try {
+            speechRecognition.start();
+          } catch (_) {
+            setTimeout(() => {
+              if (isListening && shouldRestartVoice) {
+                try { speechRecognition.start(); } catch (__) {}
+              }
+            }, 250);
+          }
+        }
       };
 
       speechRecognition.start();
     } catch (err) {
-      console.warn('Speech recognition start error:', err);
-      voiceSimTimer = setTimeout(() => {
-        stopVoiceRecognition();
-      }, 5000);
+      console.warn('Speech recognition note:', err);
+    }
+  }
+
+  function handleMicClick(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.currentTarget && e.currentTarget.blur) e.currentTarget.blur();
+    }
+    if (isListening) {
+      stopVoiceRecognition();
+    } else {
+      startVoiceRecognition();
     }
   }
 
   if ($('composerMicBtn')) {
-    $('composerMicBtn').onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.currentTarget.blur();
-      if (isListening) {
-        stopVoiceRecognition();
-      } else {
-        startVoiceRecognition();
-      }
-    };
+    $('composerMicBtn').onclick = handleMicClick;
   }
 
   if ($('composerHomeMicBtn')) {
-    $('composerHomeMicBtn').onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.currentTarget.blur();
-      if (isListening) {
-        stopVoiceRecognition();
-      } else {
-        startVoiceRecognition();
-      }
-    };
+    $('composerHomeMicBtn').onclick = handleMicClick;
   }
 
   if ($('voiceSearchPill')) {
     $('voiceSearchPill').onclick = (e) => {
-      if (isListening && !e.target.closest('#composerMicBtn')) {
-        e.preventDefault();
-        e.stopPropagation();
-        stopVoiceRecognition();
+      // Clicking the red capsule directly stops voice
+      if (isListening && e.target === $('voiceSearchPill')) {
+        handleMicClick(e);
       }
     };
   }
 
   if ($('composerHomeMicPill')) {
     $('composerHomeMicPill').onclick = (e) => {
-      if (isListening && !e.target.closest('#composerHomeMicBtn')) {
-        e.preventDefault();
-        e.stopPropagation();
-        stopVoiceRecognition();
+      if (isListening && e.target === $('composerHomeMicPill')) {
+        handleMicClick(e);
       }
     };
   }
 
   if ($('cancelRecordingBtn')) {
     $('cancelRecordingBtn').onclick = (e) => {
-      e.preventDefault();
+      if (e) e.preventDefault();
       stopVoiceRecognition();
     };
   }

@@ -1815,12 +1815,21 @@ class ProductionRAGService:
                 blocks.append(f"[Live Source: {w['title']}]\n{w['snippet']}")
             web_context_text = "\n\n".join(blocks)
 
-        now_str = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
+        now_dt = datetime.now()
+        now_str = now_dt.strftime("%A, %B %d, %Y, %I:%M %p")
+        today_date_str = now_dt.strftime("%d %B %Y")
         system_prompt = self._deep_research_system_prompt(is_grounded=False, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
 
         user_content = query
         if web_context_text:
-            user_content = f"{user_content}\n\n=== LIVE SEARCH CONTEXT ===\n{web_context_text}\n\nPlease provide a {'comprehensive, deeply detailed' if detailed or is_coding else 'short, concise, direct'} and accurate answer in clean prose without citation tags like [W1], [W2], or 【W1】:"
+            user_content = (
+                f"{user_content}\n\n"
+                f"=== SYSTEM TEMPORAL ANCHOR: TODAY IS {now_dt.strftime('%A').upper()}, {now_dt.strftime('%B').upper()} {now_dt.day}, {now_dt.year} ({today_date_str}) ===\n"
+                f"=== CRITICAL INSTRUCTION: Today's date is strictly {today_date_str} (September 15). NEVER cite or hallucinate incorrect months like May. Ground all current observations strictly on today.\n"
+                f"=== LIVE SEARCH CONTEXT ===\n"
+                f"{web_context_text}\n\n"
+                f"Please provide a {'comprehensive, deeply detailed' if detailed or is_coding else 'short, concise, direct'} and accurate answer for today ({today_date_str}) in clean prose without citation tags like [W1], [W2], or 【W1】:"
+            )
 
         llm_messages: list[dict] = [{"role": "system", "content": system_prompt}]
         if history:
@@ -1940,16 +1949,22 @@ class ProductionRAGService:
         is_weather = any(re.search(r"\b" + re.escape(w) + r"\b", q_lower) for w in weather_keywords)
         if is_weather:
             try:
-                # Extract location entity
-                loc = re.sub(
-                    r"\b(what is|how is|tell me|can you check|check|please|current|currently|now|today|tonight|tomorrow|right now|weather|temperature|forecast|climate|rain|raining|humidity|temp|in|at|for|of|the|degree|degrees|celsius|fahrenheit|city|state|country|live)\b",
+                # Extract clean location entity, stripping conversational words
+                clean_query_text = re.sub(
+                    r"^(?:na|nah|no|hey|bro|yo|well|ok|okay|so|please|pls|and|then|now|tell me|can you|can u|what about|how about)\s+",
                     " ",
                     query,
                     flags=re.IGNORECASE,
                 )
+                loc = re.sub(
+                    r"\b(what is|how is|tell me|can you check|check|please|pls|current|currently|now|today|tonight|tomorrow|right now|weather|temperature|forecast|climate|rain|raining|humidity|temp|in|at|for|of|the|degree|degrees|celsius|fahrenheit|city|state|country|live|bro|na|hey|what)\b",
+                    " ",
+                    clean_query_text,
+                    flags=re.IGNORECASE,
+                )
                 loc = re.sub(r"\s+", " ", loc).strip(" ?.,'\"")
                 if not loc or len(loc) < 2:
-                    words = [w for w in re.findall(r"\w+", query) if w.lower() not in {"what", "is", "weather", "now", "today", "the", "in", "at", "for", "how", "tell", "me", "check"}]
+                    words = [w for w in re.findall(r"\w+", query) if w.lower() not in {"what", "is", "weather", "now", "today", "the", "in", "at", "for", "how", "tell", "me", "check", "na", "bro", "hey", "pls"}]
                     loc = " ".join(words) or clean_q
 
                 w_url = f"https://wttr.in/{urllib.parse.quote(loc)}?format=j1"
@@ -1979,14 +1994,21 @@ class ProductionRAGService:
                     min_c = forecast_today.get("mintempC", "")
                     range_str = f" Today's Expected Range: High {max_c}°C / Low {min_c}°C." if max_c and min_c else ""
 
+                    now_dt = datetime.now()
+                    today_str = now_dt.strftime("%A, %d %B %Y")
+                    time_str = now_dt.strftime("%I:%M %p")
+                    requested_place = loc.title()
+                    display_target = f"{requested_place} (Observation Station: {place_str})" if requested_place.lower() not in place_str.lower() else place_str
+
                     snip = (
-                        f"LIVE REAL-TIME WEATHER FOR {place_str}: Current Temperature is {temp_c}°C ({temp_f}°F). "
+                        f"LIVE REAL-TIME WEATHER FOR {display_target} (Observation for Today: {today_str} as of {time_str}): "
+                        f"Current Temperature is {temp_c}°C ({temp_f}°F). "
                         f"Conditions: {condition_desc}. Feels like: {feels_c}°C ({feels_f}°F). "
                         f"Relative Humidity: {humidity}%. Wind Speed: {wind_km} km/h {wind_dir}. UV Index: {uv}. "
-                        f"Visibility: {visibility} km, Cloud Cover: {cloudcover}%.{range_str} (Live meteorological observation)."
+                        f"Visibility: {visibility} km, Cloud Cover: {cloudcover}%.{range_str} (Live observation recorded on {today_str})."
                     )
                     results.append({
-                        "title": f"Live Weather: {place_str}",
+                        "title": f"Live Weather: {requested_place}",
                         "snippet": snip,
                         "url": f"https://wttr.in/{urllib.parse.quote(loc)}",
                     })

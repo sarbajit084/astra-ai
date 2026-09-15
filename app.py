@@ -1062,6 +1062,9 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
         '  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
         '  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">\n'
         '  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">\n'
+        '  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>\n'
+        '  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>\n'
+        '  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>\n'
     )
 
     if has_html:
@@ -1069,9 +1072,12 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
         # Remove dead relative link tags like <link rel="stylesheet" href="styles.css"> or script.js so they don't 404
         doc = re.sub(r'<link[^>]+href=["\'](?:styles?\.css|main\.css|style\.css)["\'][^>]*>', '', doc, flags=re.I)
         doc = re.sub(r'<script[^>]+src=["\'](?:scripts?\.js|main\.js|app\.js)["\'][^>]*>\s*</script>', '', doc, flags=re.I)
-        if "fonts.googleapis.com" not in doc:
+        if "three.min.js" not in doc:
             if has_head:
                 doc = re.sub(r"(<head[^>]*>)", f"\\1\n{font_head_tags}", doc, count=1, flags=re.I)
+            else:
+                doc = re.sub(r"(<html[^>]*>)", f"\\1\n<head>{font_head_tags}</head>", doc, count=1, flags=re.I)
+                has_head = True
         if style_tag:
             if has_head:
                 doc = re.sub(r"(</head>)", f"{style_tag}\\1", doc, count=1, flags=re.I)

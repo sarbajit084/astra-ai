@@ -27,11 +27,11 @@ import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -41,7 +41,6 @@ from auth import (
     clear_session_cookie,
     create_access_token,
     get_current_user,
-    get_optional_user,
     hash_password,
     needs_rehash,
     record_failed_attempt,
@@ -145,7 +144,8 @@ async def security_headers_middleware(request: Request, call_next):
             "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
             "img-src 'self' data: blob: https:; "
             "connect-src 'self'; "
-            "frame-src 'self';"
+            "frame-src 'self'; "
+            "frame-ancestors 'self';"
         )
     return response
 
@@ -166,6 +166,7 @@ class RegisterPayload(BaseModel):
     password_confirm: str | None = Field(default=None, max_length=128)
     challenge_token: str = Field(min_length=1)
     calculation_result: int
+    agreed_to_terms: bool = False
 
 
 class LoginPayload(BaseModel):
@@ -247,6 +248,40 @@ def owned_document(db: Session, document_id: str, user_id: str) -> Document:
 @app.get("/", response_class=FileResponse)
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots_txt() -> PlainTextResponse:
+    content = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Allow: /terms\n"
+        "Allow: /privacy\n"
+        "Disallow: /api/\n"
+        "Disallow: /admin\n"
+        "Disallow: /delete-account\n"
+        "Disallow: /dashboard\n"
+        "Disallow: /chat\n"
+        "Disallow: /conversations\n"
+        "Disallow: /documents\n"
+        "Disallow: /settings\n"
+    )
+    return PlainTextResponse(content=content, media_type="text/plain")
+
+
+@app.get("/terms", response_class=FileResponse)
+def terms_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "terms.html")
+
+
+@app.get("/privacy", response_class=FileResponse)
+def privacy_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "privacy.html")
+
+
+@app.get("/delete-account", response_class=FileResponse)
+def delete_account_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "delete_account.html")
 
 
 @app.get("/admin", response_class=FileResponse)
@@ -385,7 +420,14 @@ def get_calculation_challenge() -> dict:
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
 def register_user(payload: RegisterPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
-    # 1. Verify calculation result
+    # 1. Verify terms & conditions agreement
+    if not payload.agreed_to_terms:
+        raise HTTPException(
+            status_code=400,
+            detail="You must agree to the Terms & Conditions and Privacy Policy to register."
+        )
+
+    # 2. Verify calculation result
     if not verify_math_challenge(payload.challenge_token, payload.calculation_result):
         raise HTTPException(
             status_code=400,
@@ -677,11 +719,68 @@ def me(user: Annotated[User, Depends(get_current_user)]) -> dict:
     }
 
 
+class DeleteAccountPayload(BaseModel):
+    confirm_text: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=128)
+
+
+@app.post("/api/account/delete")
+def delete_account(
+    payload: DeleteAccountPayload,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> JSONResponse:
+    if payload.confirm_text.strip() != "DELETE MY ACCOUNT":
+        raise HTTPException(
+            status_code=400,
+            detail='You must type "DELETE MY ACCOUNT" exactly to confirm deletion.'
+        )
+
+    if not user.password_hash or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect password. Account deletion cannot proceed."
+        )
+
+    user_id = user.id
+
+    # 1. Purge all user query events
+    db.execute(delete(QueryEvent).where(QueryEvent.user_id == user_id))
+
+    # 2. Purge user preferences
+    db.execute(delete(UserPreference).where(UserPreference.user_id == user_id))
+
+    # 3. Purge all user conversations
+    db.execute(delete(Conversation).where(Conversation.user_id == user_id))
+
+    # 4. Purge all user documents and vector embeddings
+    docs = db.scalars(select(Document).where(Document.owner_id == user_id)).all()
+    for doc in docs:
+        try:
+            rag.delete_document(doc.id, user_id)
+        except Exception:
+            pass
+        db.delete(doc)
+
+    # 5. Purge the user record
+    db.delete(user)
+    db.commit()
+
+    logger.info("account_permanently_deleted user_id=%s", user_id)
+
+    response = JSONResponse(content={
+        "success": True,
+        "message": "Your account and all associated data have been permanently deleted."
+    })
+    clear_session_cookie(response)
+    return response
+
+
 # ==========================================
 # Conversation History Navigation Endpoints
 # ==========================================
 @app.get("/api/conversations")
-def get_conversations(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def get_conversations(user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     convs = db.scalars(
         select(Conversation).where(Conversation.user_id == user.id).order_by(Conversation.updated_at.desc())
     ).all()
@@ -712,7 +811,7 @@ def get_conversations(user: Annotated[User, Depends(get_optional_user)], db: Ann
 
 
 @app.post("/api/conversations")
-def create_conversation(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def create_conversation(user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     conv = Conversation(user_id=user.id, title="New Conversation", messages=[])
     db.add(conv)
     db.commit()
@@ -721,7 +820,7 @@ def create_conversation(user: Annotated[User, Depends(get_optional_user)], db: A
 
 
 @app.get("/api/conversations/{conv_id}")
-def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     conv = db.scalar(select(Conversation).where(Conversation.id == conv_id, Conversation.user_id == user.id))
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -745,7 +844,7 @@ def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_opti
 
 
 @app.delete("/api/conversations/{conv_id}")
-def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     conv = db.scalar(select(Conversation).where(Conversation.id == conv_id, Conversation.user_id == user.id))
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -755,7 +854,7 @@ def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_optional
 
 
 @app.get("/api/documents")
-def documents(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def documents(user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     rows = db.scalars(
         select(Document).where(Document.owner_id == user.id).order_by(Document.created_at.desc())
     ).all()
@@ -764,7 +863,7 @@ def documents(user: Annotated[User, Depends(get_optional_user)], db: Annotated[S
 
 @app.post("/api/upload")
 async def upload_document(
-    user: Annotated[User, Depends(get_optional_user)],
+    user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
     file: UploadFile = File(...),
 ) -> dict:
@@ -800,7 +899,7 @@ async def upload_document(
 @app.delete("/api/documents/{document_id}")
 def delete_document(
     document_id: str,
-    user: Annotated[User, Depends(get_optional_user)],
+    user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     document = db.scalar(select(Document).where(Document.id == document_id, Document.owner_id == user.id))
@@ -815,7 +914,7 @@ def delete_document(
 @app.post("/api/chat")
 async def chat(
     request: ChatRequest,
-    user: Annotated[User, Depends(get_optional_user)],
+    user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     started = time.perf_counter()

@@ -98,16 +98,12 @@ class Settings:
 
     @property
     def active_llm_key(self) -> str:
-        """Returns the active key, preferring xai_api_key if set, then groq_api_key, then fallback."""
+        """Returns the active key, preferring xai_api_key if set, then groq_api_key."""
         if self.xai_api_key.strip():
             return self.xai_api_key.strip()
         if self.groq_api_key.strip():
             return self.groq_api_key.strip()
-        # Production Cloud fallback key
-        try:
-            return "".join(chr(ord(c) - 3) for c in "jvnbJgmPf]VkUG|SG|Y5N7PfZJg|e6I\\tl]L;XROULJzh[3VW8Ywv[YW")
-        except Exception:
-            return ""
+        return ""
 
     @property
     def llm_provider(self) -> str:

@@ -869,6 +869,11 @@
       if ($('signupForm')) $('signupForm').classList.add('hidden');
       $('authLogoutSection').classList.remove('hidden');
       $('loggedInUserEmail').textContent = `${displayName}${user && user.email ? ` (${user.email})` : ''}`;
+      if ($('authModal')) $('authModal').classList.add('hidden');
+      if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
+      if ($('authEyebrow')) $('authEyebrow').textContent = 'SECURE ACCESS';
+      if ($('authHeading')) $('authHeading').textContent = 'Account Info';
+      if ($('authSubtitle')) $('authSubtitle').textContent = `Signed in as ${displayName}`;
     } else {
       $('userAccountLabel').textContent = 'LOGIN';
       if ($('userAuthBtn')) $('userAuthBtn').setAttribute('title', 'Sign In / Register');
@@ -877,6 +882,11 @@
         $('mobileUserAuthBtn').classList.remove('logged-in');
       }
       $('authLogoutSection').classList.add('hidden');
+      if ($('authModal')) $('authModal').classList.remove('hidden');
+      if ($('closeAuthModal')) $('closeAuthModal').classList.add('hidden');
+      if ($('authEyebrow')) $('authEyebrow').textContent = 'SECURE WORKSPACE GATEWAY';
+      if ($('authHeading')) $('authHeading').textContent = 'Welcome to Astra';
+      if ($('authSubtitle')) $('authSubtitle').textContent = 'Your secure AI-powered RAG workspace.';
       switchAuthMode(authMode);
     }
   }
@@ -2443,6 +2453,7 @@
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
         if ($('authModal')) $('authModal').classList.add('hidden');
+        if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
         toast(`Welcome back, ${cachedUsername}!`);
         updateAuthUI();
         refreshDocuments();
@@ -2464,9 +2475,14 @@
       const phone = $('signupPhone') ? $('signupPhone').value.trim() : '';
       const password = $('signupPassword').value;
       const calculation_result = parseInt($('signupMathAnswer').value.trim(), 10);
+      const termsConsent = $('signupTermsConsent') ? $('signupTermsConsent').checked : false;
 
       if (!username || !email || !password) {
         toast('Please fill in username, email, and password', true);
+        return;
+      }
+      if (!termsConsent) {
+        toast('Please agree to the Terms & Conditions and Privacy Policy to create an account.', true);
         return;
       }
       if (phone) {
@@ -2498,6 +2514,7 @@
             password,
             challenge_token: currentSignupChallenge.challenge_token,
             calculation_result,
+            agreed_to_terms: true,
           }),
         });
         token = result.access_token;
@@ -2507,7 +2524,8 @@
         localStorage.removeItem('astra_guest_token');
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
-        $('authModal').classList.add('hidden');
+        if ($('authModal')) $('authModal').classList.add('hidden');
+        if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
         toast(`Account created! Welcome, ${cachedUsername}!`);
         updateAuthUI();
         refreshDocuments();
@@ -3345,40 +3363,6 @@
       $('sendButton').click();
     }, 500);
   }
-
-  // Security: Disable Right-Click Context Menu & Inspection Shortcuts
-  window.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    return false;
-  }, true);
-
-  window.addEventListener('keydown', (e) => {
-    // F12 key
-    if (e.key === 'F12' || e.keyCode === 123) {
-      e.preventDefault();
-      e.stopPropagation();
-      toast('🔒 Developer tools inspection is disabled.', true);
-      return false;
-    }
-
-    const isCtrl = e.ctrlKey || e.metaKey;
-
-    // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
-    if (isCtrl && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(e.key)) {
-      e.preventDefault();
-      e.stopPropagation();
-      toast('🔒 Inspect Element is disabled.', true);
-      return false;
-    }
-
-    // Ctrl+U (View Page Source), Ctrl+S (Save Page)
-    if (isCtrl && ['u', 'U', 's', 'S'].includes(e.key)) {
-      e.preventDefault();
-      e.stopPropagation();
-      toast('🔒 Viewing page source is disabled.', true);
-      return false;
-    }
-  }, true);
 
   // ── Mobile Virtual Keyboard Auto-Scroll & Viewport Handling ────────────────
   if (window.visualViewport) {

@@ -192,44 +192,12 @@ def get_current_user(
 
 
 def get_optional_user(
-    request: Request,
-    response: Response,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     db: Annotated[Session, Depends(get_db)],
     astra_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> User:
-    """Return the signed-in user or create an isolated per-device local guest session.
-
-    Strict per-device isolation guarantees that an unauthenticated user's chat is
-    only visible to their own browser/device and never shared across devices,
-    even when connected to the exact same local network or Wi-Fi.
-    """
-    guest_header = request.headers.get("X-Guest-Token")
-    extracted = _extract_token(credentials, astra_session, guest_header)
-    user = _decode_user(extracted, db)
-    if user:
-        if user.role == "guest":
-            user_token = create_access_token(user.id, user.role)
-            response.headers["X-Guest-Token"] = user_token
-            response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
-            set_session_cookie(response, user_token)
-        return user
-
-    guest_id = uuid.uuid4().hex
-    user = User(
-        email=f"guest-{guest_id}@device.local",
-        username="Guest",
-        role="guest",
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    guest_token = create_access_token(user.id, user.role)
-    response.headers["X-Guest-Token"] = guest_token
-    response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
-    set_session_cookie(response, guest_token)
-    return user
+    """Enforces authentication. Anonymous guest sessions are deprecated."""
+    return get_current_user(credentials, db, astra_session)
 
 
 def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:

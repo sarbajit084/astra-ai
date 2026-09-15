@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+  <title>Privacy Policy — Astra AI</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=3033">
+  <style>
+    body {
+      overflow-y: auto !important;
+      scrollbar-width: thin !important;
+      background: #0d1321;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .legal-container {
+      width: 100%;
+      max-width: 860px;
+      background: rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(28px) saturate(120%);
+      -webkit-backdrop-filter: blur(28px) saturate(120%);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 28px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+      padding: 48px 44px;
+      box-sizing: border-box;
+    }
+    .legal-header {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      padding-bottom: 24px;
+      margin-bottom: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .legal-brand {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 38px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: #ffffff;
+      margin: 0;
+      line-height: 1.1;
+    }
+    .legal-subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-top: 6px;
+      letter-spacing: 0.5px;
+    }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #f8fafc;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .back-btn:hover {
+      background: rgba(255, 255, 255, 0.22);
+      transform: translateY(-1px);
+    }
+    .legal-section {
+      margin-bottom: 28px;
+    }
+    .legal-section h2 {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 24px;
+      color: #ffffff;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legal-section p, .legal-section li {
+      font-size: 14.5px;
+      line-height: 1.7;
+      color: #cbd5e1;
+      margin-bottom: 10px;
+    }
+    .legal-section ul {
+      padding-left: 24px;
+      margin-bottom: 14px;
+    }
+    .legal-footer {
+      border-top: 1px solid rgba(255, 255, 255, 0.12);
+      padding-top: 24px;
+      margin-top: 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #94a3b8;
+      font-size: 13px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .legal-footer a {
+      color: #f472b6;
+      text-decoration: none;
+    }
+    .legal-footer a:hover {
+      text-decoration: underline;
+    }
+    @media (max-width: 640px) {
+      .legal-container {
+        padding: 28px 20px;
+        border-radius: 20px;
+      }
+      .legal-brand {
+        font-size: 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="astra-background" aria-hidden="true"></div>
+
+  <main class="legal-container">
+    <header class="legal-header">
+      <div>
+        <h1 class="legal-brand">ASTRA</h1>
+        <div class="legal-subtitle">Privacy Policy • Effective Date: September 15, 2026</div>
+      </div>
+      <a href="/" class="back-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Return to Astra
+      </a>
+    </header>
+
+    <div class="legal-body">
+      <section class="legal-section">
+        <h2>1. Commitment to Privacy</h2>
+        <p>Astra is built with privacy and data isolation as core principles. This Privacy Policy outlines how your personal data, uploaded documents, conversation history, and technical telemetry are gathered, processed, secured, and purged.</p>
+      </section>
+
+      <section class="legal-section">
+        <h2>2. Data We Collect</h2>
+        <p>We collect only the minimum necessary information to provide the secure RAG AI service:</p>
+        <ul>
+          <li><strong>Account Credentials:</strong> Email address, username, phone number (if provided), and cryptographic password hash (Argon2id). We never store raw passwords.</li>
+          <li><strong>Uploaded Documents:</strong> Text, PDF, DOCX, and other files you explicitly upload for knowledge retrieval.</li>
+          <li><strong>Conversations & Queries:</strong> Prompts submitted to the assistant and synthesized responses. Temporary chat mode is available for ephemerality.</li>
+          <li><strong>Technical Metadata:</strong> Query response latencies, model telemetry, and error logs for platform health and abuse prevention.</li>
+        </ul>
+      </section>
+
+      <section class="legal-section">
+        <h2>3. Strict Multi-User Isolation</h2>
+        <p>Astra enforces strict server-side authorization: User A can never view, query, or access User B's documents, conversations, or embeddings. Vector embeddings and document stores are segregated by authenticated user identifier in both relational databases and vector indices.</p>
+      </section>
+
+      <section class="legal-section">
+        <h2>4. Zero Sale of Personal Data</h2>
+        <p>We never sell, rent, monetize, or trade your personal information, documents, or conversation records to advertisers, data brokers, or external entities.</p>
+      </section>
+
+      <section class="legal-section">
+        <h2>5. Secure Cookie & Token Architecture</h2>
+        <p>Astra uses modern stateless authentication:</p>
+        <ul>
+          <li>Authentication tokens are transmitted via secure HTTP headers and <code>HttpOnly</code>, <code>SameSite=Lax</code> cookies.</li>
+          <li>Client JavaScript cannot manipulate or expose core authentication secrets.</li>
+          <li>AI provider API keys are strictly maintained on the server-side environment and are never transmitted to or accessible by client browsers.</li>
+        </ul>
+      </section>
+
+      <section class="legal-section">
+        <h2>6. Right to Deletion & Data Portability</h2>
+        <p>You have full ownership of your data and the absolute right to delete your account at any time:</p>
+        <ul>
+          <li>You may visit our dedicated <a href="/delete-account" style="color:#f472b6;">Account Deletion Page</a> to permanently erase your profile, all uploaded documents, vector embeddings, and conversation histories.</li>
+          <li>Deletion is instantaneous and irreversible.</li>
+        </ul>
+      </section>
+
+      <section class="legal-section">
+        <h2>7. Contact & Privacy Inquiries</h2>
+        <p>If you have any questions, concerns, or requests regarding this Privacy Policy, please email: <strong style="color:#ffffff;">privacy@astra.local</strong>.</p>
+      </section>
+    </div>
+
+    <footer class="legal-footer">
+      <div>© 2026 Astra AI. All rights reserved.</div>
+      <div>
+        <a href="/privacy">Privacy Policy</a> • <a href="/terms">Terms & Conditions</a> • <a href="/delete-account">Delete Account</a>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>

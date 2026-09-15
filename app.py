@@ -1057,16 +1057,26 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
     style_tag = f"\n<style>\n{cleaned_css}\n</style>\n" if cleaned_css else ""
     script_tag = f"\n<script>\n{cleaned_js}\n</script>\n" if cleaned_js else ""
 
+    font_head_tags = (
+        '  <link rel="preconnect" href="https://fonts.googleapis.com">\n'
+        '  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+        '  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">\n'
+        '  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">\n'
+    )
+
     if has_html:
         doc = cleaned_html
         # Remove dead relative link tags like <link rel="stylesheet" href="styles.css"> or script.js so they don't 404
         doc = re.sub(r'<link[^>]+href=["\'](?:styles?\.css|main\.css|style\.css)["\'][^>]*>', '', doc, flags=re.I)
         doc = re.sub(r'<script[^>]+src=["\'](?:scripts?\.js|main\.js|app\.js)["\'][^>]*>\s*</script>', '', doc, flags=re.I)
+        if "fonts.googleapis.com" not in doc:
+            if has_head:
+                doc = re.sub(r"(<head[^>]*>)", f"\\1\n{font_head_tags}", doc, count=1, flags=re.I)
         if style_tag:
             if has_head:
                 doc = re.sub(r"(</head>)", f"{style_tag}\\1", doc, count=1, flags=re.I)
             else:
-                doc = re.sub(r"(<html[^>]*>)", f"\\1\n<head>{style_tag}</head>", doc, count=1, flags=re.I)
+                doc = re.sub(r"(<html[^>]*>)", f"\\1\n<head>{font_head_tags}{style_tag}</head>", doc, count=1, flags=re.I)
         if script_tag:
             if has_body:
                 doc = re.sub(r"(</body>)", f"{script_tag}\\1", doc, count=1, flags=re.I)
@@ -1080,10 +1090,7 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{title}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+{font_head_tags}
   <style>
     *, *::before, *::after {{ box-sizing: border-box; }}
     html {{ scroll-behavior: smooth; }}
@@ -1093,8 +1100,7 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
       font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-      background: #0f172a;
-      color: #f8fafc;
+      line-height: 1.5;
     }}
     {cleaned_css}
   </style>

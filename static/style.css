@@ -1438,6 +1438,30 @@ html, body {
   letter-spacing: 0.3px;
 }
 
+.live-web-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  display: inline-block;
+  margin-left: 2px;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.7);
+  animation: astraPulseLive 2.2s infinite ease-in-out;
+  transition: opacity 0.2s ease;
+}
+
+.live-web-dot.offline {
+  background: #94a3b8;
+  box-shadow: none;
+  animation: none;
+}
+
+@keyframes astraPulseLive {
+  0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  60% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
 .engine-mode-tag {
   font-family: 'Instrument Serif', Georgia, serif;
   font-size: 10px;

@@ -254,7 +254,7 @@ class ProductionRAGService:
                         break
             self.qdrant_mode = "local-persistent"
         self.collection_ready = False
-        self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
+        self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), verify=False, follow_redirects=True)
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -963,8 +963,13 @@ class ProductionRAGService:
             "- If the question spans beyond the uploaded documents, seamlessly augment with verified facts, clearly distinguishing document findings from broader knowledge.\n"
             if is_grounded
             else
-            "- Ground your answer on the provided LIVE SEARCH CONTEXT and verified real-world facts. Do NOT include bracketed citation codes like [W1], [W2], or 【W1】.\n"
-            "- If live data quotes real-time stock prices, crypto, currency rates, sports results, or stats, prioritize the live verified data.\n"
+            "- Ground your answer directly on the provided LIVE SEARCH CONTEXT and verified real-world facts. Do NOT include bracketed citation codes like [W1], [W2], or 【W1】.\n"
+            "- You have full real-time internet connectivity and live tools for weather, global stock markets, forex/currency rates, crypto, sports, and web news.\n"
+            "- When LIVE SEARCH CONTEXT is provided (such as live weather reports, stock prices, currency rates, crypto prices, or web results), ALWAYS use this data to deliver a direct, accurate, and authoritative answer.\n"
+            "- NEVER claim that you do not have real-time information or tell the user to check a live weather service or external website. The live data is directly provided in your context.\n"
+            "- If asked about weather: state the current temperature, conditions, feels-like, humidity, wind, and expected range immediately.\n"
+            "- If asked about currency (e.g., 1 USD to INR, 1 use to inr): state the current live rate and exact conversion immediately.\n"
+            "- If asked about stock prices or crypto: state the live price, currency, change, and market stats immediately.\n"
         )
 
         if detailed:
@@ -1910,7 +1915,7 @@ class ProductionRAGService:
         return cleaned.strip() or text.strip()
 
     async def _web_search(self, query: str) -> list[dict]:
-        """Real-time multi-source retrieval across dynamic stock markets, YouTube stats, Instagram profiles, live forex, and public search."""
+        """Real-time multi-source retrieval across live weather, global stock markets, crypto, YouTube stats, Instagram profiles, live forex, and public search."""
         clean_q = re.sub(r"[^\w\s]", " ", query).strip()
         if not clean_q or len(clean_q) < 2:
             return []
@@ -1926,78 +1931,280 @@ class ProductionRAGService:
         }
         q_lower = query.lower()
 
-        # 1. LIVE Currency / Forex Exchange Rates (e.g., USD to INR, EUR to USD)
-        is_fx = any(w in q_lower for w in ["usd", "inr", "rupee", "dollar", "currency", "exchange rate", "forex", "eur", "gbp", "yen"])
+        # 1. LIVE Real-Time Weather (wttr.in + Open-Meteo fallback)
+        weather_keywords = [
+            "weather", "temperature", "forecast", "climate", "rain", "raining",
+            "sunny", "snow", "snowing", "humidity", "humid", "temp", "celsius",
+            "fahrenheit", "aqi", "air quality", "wind speed", "precipitation"
+        ]
+        is_weather = any(re.search(r"\b" + re.escape(w) + r"\b", q_lower) for w in weather_keywords)
+        if is_weather:
+            try:
+                # Extract location entity
+                loc = re.sub(
+                    r"\b(what is|how is|tell me|can you check|check|please|current|currently|now|today|tonight|tomorrow|right now|weather|temperature|forecast|climate|rain|raining|humidity|temp|in|at|for|of|the|degree|degrees|celsius|fahrenheit|city|state|country|live)\b",
+                    " ",
+                    query,
+                    flags=re.IGNORECASE,
+                )
+                loc = re.sub(r"\s+", " ", loc).strip(" ?.,'\"")
+                if not loc or len(loc) < 2:
+                    words = [w for w in re.findall(r"\w+", query) if w.lower() not in {"what", "is", "weather", "now", "today", "the", "in", "at", "for", "how", "tell", "me", "check"}]
+                    loc = " ".join(words) or clean_q
+
+                w_url = f"https://wttr.in/{urllib.parse.quote(loc)}?format=j1"
+                w_res = await self.http.get(w_url, headers=headers, timeout=3.5)
+                if w_res.status_code == 200:
+                    w_data = w_res.json()
+                    curr = w_data.get("current_condition", [{}])[0]
+                    nearest = w_data.get("nearest_area", [{}])[0]
+                    area_name = nearest.get("areaName", [{}])[0].get("value", loc.title())
+                    country_name = nearest.get("country", [{}])[0].get("value", "")
+                    place_str = f"{area_name}, {country_name}" if country_name else area_name
+
+                    temp_c = curr.get("temp_C", "N/A")
+                    temp_f = curr.get("temp_F", "N/A")
+                    feels_c = curr.get("FeelsLikeC", temp_c)
+                    feels_f = curr.get("FeelsLikeF", temp_f)
+                    condition_desc = curr.get("weatherDesc", [{}])[0].get("value", "Clear")
+                    humidity = curr.get("humidity", "N/A")
+                    wind_km = curr.get("windspeedKmph", "N/A")
+                    wind_dir = curr.get("winddir16Point", "")
+                    uv = curr.get("uvIndex", "N/A")
+                    visibility = curr.get("visibility", "N/A")
+                    cloudcover = curr.get("cloudcover", "N/A")
+
+                    forecast_today = w_data.get("weather", [{}])[0]
+                    max_c = forecast_today.get("maxtempC", "")
+                    min_c = forecast_today.get("mintempC", "")
+                    range_str = f" Today's Expected Range: High {max_c}°C / Low {min_c}°C." if max_c and min_c else ""
+
+                    snip = (
+                        f"LIVE REAL-TIME WEATHER FOR {place_str}: Current Temperature is {temp_c}°C ({temp_f}°F). "
+                        f"Conditions: {condition_desc}. Feels like: {feels_c}°C ({feels_f}°F). "
+                        f"Relative Humidity: {humidity}%. Wind Speed: {wind_km} km/h {wind_dir}. UV Index: {uv}. "
+                        f"Visibility: {visibility} km, Cloud Cover: {cloudcover}%.{range_str} (Live meteorological observation)."
+                    )
+                    results.append({
+                        "title": f"Live Weather: {place_str}",
+                        "snippet": snip,
+                        "url": f"https://wttr.in/{urllib.parse.quote(loc)}",
+                    })
+            except Exception as e_w:
+                logger.warning("wttr_weather_lookup_failed query=%s error=%s", clean_q, e_w)
+                try:
+                    geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={urllib.parse.quote(loc)}&count=1"
+                    g_res = await self.http.get(geo_url, headers=headers, timeout=3.0)
+                    if g_res.status_code == 200:
+                        g_data = g_res.json().get("results", [])
+                        if g_data:
+                            lat = g_data[0]["latitude"]
+                            lon = g_data[0]["longitude"]
+                            p_name = g_data[0].get("name", loc.title())
+                            p_country = g_data[0].get("country", "")
+                            f_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m"
+                            f_res = await self.http.get(f_url, headers=headers, timeout=3.0)
+                            if f_res.status_code == 200:
+                                cur = f_res.json().get("current", {})
+                                t_c = cur.get("temperature_2m")
+                                app_c = cur.get("apparent_temperature")
+                                hum = cur.get("relative_humidity_2m")
+                                wind = cur.get("wind_speed_10m")
+                                results.append({
+                                    "title": f"Live Weather: {p_name}, {p_country}",
+                                    "snippet": f"LIVE WEATHER: {p_name} ({p_country}) current temperature is {t_c}°C (Feels like {app_c}°C), Humidity: {hum}%, Wind: {wind} km/h.",
+                                    "url": "https://open-meteo.com",
+                                })
+                except Exception as e_om:
+                    logger.warning("open_meteo_fallback_failed error=%s", e_om)
+
+        # 2. LIVE Currency / Forex Exchange Rates (USD to INR, EUR to USD, etc.)
+        fx_keywords = [
+            "usd", "inr", "rupee", "rupees", "dollar", "dollars", "currency", "exchange rate",
+            "forex", "eur", "euro", "gbp", "pound", "pounds", "yen", "jpy", "cad", "aud", "aed",
+            "dirham", "to inr", "in inr", "to usd", "use to inr", "usd in inr", "rate today", "conversion", "convert"
+        ]
+        is_fx = any(w in q_lower for w in fx_keywords)
         if is_fx:
             try:
                 fx_res = await self.http.get("https://open.er-api.com/v6/latest/USD", headers=headers, timeout=3.5)
                 if fx_res.status_code == 200:
                     fx_data = fx_res.json()
                     rates = fx_data.get("rates", {})
-                    inr_rate = rates.get("INR")
-                    eur_rate = rates.get("EUR")
-                    gbp_rate = rates.get("GBP")
+                    inr_rate = rates.get("INR", 0)
+                    eur_rate = rates.get("EUR", 0)
+                    gbp_rate = rates.get("GBP", 0)
+                    aed_rate = rates.get("AED", 0)
+                    jpy_rate = rates.get("JPY", 0)
+                    cad_rate = rates.get("CAD", 0)
                     last_update = fx_data.get("time_last_update_utc", "")
-                    if inr_rate:
-                        snippet = f"Current Live Market Rate: 1 USD = {round(inr_rate, 2)} INR (Indian Rupees). Verified timestamp: {last_update}."
-                        if eur_rate and gbp_rate:
-                            snippet += f" Related: 1 USD = {round(eur_rate, 2)} EUR, 1 USD = {round(gbp_rate, 2)} GBP."
-                        results.append({
-                            "title": "Live Global Currency Exchange (open.er-api)",
-                            "snippet": snippet,
-                            "url": "https://www.xe.com/currencyconverter/convert/?Amount=1&From=USD&To=INR",
-                        })
+
+                    amount_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:usd|dollar|dollars|use|eur|euro|gbp|pound|cad|aud|aed)?\s*(?:to|in|into)?\s*(?:inr|rupee|rupees)?\b", q_lower)
+                    amount = float(amount_match.group(1)) if amount_match and amount_match.group(1) else 1.0
+
+                    eur_inr = round(inr_rate / eur_rate, 2) if eur_rate else 0
+                    gbp_inr = round(inr_rate / gbp_rate, 2) if gbp_rate else 0
+                    aed_inr = round(inr_rate / aed_rate, 2) if aed_rate else 0
+                    conv_usd_inr = round(amount * inr_rate, 2)
+
+                    calc_str = f"Calculated Conversion: {amount:g} USD = {conv_usd_inr} INR (Indian Rupees)."
+                    snippet = (
+                        f"LIVE REAL-TIME GLOBAL FOREX RATE: 1 USD = {round(inr_rate, 2)} INR (Indian Rupees). {calc_str} "
+                        f"Major Cross-Rates: 1 EUR = {eur_inr} INR | 1 GBP = {gbp_inr} INR | 1 AED = {aed_inr} INR | 1 USD = {round(eur_rate, 4)} EUR. "
+                        f"Verified timestamp: {last_update}."
+                    )
+                    results.append({
+                        "title": "Live Currency Exchange Rates (open.er-api)",
+                        "snippet": snippet,
+                        "url": "https://www.xe.com/currencyconverter/convert/?Amount=1&From=USD&To=INR",
+                    })
             except Exception as e_fx:
                 logger.warning("fx_live_check_failed error=%s", e_fx)
 
-        # 2. LIVE Stock Markets, Equities, Indices & Crypto (Yahoo Finance dynamic search + chart quote)
-        finance_keywords = ["stock", "stocks", "share", "shares", "price", "prices", "market", "nasdaq", "nyse", "nifty", "sensex", "bse", "nse", "crypto", "bitcoin", "btc", "eth", "solana", "doge", "valuation", "ticker", "trading", "equity"]
+        # 3. LIVE Cryptocurrencies (CoinGecko)
+        crypto_keywords = [
+            "crypto", "cryptocurrency", "bitcoin", "btc", "ethereum", "eth", "solana", "sol",
+            "dogecoin", "doge", "xrp", "ripple", "cardano", "ada", "binance", "bnb", "shiba", "tether", "usdt"
+        ]
+        is_crypto = any(re.search(r"\b" + re.escape(w) + r"\b", q_lower) for w in crypto_keywords)
+        if is_crypto:
+            try:
+                c_res = await self.http.get(
+                    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana,dogecoin,ripple,cardano&vs_currencies=usd,inr&include_24hr_change=true",
+                    headers=headers,
+                    timeout=3.5,
+                )
+                if c_res.status_code == 200:
+                    c_data = c_res.json()
+                    parts = []
+                    for cid, label in [
+                        ("bitcoin", "Bitcoin (BTC)"),
+                        ("ethereum", "Ethereum (ETH)"),
+                        ("solana", "Solana (SOL)"),
+                        ("dogecoin", "Dogecoin (DOGE)"),
+                        ("ripple", "XRP"),
+                        ("cardano", "Cardano (ADA)"),
+                    ]:
+                        if cid in c_data:
+                            usd_p = c_data[cid].get("usd", 0)
+                            inr_p = c_data[cid].get("inr", 0)
+                            chg = c_data[cid].get("usd_24h_change", 0)
+                            sign = "+" if chg >= 0 else ""
+                            parts.append(f"{label}: ${usd_p:,.2f} USD (₹{inr_p:,.2f} INR) [{sign}{chg:.2f}% 24h]")
+                    if parts:
+                        results.append({
+                            "title": "Live Cryptocurrency Prices (CoinGecko)",
+                            "snippet": f"LIVE CRYPTO MARKET: " + " | ".join(parts),
+                            "url": "https://www.coingecko.com",
+                        })
+            except Exception as e_cg:
+                logger.warning("coingecko_crypto_lookup_failed error=%s", e_cg)
+
+        # 4. LIVE Stock Markets, Equities, Indices & Commodities (Yahoo Finance)
+        finance_keywords = [
+            "stock", "stocks", "share", "shares", "price", "prices", "market", "nasdaq",
+            "nyse", "nifty", "sensex", "bse", "nse", "valuation", "ticker", "trading",
+            "equity", "gold", "silver", "crude oil", "reliance", "tcs", "tata", "infosys",
+            "hdfc", "apple", "tesla", "microsoft", "nvidia", "google", "meta", "amazon", "dow jones", "s&p"
+        ]
         is_market = any(w in q_lower for w in finance_keywords)
         if is_market:
             try:
-                # Clean query to isolate asset/company name
-                stock_query = re.sub(r"\b(what is|the|current|stock|stocks|share|shares|price|prices|of|today|right now|quote|how much is|in|live|target|tell me|market)\b", " ", query, flags=re.IGNORECASE)
-                stock_query = re.sub(r"\s+", " ", stock_query).strip(" ?.,") or clean_q
-                s_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(stock_query)}&quotesCount=4&newsCount=0"
-                s_res = await self.http.get(s_url, headers=headers, timeout=3.5)
-                if s_res.status_code == 200:
-                    quotes = s_res.json().get("quotes", [])
-                    if quotes:
-                        top = quotes[0]
-                        sym = top.get("symbol")
-                        name = top.get("shortname") or top.get("longname") or sym
-                        exchange = top.get("exchange", "")
-                        if sym:
-                            c_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=5d"
-                            c_res = await self.http.get(c_url, headers=headers, timeout=3.5)
-                            if c_res.status_code == 200:
-                                meta = c_res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
-                                current_price = meta.get("regularMarketPrice")
-                                currency = meta.get("currency", "USD")
-                                prev_close = meta.get("chartPreviousClose") or meta.get("previousClose")
-                                high52 = meta.get("fiftyTwoWeekHigh", "N/A")
-                                low52 = meta.get("fiftyTwoWeekLow", "N/A")
-                                if current_price is not None:
-                                    change_str = ""
-                                    if prev_close:
-                                        diff = current_price - prev_close
-                                        pct = (diff / prev_close) * 100
-                                        sign = "+" if diff >= 0 else ""
-                                        change_str = f" Change: {sign}{round(diff, 2)} ({sign}{round(pct, 2)}%)."
-                                    results.append({
-                                        "title": f"Yahoo Finance: {name} ({sym})",
-                                        "snippet": f"LIVE STOCK DATA: {name} ({sym}) current regular market price is {current_price} {currency}.{change_str} 52-week High: {high52}, 52-week Low: {low52}. Exchange: {exchange}.",
-                                        "url": f"https://finance.yahoo.com/quote/{sym}",
-                                    })
+                # Check for special commodities / indices first
+                special_sym = None
+                special_name = None
+                if "gold" in q_lower:
+                    special_sym = "GC=F"
+                    special_name = "Gold Futures (COMEX)"
+                elif "silver" in q_lower:
+                    special_sym = "SI=F"
+                    special_name = "Silver Futures (COMEX)"
+                elif "crude" in q_lower or "oil" in q_lower:
+                    special_sym = "CL=F"
+                    special_name = "Crude Oil (WTI)"
+                elif "nifty" in q_lower:
+                    special_sym = "^NSEI"
+                    special_name = "NIFTY 50 (NSE India)"
+                elif "sensex" in q_lower:
+                    special_sym = "^BSESN"
+                    special_name = "BSE SENSEX (India)"
+                elif "s&p" in q_lower or "sp500" in q_lower:
+                    special_sym = "^GSPC"
+                    special_name = "S&P 500"
+                elif "nasdaq" in q_lower:
+                    special_sym = "^IXIC"
+                    special_name = "NASDAQ Composite"
+
+                sym_to_fetch = special_sym
+                name_to_fetch = special_name
+                exchange_to_fetch = ""
+
+                if not sym_to_fetch:
+                    stock_query = re.sub(
+                        r"\b(what is|the|current|stock|stocks|share|shares|price|prices|of|today|right now|quote|how much is|in|live|target|tell me|market)\b",
+                        " ",
+                        query,
+                        flags=re.IGNORECASE,
+                    )
+                    stock_query = re.sub(r"\s+", " ", stock_query).strip(" ?.,") or clean_q
+                    s_url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(stock_query)}&quotesCount=4&newsCount=0"
+                    s_res = await self.http.get(s_url, headers=headers, timeout=3.5)
+                    if s_res.status_code == 200:
+                        quotes = s_res.json().get("quotes", [])
+                        if quotes:
+                            top = quotes[0]
+                            sym_to_fetch = top.get("symbol")
+                            name_to_fetch = top.get("shortname") or top.get("longname") or sym_to_fetch
+                            exchange_to_fetch = top.get("exchange", "")
+
+                if sym_to_fetch:
+                    c_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym_to_fetch)}?interval=1d&range=5d"
+                    c_res = await self.http.get(c_url, headers=headers, timeout=3.5)
+                    if c_res.status_code == 200:
+                        meta = c_res.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
+                        current_price = meta.get("regularMarketPrice")
+                        currency = meta.get("currency", "USD")
+                        prev_close = meta.get("chartPreviousClose") or meta.get("previousClose")
+                        high52 = meta.get("fiftyTwoWeekHigh", "N/A")
+                        low52 = meta.get("fiftyTwoWeekLow", "N/A")
+                        day_high = meta.get("regularMarketDayHigh", "N/A")
+                        day_low = meta.get("regularMarketDayLow", "N/A")
+
+                        if current_price is not None:
+                            change_str = ""
+                            if prev_close:
+                                diff = current_price - prev_close
+                                pct = (diff / prev_close) * 100
+                                sign = "+" if diff >= 0 else ""
+                                change_str = f" Change: {sign}{round(diff, 2)} ({sign}{round(pct, 2)}%)."
+
+                            extra_gold_calc = ""
+                            if special_sym == "GC=F":
+                                try:
+                                    fx_r = await self.http.get("https://open.er-api.com/v6/latest/USD", headers=headers, timeout=2.0)
+                                    if fx_r.status_code == 200:
+                                        inr_r = fx_r.json().get("rates", {}).get("INR", 95.0)
+                                        gold_10g_inr = round((current_price * inr_r / 31.1035) * 10)
+                                        extra_gold_calc = f" Live Indian Gold Price (24K Pure per 10 grams): ~₹{gold_10g_inr:,} INR."
+                                except Exception:
+                                    pass
+
+                            results.append({
+                                "title": f"Live Market Quote: {name_to_fetch} ({sym_to_fetch})",
+                                "snippet": (
+                                    f"LIVE FINANCIAL DATA: {name_to_fetch} ({sym_to_fetch}) current market price is {current_price} {currency}.{change_str} "
+                                    f"Day Range: {day_low} - {day_high}. 52-Week Range: {low52} - {high52}. Exchange: {exchange_to_fetch}.{extra_gold_calc}"
+                                ),
+                                "url": f"https://finance.yahoo.com/quote/{urllib.parse.quote(sym_to_fetch)}",
+                            })
             except Exception as e_stock:
                 logger.warning("yahoo_finance_failed query=%s error=%s", clean_q, e_stock)
 
-        # 3. LIVE YouTube Channel, Subscriber & Video Analytics
+        # 5. LIVE YouTube Channel, Subscriber & Video Analytics
         yt_keywords = ["youtube", "subscribers", "subscriber", "subs", "youtuber", "yt channel"]
         is_yt = any(w in q_lower for w in yt_keywords)
         if is_yt:
             try:
-                # Clean query to extract channel name
                 yt_entity = re.sub(r"\b(how many|what is|tell me|who has|does|have|on|the|count|of|total|current|number of|can you check|check|please|right now|youtube|channel|subscribers?|subs|views?|youtuber)\b", " ", query, flags=re.IGNORECASE)
                 yt_entity = re.sub(r"\s+", " ", yt_entity).strip(" ?.,") or clean_q
                 yt_url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(yt_entity)}"
@@ -2028,12 +2235,11 @@ class ProductionRAGService:
             except Exception as e_yt:
                 logger.warning("youtube_stats_lookup_failed query=%s error=%s", clean_q, e_yt)
 
-        # 4. LIVE Instagram Account & Follower Statistics
+        # 6. LIVE Instagram Account & Follower Statistics
         ig_keywords = ["instagram", "insta", "follower", "followers", "following", "ig profile", "ig account"]
         is_ig = any(w in q_lower for w in ig_keywords)
         if is_ig:
             try:
-                # Clean entity name
                 ig_entity = re.sub(r"\b(how many|what is|tell me|who has|does|have|on|the|count|of|total|current|number of|can you check|check|please|right now|instagram|insta|followers?|account|profile)\b", " ", query, flags=re.IGNORECASE)
                 ig_entity = re.sub(r"\s+", " ", ig_entity).strip(" ?.,") or clean_q
 
@@ -2044,7 +2250,6 @@ class ProductionRAGService:
                     bing_url = f"https://www.bing.com/search?q={urllib.parse.quote(target_q)}"
                     b_res = await self.http.get(bing_url, headers=headers, timeout=3.5)
                     if b_res.status_code == 200:
-                        # Extract quick match like '680M Followers'
                         quick_matches = re.findall(r'(\d+[\d,.]*\s*(?:million|billion|m|k)?\s+followers)', b_res.text, flags=re.IGNORECASE)
                         items = re.findall(r'<li class="b_algo"[^>]*>(.*?)</li>', b_res.text, flags=re.DOTALL)
                         for it in items[:4]:
@@ -2071,56 +2276,68 @@ class ProductionRAGService:
                                 "url": f"https://www.instagram.com/{urllib.parse.quote(ig_entity)}",
                             })
                             found_ig = True
-
-                # Also try DDG Lite if Bing missed it
-                if not found_ig:
-                    ddg_q = f"{ig_entity} instagram followers"
-                    d_res = await self.http.post("https://lite.duckduckgo.com/lite/", data={"q": ddg_q}, headers=headers, timeout=3.0)
-                    if d_res.status_code == 200:
-                        snippets = re.findall(r'<td[^>]+class=[\'"]result-snippet[\'"][^>]*>(.*?)</td>', d_res.text, flags=re.DOTALL)
-                        for s in snippets[:3]:
-                            clean_s = unescape(re.sub(r'<[^>]+>', '', s)).strip()
-                            if "follower" in clean_s.lower() and any(ch.isdigit() for ch in clean_s):
-                                results.append({
-                                    "title": f"Instagram: {ig_entity} Followers",
-                                    "snippet": f"LIVE INSTAGRAM STATS: {clean_s}",
-                                    "url": f"https://www.instagram.com/{urllib.parse.quote(ig_entity)}",
-                                })
-                                break
             except Exception as e_ig:
                 logger.warning("instagram_lookup_failed query=%s error=%s", clean_q, e_ig)
 
-        # 5. Authoritative Live Knowledge & News (Bing + Wikipedia + DuckDuckGo + Google News)
+        # 7. DuckDuckGo Instant Answer API (Zero-click factual answers)
+        if len(results) < 3:
+            try:
+                ia_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(clean_q)}&format=json&no_html=1&skip_disambig=1"
+                ia_res = await self.http.get(ia_url, headers=headers, timeout=2.5)
+                if ia_res.status_code == 200:
+                    ia_data = ia_res.json()
+                    abstract = ia_data.get("AbstractText", "").strip()
+                    answer = ia_data.get("Answer", "").strip()
+                    heading = ia_data.get("Heading", clean_q)
+                    source_url = ia_data.get("AbstractURL", "")
+                    if answer:
+                        results.append({
+                            "title": f"Direct Answer: {heading}",
+                            "snippet": f"VERIFIED DIRECT ANSWER: {answer}",
+                            "url": source_url or f"https://duckduckgo.com/?q={urllib.parse.quote(clean_q)}",
+                        })
+                    elif abstract and len(abstract) > 30:
+                        results.append({
+                            "title": f"Reference: {heading}",
+                            "snippet": abstract[:400],
+                            "url": source_url or f"https://duckduckgo.com/?q={urllib.parse.quote(clean_q)}",
+                        })
+            except Exception as e_ia:
+                logger.debug("ddg_instant_answer_failed error=%s", e_ia)
+
+        # 8. DuckDuckGo Lite Search (Fast, uncensored, 100% current factual answers & breaking events)
+        if len(results) < 4:
+            try:
+                ddg_q = clean_q
+                if "gp" in ddg_q.lower():
+                    ddg_q = re.sub(r"\bgp\b", "Grand Prix", ddg_q, flags=re.IGNORECASE)
+
+                d_res = await self.http.post(
+                    "https://lite.duckduckgo.com/lite/",
+                    data={"q": ddg_q},
+                    headers=headers,
+                    timeout=3.0,
+                )
+                if d_res.status_code == 200:
+                    snippets = re.findall(r'<td[^>]+class=[\'"]result-snippet[\'"][^>]*>(.*?)</td>', d_res.text, flags=re.DOTALL)
+                    titles = re.findall(r'<a[^>]+class=[\'"]result-link[\'"][^>]*>(.*?)</a>', d_res.text, flags=re.DOTALL)
+                    for idx, s in enumerate(snippets[:4]):
+                        clean_s = unescape(re.sub(r'<[^>]+>', '', s)).strip()
+                        if len(clean_s) > 20:
+                            clean_t = unescape(re.sub(r'<[^>]+>', '', titles[idx])).strip() if idx < len(titles) else f"Web: {ddg_q}"
+                            results.append({
+                                "title": clean_t,
+                                "snippet": clean_s,
+                                "url": f"https://duckduckgo.com/?q={urllib.parse.quote(ddg_q)}",
+                            })
+            except Exception as e_ddg_lite:
+                logger.debug("ddg_lite_failed error=%s", e_ddg_lite)
+
+        # 9. Wikipedia Live Search & Factual Extracts
         wiki_headers = {
             "User-Agent": "AstraBot/3.0 (Windows NT 10.0; Win64; x64; contact@example.com)",
             "Accept": "application/json",
         }
-
-        # 5A. DuckDuckGo HTML Search (Fast, uncensored, 100% current factual answers & breaking sports/events)
-        try:
-            ddg_q = clean_q
-            if "gp" in ddg_q.lower():
-                ddg_q = re.sub(r"\bgp\b", "Grand Prix", ddg_q, flags=re.IGNORECASE)
-            ddg_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(ddg_q)}"
-            ddg_res = await self.http.get(ddg_url, headers=headers, timeout=2.5)
-            if ddg_res.status_code == 200:
-                snippets = re.findall(r'<a[^>]+class=[\'"]result__snippet[\'"][^>]*>(.*?)</a>', ddg_res.text, flags=re.DOTALL)
-                titles = re.findall(r'<a[^>]+class=[\'"]result__title[^>]*>(.*?)</a>', ddg_res.text, flags=re.DOTALL)
-                links = re.findall(r'<a[^>]+class=[\'"]result__url[\'"][^>]+href=[\'"]([^\'"]+)[\'"]', ddg_res.text)
-                for idx, s in enumerate(snippets[:4]):
-                    clean_s = unescape(re.sub(r'<[^>]+>', '', s)).strip()
-                    if len(clean_s) > 25 and not clean_s.startswith("Toggle the table of contents"):
-                        clean_t = unescape(re.sub(r'<[^>]+>', '', titles[idx])).strip() if idx < len(titles) else f"Web: {ddg_q}"
-                        link = links[idx] if idx < len(links) else f"https://duckduckgo.com/?q={urllib.parse.quote(ddg_q)}"
-                        results.append({
-                            "title": clean_t,
-                            "snippet": clean_s,
-                            "url": link,
-                        })
-        except Exception as e_ddg_html:
-            logger.debug("ddg_html_failed error=%s", e_ddg_html)
-
-        # 5B. Wikipedia Live Search & Factual Extracts (Authoritative, verified history, racing & global winners)
         if len(results) < 4:
             try:
                 wiki_term = re.sub(r"^(who won|who is|what is|winner of|who is the winner of|result of|tell me about)\s+", "", clean_q, flags=re.IGNORECASE).strip()
@@ -2169,7 +2386,7 @@ class ProductionRAGService:
             except Exception as exc:
                 logger.debug("wikipedia_search_failed query=%s error=%s", clean_q, exc)
 
-        # 5C. LIVE Google News RSS Search (breaking records, live events, sports outcomes)
+        # 10. LIVE Google News RSS Search (breaking records, live events, sports outcomes)
         if len(results) < 4:
             try:
                 news_search_term = clean_q
@@ -2196,11 +2413,11 @@ class ProductionRAGService:
             except Exception as e_news:
                 logger.debug("google_news_rss_failed query=%s error=%s", clean_q, e_news)
 
-        # 5D. Bing Snippet Search (broad web backup)
+        # 11. Bing Snippet Search (broad web backup)
         if len(results) < 3:
             try:
                 b_url = f"https://www.bing.com/search?q={urllib.parse.quote(clean_q)}"
-                b_res = await self.http.get(b_url, headers=headers, timeout=2.0)
+                b_res = await self.http.get(b_url, headers=headers, timeout=2.5)
                 if b_res.status_code == 200:
                     items = re.findall(r'<li class="b_algo"[^>]*>(.*?)</li>', b_res.text, flags=re.DOTALL)
                     for it in items[:3]:
@@ -2221,11 +2438,12 @@ class ProductionRAGService:
                                     "title": title,
                                     "snippet": snippet,
                                     "url": link,
-                                    })
+                                })
             except Exception as e_b:
                 logger.debug("bing_search_failed query=%s error=%s", clean_q, e_b)
 
         return results[:6]
+
 
     @staticmethod
     def _extractive_answer(query: str, sources: list[dict]) -> str:

@@ -1,0 +1,22 @@
+{
+  "doc_registry": {
+    "doc_1788726321146_1": {
+      "id": "doc_1788726321146_1",
+      "name": "a.txt",
+      "chunks_count": 1,
+      "chars_count": 26,
+      "file_path": "D:\\rag_agent\\data\\documents\\doc_1788726321146_1_a.txt",
+      "created_at": "2026-09-07 01:55:21"
+    }
+  },
+  "chunks": [
+    {
+      "doc_id": "doc_1788726321146_1",
+      "doc_name": "a.txt",
+      "chunk_index": 0,
+      "text": "My name is Sarbajit Mandal",
+      "page_num": 1,
+      "metadata": {}
+    }
+  ]
+}

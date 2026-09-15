@@ -13,7 +13,7 @@
     <link rel="apple-touch-icon" href="/static/favicon-192x192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
@@ -21,41 +21,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-    <link rel="stylesheet" href="/static/style.css?v=2260">
-    <script>
-      // Disable Right-Click Context Menu
-      document.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        return false;
-      }, true);
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
+    <link rel="stylesheet" href="/static/style.css?v=3006">
 
-      // Disable DevTools & View Source Keyboard Shortcuts
-      document.addEventListener('keydown', (e) => {
-        // F12 key
-        if (e.key === 'F12' || e.keyCode === 123) {
-          e.preventDefault();
-          e.stopPropagation();
-          return false;
-        }
-
-        const isCtrl = e.ctrlKey || e.metaKey;
-
-        // Ctrl+Shift+I (Inspect), Ctrl+Shift+J (Console), Ctrl+Shift+C (Element picker)
-        if (isCtrl && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(e.key)) {
-          e.preventDefault();
-          e.stopPropagation();
-          return false;
-        }
-
-        // Ctrl+U (View Page Source), Ctrl+S (Save Page)
-        if (isCtrl && ['u', 'U', 's', 'S'].includes(e.key)) {
-          e.preventDefault();
-          e.stopPropagation();
-          return false;
-        }
-      }, true);
-    </script>
   </head>
   <body>
     <!-- Fluid Silk Wave Background Wallpaper -->
@@ -68,13 +36,22 @@
 
       <!-- Collapsed Sidebar Glass Rail (100% Matching Mockup) -->
       <nav id="sidebarRail" class="sidebar-rail hidden" aria-label="Collapsed sidebar">
-        <!-- Top Button: Expand Sidebar -->
-        <button type="button" id="railExpandBtn" class="rail-icon-btn" title="Open Sidebar" aria-label="Open sidebar">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
-            <line x1="9" y1="3" x2="9" y2="21"></line>
-          </svg>
-        </button>
+        <div class="rail-top-group">
+          <!-- Top Button: Expand Sidebar -->
+          <button type="button" id="railExpandBtn" class="rail-icon-btn" title="Open Sidebar" aria-label="Open sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
+          </button>
+
+          <!-- New Conversation Button in Collapsed Rail -->
+          <button type="button" id="railNewChatBtn" class="rail-icon-btn" title="New Conversation" aria-label="New conversation">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
+          </button>
+        </div>
 
         <!-- Bottom Button: User Account / Login Button -->
         <button type="button" id="railUserBtn" class="rail-icon-btn" title="Account / Login" aria-label="Account login">
@@ -130,7 +107,7 @@
 
         <!-- Upload Files Box (Dashed Outline) -->
         <label id="uploadDrop" class="upload-dashed-card">
-          <input id="fileInput" type="file" multiple accept=".pdf,.txt,.md,.csv,.json,.py,.html,.docx" style="display: none;">
+          <input id="fileInput" type="file" multiple accept=".pdf,.txt,.md,.csv,.json,.py,.html,.docx,.zip" style="display: none;">
           <div class="upload-red-circle">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e05252" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="19" x2="12" y2="5"></line>
@@ -138,7 +115,7 @@
             </svg>
           </div>
           <span class="upload-main-text">UPLOAD FILES HERE</span>
-          <span class="upload-sub-text">PDF, TXT, DOC etc.</span>
+          <span class="upload-sub-text">PDF, TXT, DOC, ZIP (max 400 MB)</span>
         </label>
 
         <!-- Uploaded Documents Section -->
@@ -426,11 +403,21 @@
           <button class="modal-tab" data-mode="signup">Register</button>
         </div>
 
-        <!-- Login Form with 2-digit Math Challenge -->
-        <form id="loginForm" class="auth-modal-form">
+        <!-- Login Form with Password + 2-digit Math Challenge -->
+        <form id="loginForm" class="auth-modal-form" autocomplete="off">
           <label>Phone Number, Email, or Username
-            <input id="loginIdentifier" type="text" required autocomplete="username" placeholder="e.g. user@example.com">
+            <input id="loginIdentifier" type="text" required autocomplete="off" placeholder="e.g. user@example.com">
           </label>
+
+          <label>Password
+            <div class="password-input-wrapper">
+              <input id="loginPassword" type="password" required autocomplete="new-password" placeholder="Enter your password">
+              <button type="button" class="pwd-toggle-btn" id="toggleLoginPasswordBtn" title="Show/Hide Password" aria-label="Toggle password visibility">👁️</button>
+            </div>
+          </label>
+          <div class="auth-extra-row">
+            <button type="button" id="forgotPasswordLinkBtn" class="link-btn">Forgot password?</button>
+          </div>
           
           <div class="math-challenge-box">
             <div class="math-challenge-header">
@@ -441,7 +428,7 @@
               Loading math problem…
             </div>
             <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
-              <input id="loginMathAnswer" type="number" required placeholder="Calculate and enter the result">
+              <input id="loginMathAnswer" type="number" required autocomplete="off" placeholder="Calculate and enter the result">
             </label>
             <p class="math-hint">Calculate between the two numbers to verify and login.</p>
           </div>
@@ -450,18 +437,18 @@
         </form>
 
         <!-- Register Form with 2-digit Math Challenge -->
-        <form id="signupForm" class="auth-modal-form hidden">
+        <form id="signupForm" class="auth-modal-form hidden" autocomplete="off">
           <label>Username
-            <input id="signupUsername" type="text" required placeholder="Choose a username">
+            <input id="signupUsername" type="text" required autocomplete="off" placeholder="Choose a username">
           </label>
           <label>Email Address
-            <input id="signupEmail" type="email" required autocomplete="email" placeholder="you@company.com">
+            <input id="signupEmail" type="email" required autocomplete="off" placeholder="you@company.com">
           </label>
           <label>Phone Number (Optional)
-            <input id="signupPhone" type="tel" placeholder="+1 555-0199">
+            <input id="signupPhone" type="tel" autocomplete="off" placeholder="+1 555-0199">
           </label>
           <label>Password
-            <input id="signupPassword" type="password" minlength="6" required placeholder="Create a password">
+            <input id="signupPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 chars with letters & numbers">
           </label>
 
           <div class="math-challenge-box">
@@ -487,6 +474,58 @@
         </div>
       </div>
     </div>
+
+    <!-- Forgot Password Modal -->
+    <div id="forgotPasswordModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Forgot Password">
+      <div class="glass-modal-card">
+        <div class="modal-header">
+          <div>
+            <span class="modal-brand-title">ASTRA</span>
+            <p class="modal-eyebrow">ACCOUNT RECOVERY</p>
+            <h2 class="modal-h2" id="forgotHeading">Reset Password</h2>
+          </div>
+          <button id="closeForgotModal" class="close-icon-btn" type="button">✕</button>
+        </div>
+
+        <!-- Step 1: Verification & Request Reset Token -->
+        <form id="forgotPasswordForm" class="auth-modal-form">
+          <p class="auth-sub-desc">Enter your account identifier and solve the calculation to verify identity.</p>
+          <label>Phone Number, Email, or Username
+            <input id="forgotIdentifier" type="text" required placeholder="e.g. user@example.com">
+          </label>
+
+          <div class="math-challenge-box">
+            <div class="math-challenge-header">
+              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
+              <button type="button" id="forgotRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
+            </div>
+            <div id="forgotMathQuestion" class="math-question-text">Loading math problem…</div>
+            <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
+              <input id="forgotMathAnswer" type="number" required placeholder="Calculate and enter the result">
+            </label>
+            <p class="math-hint">Calculate between the two numbers to verify ownership.</p>
+          </div>
+
+          <button type="submit" class="modal-primary-btn" id="forgotSubmitBtn">Verify & Proceed</button>
+          <button type="button" id="backToLoginFromForgotBtn" class="modal-secondary-btn" style="margin-top: 8px;">Back to Login</button>
+        </form>
+
+        <!-- Step 2: Enter New Password -->
+        <form id="resetPasswordForm" class="auth-modal-form hidden">
+          <p class="auth-sub-desc">Identity verified! Enter your new password below.</p>
+          <input id="resetTokenHidden" type="hidden">
+          <label>New Password
+            <input id="newPasswordInput" type="password" required minlength="8" placeholder="At least 8 chars with letter & number">
+          </label>
+          <label>Confirm New Password
+            <input id="confirmPasswordInput" type="password" required minlength="8" placeholder="Re-enter new password">
+          </label>
+          <div id="resetErrorMsg" class="auth-error-banner hidden"></div>
+          <button type="submit" class="modal-primary-btn" id="resetSubmitBtn">Update Password</button>
+        </form>
+      </div>
+    </div>
+
 
     <!-- Settings & Appearance Modal (Frost Level & Custom Wallpaper) -->
     <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Settings">
@@ -540,22 +579,6 @@
             </div>
             <div id="customBgStatus" class="custom-bg-status-msg">Default fluid wallpaper active</div>
           </div>
-
-          <!-- 3. Backend Server & API Endpoint Configuration -->
-          <div class="settings-group">
-            <div class="settings-group-header">
-              <span class="settings-group-icon">🌐</span>
-              <div class="settings-group-text">
-                <strong class="settings-group-title">Backend API Endpoint</strong>
-                <p class="settings-group-desc">Connect to Production Cloud or custom LAN/local server.</p>
-              </div>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap;">
-              <input type="text" id="apiEndpointInput" placeholder="https://astra-ai-agent-production.up.railway.app" style="flex: 1; min-width: 200px; padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(0,0,0,0.12); background: rgba(255,255,255,0.7); font-family: monospace; font-size: 13px;">
-              <button type="button" id="saveApiEndpointBtn" class="settings-btn primary-glass-btn" style="padding: 8px 14px; font-size: 13px;">Save</button>
-              <button type="button" id="resetApiEndpointBtn" class="settings-btn secondary-glass-btn" style="padding: 8px 14px; font-size: 13px;">Reset</button>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -576,6 +599,6 @@
     <!-- Global Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/app.js?v=2260"></script>
+    <script src="/static/app.js?v=3025"></script>
   </body>
 </html>

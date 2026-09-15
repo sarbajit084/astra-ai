@@ -38,6 +38,11 @@ class User(Base):
     otp: Mapped[str | None] = mapped_column(String(10), nullable=True)
     otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="user", index=True)
+    password_reset_token: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    password_reset_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    google_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
@@ -147,6 +152,11 @@ def initialize_database() -> None:
             "ALTER TABLE users ADD COLUMN phone VARCHAR(30)",
             "ALTER TABLE users ADD COLUMN otp VARCHAR(10)",
             "ALTER TABLE users ADD COLUMN otp_expires_at DATETIME",
+            "ALTER TABLE users ADD COLUMN password_reset_token VARCHAR(128)",
+            "ALTER TABLE users ADD COLUMN password_reset_expires_at DATETIME",
+            "ALTER TABLE users ADD COLUMN google_id VARCHAR(128)",
+            "ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN locked_until DATETIME",
             "ALTER TABLE conversations ADD COLUMN chat_type VARCHAR(20) DEFAULT 'normal'",
         ]:
             try:

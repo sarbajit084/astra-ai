@@ -9,7 +9,10 @@ Stateless architecture:
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
+import random
 import re
 import time
 import uuid
@@ -18,10 +21,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
+import urllib.parse
+
+import httpx
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
@@ -30,11 +36,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from auth import (
+    check_is_locked,
+    clear_failed_attempts,
     clear_session_cookie,
     create_access_token,
     get_current_user,
     get_optional_user,
     hash_password,
+    needs_rehash,
+    record_failed_attempt,
     require_admin,
     set_session_cookie,
     validate_password_strength,
@@ -103,6 +113,7 @@ if cors_origins == ["*"]:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Guest-Token"],
     )
 else:
     app.add_middleware(
@@ -111,7 +122,32 @@ else:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Guest-Token"],
     )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
+    if settings.app_env.lower() in ("production", "prod"):
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
+    if not request.url.path.startswith("/preview/"):
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+            "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+            "img-src 'self' data: blob: https:; "
+            "connect-src 'self'; "
+            "frame-src 'self';"
+        )
+    return response
 
 
 class MathChallengeResponse(BaseModel):
@@ -133,19 +169,25 @@ class RegisterPayload(BaseModel):
 
 
 class LoginPayload(BaseModel):
+    identifier: str | None = Field(default=None, max_length=255)
     phone: str | None = Field(default=None, max_length=30)
     email: str | None = Field(default=None, max_length=255)
-    identifier: str | None = Field(default=None, max_length=255)
     password: str = Field(min_length=1, max_length=128)
     challenge_token: str = Field(min_length=1)
     calculation_result: int
 
 
-class GoogleAuthPayload(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
-    name: str | None = None
-    sub: str | None = None
-    id_token: str | None = None
+class ForgotPasswordPayload(BaseModel):
+    identifier: str = Field(min_length=1, max_length=255)
+    challenge_token: str = Field(min_length=1)
+    calculation_result: int
+
+
+class ResetPasswordPayload(BaseModel):
+    reset_token: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+    new_password_confirm: str | None = Field(default=None, max_length=128)
+
 
 
 class PreferencesPayload(BaseModel):
@@ -182,6 +224,10 @@ def auth_success_response(user: User) -> JSONResponse:
     response = JSONResponse(content=body)
     set_session_cookie(response, body["access_token"])
     return response
+
+
+token_response = auth_success_response
+
 
 
 def owned_conversation(db: Session, conv_id: str, user_id: str) -> Conversation:
@@ -233,23 +279,31 @@ import hmac
 import hashlib
 
 def create_math_challenge() -> dict:
-    """Generates two 2-digit random numbers (10-99) and signs the result in a secure token."""
+    """Generates two 2-digit random numbers (10-99) and signs the result in a secure token.
+    Crucially: The token MUST NOT contain the answer in plaintext.
+    Instead, it contains a cryptographic digest (HMAC) of the answer + nonce."""
+    nonce = uuid.uuid4().hex[:12]
     num1 = random.randint(10, 99)
     num2 = random.randint(10, 99)
-    # Randomly choose addition or subtraction (or multiplication if friendly)
     op = random.choice(["+", "-"])
     if op == "+":
         correct_ans = num1 + num2
     else:
-        # Keep result non-negative for convenience
         if num1 < num2:
             num1, num2 = num2, num1
         correct_ans = num1 - num2
 
     ts = int(datetime.now(timezone.utc).timestamp())
-    msg = f"{num1}:{op}:{num2}:{correct_ans}:{ts}"
+    ans_digest = hmac.new(
+        settings.jwt_secret.encode(),
+        f"{nonce}:{correct_ans}".encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    # Sign the challenge metadata together with ans_digest
+    msg = f"{nonce}:{num1}:{op}:{num2}:{ts}:{ans_digest}"
     sig = hmac.new(settings.jwt_secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
-    token = f"{msg}:{sig}"
+    token = f"{nonce}:{num1}:{op}:{num2}:{ts}:{ans_digest}:{sig}"
 
     return {
         "challenge_token": token,
@@ -261,23 +315,30 @@ def create_math_challenge() -> dict:
 
 
 def verify_math_challenge(token: str, user_answer: int, max_age_seconds: int = 300) -> bool:
-    """Verifies that the math challenge token is authentic, non-expired, and answered correctly."""
+    """Verifies that the math challenge token is authentic, non-expired, and answered correctly.
+    Answer is cryptographically verified against the HMAC digest without plaintext exposure."""
     try:
         parts = token.split(":")
-        if len(parts) != 6:
+        if len(parts) != 7:
             return False
-        num1, op, num2, expected_ans_str, ts_str, sig = parts
-        msg = f"{num1}:{op}:{num2}:{expected_ans_str}:{ts_str}"
+        nonce, num1_str, op, num2_str, ts_str, ans_digest, sig = parts
+        msg = f"{nonce}:{num1_str}:{op}:{num2_str}:{ts_str}:{ans_digest}"
         expected_sig = hmac.new(settings.jwt_secret.encode(), msg.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expected_sig):
             return False
         
         ts = int(ts_str)
         now_ts = int(datetime.now(timezone.utc).timestamp())
-        if (now_ts - ts) > max_age_seconds:
+        if (now_ts - ts) > max_age_seconds or (now_ts - ts) < -60:
             return False
         
-        return user_answer == int(expected_ans_str)
+        # Verify user_answer produces the exact same ans_digest
+        user_digest = hmac.new(
+            settings.jwt_secret.encode(),
+            f"{nonce}:{user_answer}".encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(ans_digest, user_digest)
     except Exception:
         return False
 
@@ -302,6 +363,14 @@ def register_user(payload: RegisterPayload, db: Annotated[Session, Depends(get_d
             status_code=400,
             detail="Incorrect calculation result! Please solve the math problem correctly to register."
         )
+
+    if payload.password_confirm is not None and payload.password != payload.password_confirm:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+
+    # Validate password strength
+    strength_err = validate_password_strength(payload.password)
+    if strength_err:
+        raise HTTPException(status_code=400, detail=strength_err)
 
     email = payload.email.strip().lower()
     username = payload.username.strip()
@@ -338,67 +407,196 @@ def register_user(payload: RegisterPayload, db: Annotated[Session, Depends(get_d
 
 
 @app.post("/api/auth/login")
-def login_user(payload: LoginPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
-    # 1. Verify calculation result
+def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
+    ident = (payload.identifier or payload.email or payload.phone or "").strip()
+    if not ident:
+        raise HTTPException(status_code=400, detail="Please enter your phone number, email, or username.")
+
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"{client_ip}:{ident.lower()}"
+
+    # Lockout check
+    remaining_lock = check_is_locked(rate_key)
+    if remaining_lock > 0:
+        minutes = (remaining_lock // 60) + 1
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Account temporarily locked due to too many failed attempts. Please try again in {minutes} minutes."
+        )
+
+    # 1. Calculation verification
     if not verify_math_challenge(payload.challenge_token, payload.calculation_result):
         raise HTTPException(
             status_code=400,
             detail="Incorrect calculation result! Please solve the math problem correctly to log in."
         )
 
-    phone = normalize_phone(payload.phone)
-    email = (payload.email or "").strip().lower()
-    ident = (payload.identifier or "").strip()
+    user = None
+    clean_digits = re.sub(r"\D", "", ident)
 
-    if ident:
-        if "@" in ident:
-            email = ident.lower()
-        elif ident.isdigit() and len(ident) >= 7:
-            phone = normalize_phone(ident)
-        else:
-            # treat as username or email
-            email = ident.lower()
+    # 1. Phone number match
+    if len(clean_digits) >= 7:
+        last_10 = clean_digits[-10:]
+        user = db.scalar(
+            select(User)
+            .where(
+                User.role != "guest",
+                User.phone.isnot(None),
+                User.phone != "",
+                (User.phone == ident) | (User.phone.like(f"%{last_10}"))
+            )
+            .order_by(User.created_at.desc())
+        )
+
+    # 2. Email or username match
+    if not user:
+        search_val = ident.lower()
+        user = db.scalar(
+            select(User)
+            .where(
+                User.role != "guest",
+                (func.lower(User.email) == search_val) | (func.lower(User.username) == search_val)
+            )
+            .order_by(User.created_at.desc())
+        )
+
+    # 3. Fallback to payload.phone if separate
+    if not user and payload.phone:
+        p_clean = re.sub(r"\D", "", payload.phone)
+        if len(p_clean) >= 7:
+            user = db.scalar(
+                select(User)
+                .where(
+                    User.role != "guest",
+                    User.phone.isnot(None),
+                    User.phone != "",
+                    (User.phone == payload.phone) | (User.phone.like(f"%{p_clean[-10:]}"))
+                )
+                .order_by(User.created_at.desc())
+            )
+
+    if not user or not user.password_hash:
+        rem, lock_secs = record_failed_attempt(rate_key)
+        if lock_secs > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Account temporarily locked due to too many failed attempts. Please try again in 10 minutes."
+            )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid identifier or password.")
+
+    if not verify_password(payload.password, user.password_hash):
+        rem, lock_secs = record_failed_attempt(rate_key)
+        if lock_secs > 0:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Account temporarily locked due to too many failed attempts. Please try again in 10 minutes."
+            )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid identifier or password.")
+
+    # Upgrade password hash to Argon2id if needed
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(payload.password)
+        db.commit()
+
+    clear_failed_attempts(rate_key)
+
+    logger.info("user_login_success id=%s email=%s username=%s phone=%s", user.id, user.email, user.username, user.phone)
+    return token_response(user)
+
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(payload: ForgotPasswordPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
+    if not verify_math_challenge(payload.challenge_token, payload.calculation_result):
+        raise HTTPException(
+            status_code=400,
+            detail="Incorrect calculation result! Please solve the math problem correctly."
+        )
+
+    ident = payload.identifier.strip()
+    if not ident:
+        raise HTTPException(status_code=400, detail="Please enter your email, username, or phone number.")
 
     user = None
-    if ident or email:
-        search_val = (ident or email).strip().lower()
-        user = db.scalar(select(User).where((func.lower(User.email) == search_val) | (func.lower(User.username) == search_val)))
-    if not user and phone:
-        user = db.scalar(select(User).where(User.phone == phone))
-
-    if not user:
-        raise HTTPException(status_code=404, detail="No account found with the provided details. Please register first.")
-
-    logger.info("user_login_math_verified id=%s email=%s username=%s", user.id, user.email, user.username)
-    return token_response(user)
-
-
-@app.post("/api/auth/google")
-def google_auth(payload: GoogleAuthPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
-    """Seamless One-Click Google Authentication."""
-    email = payload.email.strip().lower()
-    user = db.scalar(select(User).where(User.email == email))
-
-    if not user:
-        is_first_user = (db.scalar(select(func.count(User.id))) or 0) == 0
-        username = payload.name or email.split("@")[0]
-        user = User(
-            email=email,
-            username=username,
-            role="admin" if is_first_user else "user",
-            password_hash=hash_password(f"google-oauth-{uuid.uuid4()}"),
+    clean_digits = re.sub(r"\D", "", ident)
+    if len(clean_digits) >= 7:
+        last_10 = clean_digits[-10:]
+        user = db.scalar(
+            select(User)
+            .where(
+                User.role != "guest",
+                User.phone.isnot(None),
+                User.phone != "",
+                (User.phone == ident) | (User.phone.like(f"%{last_10}"))
+            )
+            .order_by(User.created_at.desc())
         )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        logger.info("google_user_registered email=%s", email)
-    else:
-        if payload.name and not user.username:
-            user.username = payload.name
-            db.commit()
-            db.refresh(user)
 
-    return token_response(user)
+    if not user:
+        search_val = ident.lower()
+        user = db.scalar(
+            select(User)
+            .where(
+                User.role != "guest",
+                (func.lower(User.email) == search_val) | (func.lower(User.username) == search_val)
+            )
+            .order_by(User.created_at.desc())
+        )
+
+    if not user:
+        raise HTTPException(status_code=404, detail="No account found with the provided details.")
+
+    reset_token = f"rst_{uuid.uuid4().hex}"
+    user.password_reset_token = reset_token
+    user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Verification successful. Please enter your new password.",
+        "reset_token": reset_token,
+    }
+
+
+@app.post("/api/auth/reset-password")
+def reset_password(payload: ResetPasswordPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
+    if payload.new_password_confirm is not None and payload.new_password != payload.new_password_confirm:
+        raise HTTPException(status_code=400, detail="Passwords do not match.")
+
+    # Validate password strength
+    strength_err = validate_password_strength(payload.new_password)
+    if strength_err:
+        raise HTTPException(status_code=400, detail=strength_err)
+
+    user = db.scalar(
+        select(User).where(
+            User.password_reset_token == payload.reset_token,
+            User.password_reset_expires_at > datetime.now(timezone.utc)
+        )
+    )
+    if not user:
+        raise HTTPException(status_code=400, detail="Password reset link is invalid or has expired. Please request a new one.")
+
+    # Exact rejection requirement if new password matches existing password
+    if user.password_hash and verify_password(payload.new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Please enter a new password.")
+
+    user.password_hash = hash_password(payload.new_password)
+    user.password_reset_token = None
+    user.password_reset_expires_at = None
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "Password reset successful! You can now log in with your new password."
+    }
+
+
+
+@app.post("/api/auth/logout")
+def logout_user() -> JSONResponse:
+    response = JSONResponse(content={"success": True, "message": "Logged out successfully."})
+    clear_session_cookie(response)
+    return response
 
 
 @app.get("/api/auth/me")
@@ -509,9 +707,10 @@ async def upload_document(
     if extension not in settings.allowed_extensions:
         raise HTTPException(400, f"Unsupported file type '{extension}'. Supported: {', '.join(settings.allowed_extensions)}")
     content = await file.read()
-    if not content or len(content) > settings.max_upload_bytes:
-        max_mb = settings.max_upload_bytes // 1024 // 1024
-        raise HTTPException(400, f"File must be between 1 byte and {max_mb} MB")
+    if not content:
+        raise HTTPException(400, "Uploaded file cannot be empty.")
+    if len(content) > settings.max_upload_bytes:
+        raise HTTPException(400, "File size exceeds the 400 MB limit. Please upload a file smaller than or equal to 400 MB.")
 
     document = Document(owner_id=user.id, name=Path(filename).name, status="processing")
     db.add(document)
@@ -566,79 +765,24 @@ async def chat(
     # Normalize mode — only accept known modes; anything else falls back to 'general'
     effective_mode = request.mode if request.mode in ("general", "code") else "general"
 
-    # ── Backend Code Mode Enforcement ────────────────────────────────────────────
-    # If user is in Quick or Extended mode (not code mode) and asks for code → reject.
-    if effective_mode != "code":
-        code_verbs = re.compile(
-            r"\b(write|create|build|implement|generate|make|code|program|develop|script|design)\b",
-            re.IGNORECASE,
-        )
-        code_langs = re.compile(
-            r"\b(python|javascript|typescript|java|c\+\+|cpp|c#|csharp|rust|go|golang|php|ruby|kotlin|swift|sql|bash|shell|html|css|react|node|django|flask|express|vue|angular)\b",
-            re.IGNORECASE,
-        )
-        code_nouns = re.compile(
-            r"\b(function|class|method|algorithm|snippet|program|script|code|api|endpoint|component|module|library|implementation|binary search|linked list|factorial|fibonacci|sort|recursion|loop|array|stack|queue|tree|graph)\b",
-            re.IGNORECASE,
-        )
-        has_verb = bool(code_verbs.search(clean_message))
-        has_lang = bool(code_langs.search(clean_message))
-        has_noun = bool(code_nouns.search(clean_message))
-
-        is_code_request = (
-            (has_verb and (has_lang or has_noun))
-            or (has_lang and has_noun)
-            or bool(re.search(r"\b(give me|show me|write)\s+(a\s+)?(code|program|script|implementation|function|class)\b", clean_message, re.IGNORECASE))
-            or bool(re.search(r"\b(debug|fix|refactor|explain this code|optimize this code)\b", clean_message, re.IGNORECASE))
-        )
-
-        if is_code_request:
-            return {
-                "answer": "Code can only be genearte in code mode",
-                "sources": [],
-                "metrics": {},
-                "latency_ms": 1.0,
-                "timings_ms": {"total": 1.0},
-                "conversation_id": request.conversation_id,
-                "model_used": "Astra",
-                "rewritten_query": clean_message,
-            }
-
-    # Load or initialize conversation session for human-like multi-turn context
+    # Load or initialize conversation session strictly scoped to user (prevent IDOR)
     conv = None
     if request.conversation_id:
-        conv = db.get(Conversation, request.conversation_id)
-        if conv:
-            # If conversation exists but belonged to previous guest/user, adopt it safely for current user
-            if conv.user_id != user.id:
-                conv.user_id = user.id
+        existing_conv = db.get(Conversation, request.conversation_id)
+        if existing_conv:
+            if existing_conv.user_id != user.id:
+                raise HTTPException(403, "You do not have permission to access this conversation.")
+            conv = existing_conv
 
     if not conv:
-        conv_id = request.conversation_id
-        # Double check if conv_id already exists in db
-        if conv_id and db.get(Conversation, conv_id):
-            conv = db.get(Conversation, conv_id)
-            conv.user_id = user.id
-        else:
-            conv = Conversation(
-                id=conv_id or str(uuid.uuid4()),
-                user_id=user.id,
-                title=clean_message[:40] + ("…" if len(clean_message) > 40 else ""),
-                messages=[],
-            )
-            db.add(conv)
-            try:
-                db.flush()
-            except Exception:
-                db.rollback()
-                conv = Conversation(
-                    id=str(uuid.uuid4()),
-                    user_id=user.id,
-                    title=clean_message[:40] + ("…" if len(clean_message) > 40 else ""),
-                    messages=[],
-                )
-                db.add(conv)
-                db.flush()
+        conv = Conversation(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            title=clean_message[:40] + ("…" if len(clean_message) > 40 else ""),
+            messages=[],
+        )
+        db.add(conv)
+        db.flush()
 
     conversation_history: list[dict] = []
     if conv and conv.messages:
@@ -749,6 +893,9 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
 
     if has_html:
         doc = cleaned_html
+        # Remove dead relative link tags like <link rel="stylesheet" href="styles.css"> or script.js so they don't 404
+        doc = re.sub(r'<link[^>]+href=["\'](?:styles?\.css|main\.css|style\.css)["\'][^>]*>', '', doc, flags=re.I)
+        doc = re.sub(r'<script[^>]+src=["\'](?:scripts?\.js|main\.js|app\.js)["\'][^>]*>\s*</script>', '', doc, flags=re.I)
         if style_tag:
             if has_head:
                 doc = re.sub(r"(</head>)", f"{style_tag}\\1", doc, count=1, flags=re.I)
@@ -769,13 +916,19 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
   <title>{title}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <style>
     *, *::before, *::after {{ box-sizing: border-box; }}
+    html {{ scroll-behavior: smooth; }}
     body {{
       margin: 0;
       padding: 0;
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background: #0f172a;
+      color: #f8fafc;
     }}
     {cleaned_css}
   </style>

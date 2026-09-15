@@ -2,7 +2,7 @@
    ASTRA UI - 100% IDENTICAL BESPOKE GLASSMORPHISM STYLESHEET
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
 
 :root {
   --primary-dark: #111827;
@@ -170,6 +170,13 @@ html, body {
   z-index: 20;
   position: relative;
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+}
+
+.rail-top-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
 }
 
 .sidebar-rail::before {
@@ -749,22 +756,22 @@ html, body {
 .astra-center-stage.chat-active {
   justify-content: space-between;
   align-items: center;
-  padding: 30px 32px 24px 32px;
+  padding: 34px 38px 24px 38px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 40%, rgba(255, 255, 255, 0.03) 70%, rgba(255, 255, 255, 0.14) 100%),
-    radial-gradient(ellipse at 30% 10%, rgba(255, 255, 255, 0.24) 0%, transparent 60%);
-  backdrop-filter: blur(var(--glass-blur, 24px)) saturate(115%) brightness(104%) contrast(101%);
-  -webkit-backdrop-filter: blur(var(--glass-blur, 24px)) saturate(115%) brightness(104%) contrast(101%);
-  border: none !important;
-  border-radius: 36px;
+    linear-gradient(145deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.16) 42%, rgba(240, 248, 255, 0.12) 75%, rgba(255, 255, 255, 0.28) 100%),
+    radial-gradient(ellipse at 40% 12%, rgba(255, 255, 255, 0.36) 0%, transparent 65%);
+  backdrop-filter: blur(var(--glass-blur, 36px)) saturate(130%) brightness(103%);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 36px)) saturate(130%) brightness(103%);
+  border: 1px solid rgba(255, 255, 255, 0.55) !important;
+  border-radius: 40px;
   box-shadow:
-    0 32px 64px -16px rgba(0, 0, 0, 0.16),
-    0 16px 32px -8px rgba(0, 0, 0, 0.08),
-    0 4px 12px -2px rgba(0, 0, 0, 0.04),
-    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.68),
-    inset 0 -1px 1px 0 rgba(0, 0, 0, 0.03);
-  max-width: 820px;
-  height: calc(100vh - 44px);
+    0 32px 72px -16px rgba(15, 30, 60, 0.14),
+    0 16px 36px -8px rgba(20, 45, 85, 0.07),
+    0 4px 12px -2px rgba(255, 255, 255, 0.20),
+    inset 0 2px 2px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1.5px 2px 0 rgba(255, 255, 255, 0.30);
+  max-width: 860px;
+  height: calc(100vh - 40px);
   margin: auto;
   position: relative;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -774,9 +781,9 @@ html, body {
   content: '';
   position: absolute;
   inset: 0;
-  border-radius: 36px;
+  border-radius: 40px;
   pointer-events: none;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.03) 30%, transparent 60%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.08) 35%, transparent 70%);
   mask: linear-gradient(#fff, #fff) content-box, linear-gradient(#fff, #fff);
   -webkit-mask: linear-gradient(#fff, #fff) content-box, linear-gradient(#fff, #fff);
   mask-composite: exclude;
@@ -957,8 +964,8 @@ html, body {
   box-sizing: border-box;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
-  scrollbar-width: none !important;
-  -ms-overflow-style: none !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(145, 175, 195, 0.45) transparent;
 }
 
 /* Messages start from top and flow naturally downward */
@@ -968,54 +975,26 @@ html, body {
   display: none !important;
 }
 
-/* Scrollbar completely hidden by default when mouse/trackpad is idle */
+/* Ultra-smooth, elegant, non-glitching custom scrollbar */
 .messages-stream::-webkit-scrollbar {
-  width: 0px !important;
-  height: 0px !important;
-  display: none !important;
-  background: transparent !important;
+  width: 6px;
+  height: 6px;
 }
 
 .messages-stream::-webkit-scrollbar-track {
-  background: transparent !important;
-  display: none !important;
+  background: transparent;
 }
 
 .messages-stream::-webkit-scrollbar-thumb {
-  background: transparent !important;
-  display: none !important;
+  background: rgba(145, 175, 195, 0.35);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  transition: background 0.2s ease;
 }
 
-/* Automatically show scrollbar ONLY when mouse/trackpad is actively scrolling */
-.messages-stream.is-scrolling {
-  scrollbar-width: thin !important;
-  scrollbar-color: rgba(145, 175, 195, 0.55) transparent !important;
-}
-
-.messages-stream.is-scrolling::-webkit-scrollbar {
-  width: 6px !important;
-  height: 6px !important;
-  display: block !important;
-  background: transparent !important;
-}
-
-.messages-stream.is-scrolling::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.12) !important;
-  border-radius: 10px !important;
-  display: block !important;
-  margin: 6px 0 !important;
-}
-
-.messages-stream.is-scrolling::-webkit-scrollbar-thumb {
-  background: rgba(145, 175, 195, 0.6) !important;
-  border-radius: 10px !important;
-  border: 1px solid rgba(255, 255, 255, 0.35) !important;
-  display: block !important;
-  transition: opacity 0.2s ease !important;
-}
-
-.messages-stream.is-scrolling::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 140, 170, 0.85) !important;
+.messages-stream:hover::-webkit-scrollbar-thumb,
+.messages-stream::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 140, 170, 0.65);
 }
 
 .message-card {
@@ -1033,21 +1012,21 @@ html, body {
 }
 
 .user-bubble {
-  background: linear-gradient(145deg, rgba(150, 130, 210, 0.62) 0%, rgba(120, 100, 185, 0.50) 100%) !important;
+  background: linear-gradient(145deg, rgba(165, 145, 220, 0.60) 0%, rgba(135, 115, 200, 0.48) 100%) !important;
   backdrop-filter: blur(20px) saturate(145%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(145%) !important;
-  border: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.45) !important;
   border-radius: 18px;
-  padding: 12px 24px;
+  padding: 10px 24px;
   font-family: 'Instrument Serif', Georgia, serif;
-  font-size: 18.5px;
-  line-height: 1.45;
-  font-weight: 500;
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 400;
   color: #1a1033;
   box-shadow:
-    0 8px 20px -4px rgba(65, 50, 110, 0.18),
-    0 2px 6px -1px rgba(45, 35, 80, 0.10),
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.45),
+    0 8px 20px -4px rgba(65, 50, 110, 0.16),
+    0 2px 6px -1px rgba(45, 35, 80, 0.08),
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.55),
     inset 0 -1px 1px 0 rgba(255, 255, 255, 0.10) !important;
   word-break: break-word;
   white-space: pre-wrap;
@@ -1122,19 +1101,20 @@ html, body {
 .assistant-content {
   font-family: 'Instrument Serif', Georgia, serif;
   font-size: 23px;
-  line-height: 1.5;
+  line-height: 1.45;
   color: #111827;
-  font-weight: 500;
+  font-weight: 400;
   word-break: break-word;
   white-space: normal;
+  letter-spacing: 0.15px;
 }
 
 .astra-center-stage.has-code-view .assistant-content,
 .astra-center-stage:has(.code-editor-card) .assistant-content {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
-  font-size: 17.5px !important;
+  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  font-size: 16.5px !important;
   line-height: 1.65 !important;
-  color: #1e293b !important;
+  color: #0f172a !important;
 }
 
 .assistant-meta-row {
@@ -1375,6 +1355,15 @@ html, body {
 .capsule-squircle-btn.send-btn:hover {
   background: rgba(125, 155, 215, 0.85);
   color: #0f172a;
+}
+
+.capsule-squircle-btn:disabled,
+.capsule-squircle-btn.send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none;
+  box-shadow: none;
 }
 
 .composer-attach-wrapper {
@@ -1675,14 +1664,20 @@ html, body {
   letter-spacing: 0.3px;
 }
 
-/* Important / Emphasized words in Agent Responses: Bold and Red */
+/* Important / Emphasized words in Agent Responses: Refined Indigo Accent & Font-Weight */
 .message-card.assistant .bubble-content strong,
 .message-card.assistant .bubble-content b,
 .message-card.assistant strong,
 .message-card.assistant b,
 .agent-important-word {
   font-weight: 700 !important;
-  color: #dc2626 !important;
+  color: #1e1b4b !important;
+}
+
+[data-bg-theme="dark"] .message-card.assistant strong,
+[data-bg-theme="dark"] .message-card.assistant b,
+[data-bg-theme="dark"] .agent-important-word {
+  color: #a5b4fc !important;
 }
 
 /* User messages preserve normal styling */
@@ -2011,6 +2006,103 @@ html, body {
 
 .modal-danger-btn:hover {
   background: #dc2626;
+}
+
+/* Password toggle & auth extra styles */
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.password-input-wrapper input {
+  padding-right: 40px !important;
+}
+
+.pwd-toggle-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 14px;
+  color: #475569;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+.pwd-toggle-btn:hover {
+  opacity: 0.8;
+}
+
+.auth-extra-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 2px 0 8px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #0284c7;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 2px 4px;
+  transition: color 0.15s ease;
+}
+
+.link-btn:hover {
+  color: #0369a1;
+}
+
+
+.auth-sub-desc {
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.45;
+  margin-bottom: 14px;
+}
+
+.auth-error-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #b91c1c;
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+
+/* Download Code Button */
+.download-code-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.download-code-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
 }
 
 .auth-status-msg {

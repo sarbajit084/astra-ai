@@ -5,6 +5,19 @@
   let user = null;
   let authMode = 'login';
 
+  // Device-bound guest token management for unauthenticated / anonymous users
+  let guestToken = localStorage.getItem('astra_guest_token') || '';
+  let deviceId = localStorage.getItem('astra_device_id') || '';
+  if (!deviceId) {
+    deviceId = 'dev_' + (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : (Math.random().toString(36).substring(2) + Date.now().toString(36)));
+    localStorage.setItem('astra_device_id', deviceId);
+  }
+
+  // Auto-reset API base if on localhost so requests always go to local server
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    localStorage.removeItem('astra_api_base_url');
+  }
+
   // Configurable base URL for remote cloud deployment & Android mobile client
   const getApiBase = () => {
     return (window.ASTRA_API_BASE_URL || localStorage.getItem('astra_api_base_url') || '').replace(/\/+$/, '');
@@ -16,17 +29,30 @@
       throw new Error('Unable to connect to Astra. Please check your internet connection.');
     }
     const headers = { ...(options.headers || {}) };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else if (guestToken) {
+      headers.Authorization = `Bearer ${guestToken}`;
+      headers['X-Guest-Token'] = guestToken;
+    }
+    headers['X-Device-Id'] = deviceId;
+
     const fullUrl = path.startsWith('http') ? path : `${getApiBase()}${path}`;
     let response;
     try {
-      response = await fetch(fullUrl, { ...options, headers });
+      response = await fetch(fullUrl, { credentials: 'include', ...options, headers });
     } catch (err) {
       const msg = (typeof navigator !== 'undefined' && navigator.onLine === false)
         ? 'Unable to connect to Astra. Please check your internet connection.'
         : 'Astra is temporarily unavailable. Please try again.';
       toast(msg, true);
       throw new Error(msg);
+    }
+
+    const serverGuestToken = response.headers && response.headers.get('X-Guest-Token');
+    if (serverGuestToken && !token) {
+      guestToken = serverGuestToken;
+      localStorage.setItem('astra_guest_token', guestToken);
     }
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -479,6 +505,14 @@
                   </svg>
                   <span class="copy-btn-label">Copy code</span>
                 </button>
+                <button type="button" class="download-code-btn" title="Download code file" data-lang="${escapeHtml(rawLang)}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span class="download-btn-label">Download</span>
+                </button>
                 <button type="button" class="live-demo-btn" title="Live Demo">Live Demo</button>
               </div>
             </div>
@@ -588,7 +622,7 @@
   }
 
   let currentConversationId = localStorage.getItem('aster_active_conv_id') || '';
-  activeChatHistory = [];
+  let activeChatHistory = [];
 
   // Detailed Answer Mode (Astracore 3.1 toggle)
   let isDetailedMode = localStorage.getItem('astra_detailed_mode') === 'true';
@@ -596,30 +630,45 @@
   // Engine Modes: 'general' (Quick/Extended) | 'code'
   let activeEngineMode = 'general';
 
-  // Intelligent code-request detector for frontend guard (Quick/Extended mode)
+  // Enhanced configurable code-request detector
+  const codeRequestConfig = {
+    verbs: ['write','create','build','implement','generate','make','code','program','develop','script','design','show','give','provide'],
+    langs: ['python','javascript','typescript','java','c++','cpp','c#','csharp','rust','go','golang','php','ruby','kotlin','swift','sql','bash','shell','html','css','react','node','django','flask','express','vue','angular','ts','js','py'],
+    nouns: ['function','class','method','algorithm','snippet','program','script','code','api','endpoint','component','module','library','implementation','binary search','linked list','factorial','fibonacci','sort','recursion','loop','array','stack','queue','tree','graph','example']
+  };
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const codeVerbRegex = new RegExp('\\b(' + codeRequestConfig.verbs.map(escapeRegExp).join('|') + ')\\b','i');
+  const codeLangRegex = new RegExp('\\b(' + codeRequestConfig.langs.map(escapeRegExp).join('|') + ')\\b','i');
+  const codeNounRegex = new RegExp('\\b(' + codeRequestConfig.nouns.map(escapeRegExp).join('|') + ')\\b','i');
+
   function _isCodeRequest(text) {
     const q = text.toLowerCase();
-    // Hard code/program request patterns
-    const codeVerbs = /\b(write|create|build|implement|generate|make|code|program|develop|script|design)\b/;
-    const codeLangs = /\b(python|javascript|typescript|java|c\+\+|cpp|c#|csharp|rust|go|golang|php|ruby|kotlin|swift|sql|bash|shell|html|css|react|node|django|flask|express|vue|angular)\b/;
-    const codeNouns = /\b(function|class|method|algorithm|snippet|program|script|code|api|endpoint|component|module|library|implementation|binary search|linked list|factorial|fibonacci|sort|recursion|loop|array|stack|queue|tree|graph)\b/;
-
-    // If they explicitly ask for code/program in ANY language
-    const hasCodeVerb = codeVerbs.test(q);
-    const hasCodeLang = codeLangs.test(q);
-    const hasCodeNoun = codeNouns.test(q);
-
-    // Strong signal: "write python code", "create a java class", "implement binary search"
-    if (hasCodeVerb && (hasCodeLang || hasCodeNoun)) return true;
-    // Strong signal: "python code", "c++ implementation"
-    if (hasCodeLang && hasCodeNoun) return true;
-    // Explicit code output requests
-    if (/\b(give me|show me|write)\s+(a\s+)?(code|program|script|implementation|function|class)\b/.test(q)) return true;
-    // Debug/refactor signals
-    if (/\b(debug|fix|refactor|explain this code|optimize this code)\b/.test(q)) return true;
-
+    const hasVerb = codeVerbRegex.test(q);
+    const hasLang = codeLangRegex.test(q);
+    const hasNoun = codeNounRegex.test(q);
+    if (hasVerb && (hasLang || hasNoun)) return true;
+    if (hasLang && hasNoun) return true;
+    if (/\\b(give me|show me|write|provide)\\s+(a\\s+)?(code|program|script|implementation|function|class|example)\\b/i.test(q)) return true;
+    if (/\\b(debug|fix|refactor|explain this code|optimize this code)\\b/i.test(q)) return true;
     return false;
   }
+
+  // Debounce helper
+  function debounce(fn, delay) {
+    let timer;
+    return function(...args) {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+  }
+
+  const evaluateCodeRequest = debounce(function(message) {
+    if (_isCodeRequest(message)) {
+      setEngineMode('code');
+    } else {
+      setEngineMode('general');
+    }
+  }, 300);
 
   function setEngineMode(mode) {
     activeEngineMode = mode;
@@ -631,10 +680,8 @@
   function updateEngineModeUI() {
     const codeCheck = $('popoverCodeCheck');
     const codeRow = $('popoverModeCode');
-
     if (codeCheck) codeCheck.classList.toggle('hidden', activeEngineMode !== 'code');
     if (codeRow) codeRow.classList.toggle('active', activeEngineMode === 'code');
-
     const label = $('engineLabel');
     if (label) {
       label.textContent = activeEngineMode === 'code' ? 'Astracore Code' : 'Astracore 3.1';
@@ -980,14 +1027,16 @@
   function initInteractiveWidgets(scope) {
     if (!scope) return;
 
-    // 1. Copy Code Block Buttons
+    // 1. Copy Code Block Buttons (Pure raw code, no fences/markdown artifacts)
     scope.querySelectorAll('.copy-code-btn').forEach((btn) => {
       btn.onclick = async (e) => {
         e.preventDefault();
         e.stopPropagation();
         const card = btn.closest('.code-editor-card, .code-block-card');
         const codeElem = card ? card.querySelector('.code-editor-code, code, pre') : null;
-        const textToCopy = codeElem ? (codeElem.innerText || codeElem.textContent || '') : '';
+        let textToCopy = codeElem ? (codeElem.innerText || codeElem.textContent || '') : '';
+        // Pure code: strip surrounding markdown code fences or trailing artifacts
+        textToCopy = textToCopy.replace(/^```[a-zA-Z0-9_-]*\n?/, '').replace(/\n?```$/, '');
         if (!textToCopy) return;
 
         const label = btn.querySelector('.copy-btn-label') || btn;
@@ -1024,6 +1073,62 @@
         } catch (err) {
           toast('Could not copy code: ' + err.message, true);
         }
+      };
+    });
+
+    // 1a. Download Code File Buttons
+    scope.querySelectorAll('.download-code-btn').forEach((btn) => {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const card = btn.closest('.code-editor-card, .code-block-card');
+        const codeElem = card ? card.querySelector('.code-editor-code, code, pre') : null;
+        let codeText = codeElem ? (codeElem.innerText || codeElem.textContent || '') : '';
+        codeText = codeText.replace(/^```[a-zA-Z0-9_-]*\n?/, '').replace(/\n?```$/, '');
+        if (!codeText) return;
+
+        const rawLang = (btn.dataset.lang || (card && card.dataset.language) || '').toLowerCase();
+        const langMap = {
+          html: 'index.html',
+          htm: 'index.html',
+          css: 'style.css',
+          javascript: 'script.js',
+          js: 'script.js',
+          typescript: 'app.ts',
+          ts: 'app.ts',
+          jsx: 'App.jsx',
+          tsx: 'App.tsx',
+          python: 'main.py',
+          py: 'main.py',
+          json: 'data.json',
+          sql: 'query.sql',
+          bash: 'script.sh',
+          sh: 'script.sh',
+          c: 'main.c',
+          cpp: 'main.cpp',
+          'c++': 'main.cpp',
+          java: 'Main.java',
+          rust: 'main.rs',
+          rs: 'main.rs',
+          go: 'main.go',
+          markdown: 'README.md',
+          md: 'README.md',
+          xml: 'data.xml',
+          yaml: 'config.yaml',
+          yml: 'config.yaml',
+        };
+
+        const filename = langMap[rawLang] || (rawLang ? `code.${rawLang}` : 'snippet.txt');
+        const blob = new Blob([codeText], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast(`Downloaded ${filename}`);
       };
     });
 
@@ -1659,7 +1764,20 @@
 
   // Add message: Formats user message as lavender bubble and assistant message with A* avatar & Cormorant font
   function addMessage(role, text, meta = '', sources = [], stayAtTop = false, isChemistry = false, researchTrace = null, isTemporary = false) {
-    if ($('welcome')) $('welcome').classList.add('hidden');
+    const welcome = $('welcome');
+    if (welcome) {
+      welcome.classList.add('hidden');
+      welcome.style.display = 'none';
+    }
+    const stage = $('centerStage') || document.querySelector('.astra-center-stage');
+    if (stage) {
+      stage.classList.remove('welcome-mode');
+      stage.classList.add('chat-active');
+    }
+    const container = $('messages');
+    if (container) {
+      container.style.display = 'flex';
+    }
     updateStageMode();
     const row = document.createElement('article');
     const isTempMsg = isTemporary || (role === 'user' && isIncognito);
@@ -1722,22 +1840,22 @@
       }
     }
 
-    const container = $('messages');
-    container.append(row);
+    if (container) container.append(row);
 
     // Initialize 3D models, charts, and diagrams within this message
     initInteractiveWidgets(row);
 
     // Update outside-the-box code layout matching ChatGPT aesthetic
-    const stage = $('centerStage');
     if (stage) {
       const hasCode = Boolean(stage.querySelector('.code-editor-card') || row.querySelector('.code-editor-card') || activeEngineMode === 'code');
       stage.classList.toggle('has-code-view', hasCode);
     }
 
     if (stayAtTop) {
-      requestAnimationFrame(() => {
+      const raf = (typeof window !== 'undefined' && window.requestAnimationFrame) ? window.requestAnimationFrame : ((cb) => setTimeout(cb, 16));
+      raf(() => {
         setTimeout(() => {
+          if (!container) return;
           const topPos = row.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
           container.scrollTo({
             top: Math.max(0, topPos - 12),
@@ -1746,7 +1864,7 @@
         }, 20);
       });
     } else {
-      container.scrollTop = container.scrollHeight;
+      if (container) container.scrollTop = container.scrollHeight;
     }
     return row;
   }
@@ -1849,8 +1967,11 @@
     }
   }
 
+  let isSending = false;
+
   async function sendMessage(event) {
     if (event) event.preventDefault();
+    if (isSending) return;
     stopVoiceRecognition();
 
     // Automatically close sidebar smoothly when user sends query
@@ -1860,21 +1981,34 @@
     }
 
     const box = $('message');
-    const message = box.value.trim();
+    const message = box ? box.value.trim() : '';
     if (!message) return;
 
-    // ── Frontend Code Mode Guard ──────────────────────────────────────────────
-    // If NOT in code mode and the user is asking for code/programming, block it.
-    if (activeEngineMode !== 'code' && _isCodeRequest(message)) {
+    isSending = true;
+    const sendBtn = $('sendButton');
+    const homeSendBtn = $('composerHomeSendBtn');
+    if (sendBtn) sendBtn.disabled = true;
+    if (homeSendBtn) homeSendBtn.disabled = true;
+
+    if (box) {
       box.value = '';
       box.style.height = 'auto';
-      addMessage('user', message, '', [], false, false, null, isIncognito);
-      addMessage('assistant', 'Code can only be genearte in code mode', '', [], false, false, null, isIncognito);
-      return;
     }
 
-    box.value = '';
-    box.style.height = 'auto';
+    const welcome = $('welcome');
+    if (welcome) {
+      welcome.classList.add('hidden');
+      welcome.style.display = 'none';
+    }
+    const stage = $('centerStage') || document.querySelector('.astra-center-stage');
+    if (stage) {
+      stage.classList.remove('welcome-mode');
+      stage.classList.add('chat-active');
+    }
+    const msgStream = $('messages');
+    if (msgStream) {
+      msgStream.style.display = 'flex';
+    }
 
     addMessage('user', message, '', [], false, false, null, isIncognito);
 
@@ -1901,7 +2035,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message,
-          selected_doc_id: $('documentSelect').value || null,
+          selected_doc_id: ($('documentSelect') && $('documentSelect').value) || null,
           conversation_id: convIdToSend,
           history: historyToSend,
           incognito: isIncognito,
@@ -1948,16 +2082,27 @@
       );
 
     } catch (err) {
-      pending.remove();
-      addMessage('assistant', `I could not complete that query: ${err.message}`, '', [], true, false, null, isIncognito);
+      console.error('sendMessage error:', err);
+      if (pending) pending.remove();
+      addMessage('assistant', `Error: ${err.message}`, '', [], true, false, null, isIncognito);
       toast(err.message, true);
+    } finally {
+      isSending = false;
+      if (sendBtn) sendBtn.disabled = false;
+      if (homeSendBtn) homeSendBtn.disabled = false;
+      if (box) box.focus();
     }
   }
 
   async function uploadFiles(files) {
     if (!files || !files.length) return;
+    const MAX_UPLOAD_BYTES = 400 * 1024 * 1024; // 400 MB
     let lastUploadedDoc = null;
     for (const file of files) {
+      if (file.size > MAX_UPLOAD_BYTES) {
+        toast('File size exceeds the 400 MB limit. Please upload a file smaller than or equal to 400 MB.', true);
+        continue;
+      }
       const form = new FormData();
       form.append('file', file);
       try {
@@ -1984,8 +2129,62 @@
     }
   }
 
+  function clearAllAuthFields() {
+    if ($('loginForm')) $('loginForm').reset();
+    if ($('signupForm')) $('signupForm').reset();
+    if ($('forgotPasswordForm')) $('forgotPasswordForm').reset();
+    if ($('resetPasswordForm')) $('resetPasswordForm').reset();
+
+    const fieldIds = [
+      'loginIdentifier',
+      'loginPassword',
+      'loginMathAnswer',
+      'signupUsername',
+      'signupEmail',
+      'signupPhone',
+      'signupPassword',
+      'signupMathAnswer',
+      'forgotIdentifier',
+      'forgotMathAnswer',
+      'newPasswordInput',
+      'confirmPasswordInput',
+      'resetTokenHidden',
+    ];
+    fieldIds.forEach((id) => {
+      const el = $(id);
+      if (el) {
+        el.value = '';
+        el.setAttribute('value', '');
+      }
+    });
+
+    if ($('resetErrorMsg')) {
+      $('resetErrorMsg').textContent = '';
+      $('resetErrorMsg').classList.add('hidden');
+    }
+  }
+
+  function ensureLoginFormEmpty() {
+    clearAllAuthFields();
+    setTimeout(() => {
+      if (!token) {
+        if ($('loginIdentifier')) $('loginIdentifier').value = '';
+        if ($('loginPassword')) $('loginPassword').value = '';
+        if ($('loginMathAnswer')) $('loginMathAnswer').value = '';
+      }
+    }, 40);
+    setTimeout(() => {
+      if (!token) {
+        if ($('loginIdentifier')) $('loginIdentifier').value = '';
+        if ($('loginPassword')) $('loginPassword').value = '';
+        if ($('loginMathAnswer')) $('loginMathAnswer').value = '';
+      }
+    }, 150);
+  }
+
   function switchAuthMode(mode) {
     authMode = mode;
+    ensureLoginFormEmpty();
     document.querySelectorAll('.modal-tab').forEach((t) => t.classList.toggle('active', t.dataset.mode === mode));
     $('authHeading').textContent = mode === 'login' ? 'Quick Login' : 'Create Account';
     if ($('loginForm')) $('loginForm').classList.toggle('hidden', mode !== 'login');
@@ -1998,6 +2197,7 @@
   // ==========================================
   let currentLoginChallenge = null;
   let currentSignupChallenge = null;
+  let currentForgotChallenge = null;
 
   async function loadMathChallenge(mode = 'login') {
     try {
@@ -2007,7 +2207,9 @@
         if ($('loginMathQuestion')) {
           $('loginMathQuestion').innerHTML = `<span style="color:#f472b6;">${challenge.num1}</span> <span style="color:#f97316;">${challenge.operation}</span> <span style="color:#f472b6;">${challenge.num2}</span> = ?`;
         }
-        if ($('loginMathAnswer')) $('loginMathAnswer').value = '';
+        if ($('loginMathAnswer')) {
+          $('loginMathAnswer').value = ''; // NEVER pre-fill! Manual user calculation required.
+        }
       }
       if (mode === 'signup' || mode === 'all') {
         currentSignupChallenge = challenge;
@@ -2021,6 +2223,19 @@
     }
   }
 
+  async function loadForgotMathChallenge() {
+    try {
+      const challenge = await api('/api/auth/challenge');
+      currentForgotChallenge = challenge;
+      if ($('forgotMathQuestion')) {
+        $('forgotMathQuestion').innerHTML = `<span style="color:#f472b6;">${challenge.num1}</span> <span style="color:#f97316;">${challenge.operation}</span> <span style="color:#f472b6;">${challenge.num2}</span> = ?`;
+      }
+      if ($('forgotMathAnswer')) $('forgotMathAnswer').value = '';
+    } catch (err) {
+      toast('Failed to load calculation challenge: ' + err.message, true);
+    }
+  }
+
   if ($('loginRefreshChallengeBtn')) {
     $('loginRefreshChallengeBtn').onclick = () => loadMathChallenge('login');
   }
@@ -2029,19 +2244,163 @@
     $('signupRefreshChallengeBtn').onclick = () => loadMathChallenge('signup');
   }
 
-  // Handle Math Calculation Login
+  if ($('forgotRefreshChallengeBtn')) {
+    $('forgotRefreshChallengeBtn').onclick = () => loadForgotMathChallenge();
+  }
+
+  // Password visibility toggle
+  if ($('toggleLoginPasswordBtn')) {
+    $('toggleLoginPasswordBtn').onclick = () => {
+      const inp = $('loginPassword');
+      if (inp) {
+        inp.type = inp.type === 'password' ? 'text' : 'password';
+      }
+    };
+  }
+
+  // Forgot Password Modal Triggers
+  if ($('forgotPasswordLinkBtn')) {
+    $('forgotPasswordLinkBtn').onclick = () => {
+      if ($('authModal')) $('authModal').classList.add('hidden');
+      if ($('forgotPasswordModal')) {
+        $('forgotPasswordModal').classList.remove('hidden');
+        if ($('forgotPasswordForm')) $('forgotPasswordForm').classList.remove('hidden');
+        if ($('resetPasswordForm')) $('resetPasswordForm').classList.add('hidden');
+        loadForgotMathChallenge();
+      }
+    };
+  }
+
+  if ($('closeForgotModal')) {
+    $('closeForgotModal').onclick = () => {
+      if ($('forgotPasswordModal')) $('forgotPasswordModal').classList.add('hidden');
+    };
+  }
+
+  if ($('backToLoginFromForgotBtn')) {
+    $('backToLoginFromForgotBtn').onclick = () => {
+      if ($('forgotPasswordModal')) $('forgotPasswordModal').classList.add('hidden');
+      if ($('authModal')) {
+        $('authModal').classList.remove('hidden');
+        switchAuthMode('login');
+      }
+    };
+  }
+
+  // Handle Forgot Password Step 1 (Request reset token with math check)
+  if ($('forgotPasswordForm')) {
+    $('forgotPasswordForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const identifier = $('forgotIdentifier') ? $('forgotIdentifier').value.trim() : '';
+      const ansVal = $('forgotMathAnswer') ? $('forgotMathAnswer').value.trim() : '';
+      const calculation_result = parseInt(ansVal, 10);
+
+      if (!identifier) {
+        toast('Please enter your account identifier', true);
+        return;
+      }
+      if (isNaN(calculation_result)) {
+        toast('Please calculate and enter the answer to the math problem', true);
+        return;
+      }
+      if (!currentForgotChallenge) {
+        toast('Challenge expired, refreshing…', true);
+        await loadForgotMathChallenge();
+        return;
+      }
+
+      try {
+        toast('Verifying identity & math calculation…');
+        const res = await api('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identifier,
+            challenge_token: currentForgotChallenge.challenge_token,
+            calculation_result,
+          }),
+        });
+
+        if (res.reset_token) {
+          $('resetTokenHidden').value = res.reset_token;
+          $('forgotPasswordForm').classList.add('hidden');
+          $('resetPasswordForm').classList.remove('hidden');
+          if ($('resetErrorMsg')) $('resetErrorMsg').classList.add('hidden');
+          toast('Identity verified! Please enter your new password.');
+        } else {
+          toast(res.message || 'Verification complete.');
+        }
+      } catch (err) {
+        toast(err.message, true);
+        loadForgotMathChallenge();
+      }
+    };
+  }
+
+  // Handle Forgot Password Step 2 (Reset Password)
+  if ($('resetPasswordForm')) {
+    $('resetPasswordForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const reset_token = $('resetTokenHidden').value;
+      const new_password = $('newPasswordInput').value;
+      const confirm_password = $('confirmPasswordInput').value;
+
+      if (!new_password) {
+        toast('Please enter a new password', true);
+        return;
+      }
+      if (new_password !== confirm_password) {
+        toast('Passwords do not match', true);
+        return;
+      }
+
+      try {
+        toast('Updating password…');
+        const res = await api('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reset_token,
+            new_password,
+            new_password_confirm: confirm_password,
+          }),
+        });
+
+        toast('✓ ' + (res.message || 'Password reset successfully!'));
+        if ($('forgotPasswordModal')) $('forgotPasswordModal').classList.add('hidden');
+        if ($('authModal')) {
+          $('authModal').classList.remove('hidden');
+          switchAuthMode('login');
+        }
+      } catch (err) {
+        if ($('resetErrorMsg')) {
+          $('resetErrorMsg').textContent = err.message;
+          $('resetErrorMsg').classList.remove('hidden');
+        }
+        toast(err.message, true);
+      }
+    };
+  }
+
+  // Handle Math Calculation Login (Requires BOTH math challenge and password)
   if ($('loginForm')) {
     $('loginForm').onsubmit = async (e) => {
       e.preventDefault();
-      const identifier = $('loginIdentifier').value.trim();
-      const calculation_result = parseInt($('loginMathAnswer').value.trim(), 10);
+      const identifier = $('loginIdentifier') ? $('loginIdentifier').value.trim() : '';
+      const password = $('loginPassword') ? $('loginPassword').value : '';
+      const ansVal = $('loginMathAnswer') ? $('loginMathAnswer').value.trim() : '';
+      const calculation_result = parseInt(ansVal, 10);
 
       if (!identifier) {
         toast('Please enter your phone number, email, or username', true);
         return;
       }
+      if (!password) {
+        toast('Please enter your password', true);
+        return;
+      }
       if (isNaN(calculation_result)) {
-        toast('Please enter your calculation result', true);
+        toast('Please calculate and enter the answer to the math problem', true);
         return;
       }
       if (!currentLoginChallenge) {
@@ -2052,32 +2411,37 @@
 
       try {
         toast('Verifying calculation & logging in…');
+        const payload = {
+          identifier,
+          password,
+          challenge_token: currentLoginChallenge.challenge_token,
+          calculation_result,
+        };
+
         const result = await api('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            identifier,
-            challenge_token: currentLoginChallenge.challenge_token,
-            calculation_result,
-          }),
+          body: JSON.stringify(payload),
         });
         token = result.access_token;
         user = result.user;
         cachedUsername = (user && user.username) || identifier;
+        guestToken = '';
+        localStorage.removeItem('astra_guest_token');
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
-        $('authModal').classList.add('hidden');
+        if ($('authModal')) $('authModal').classList.add('hidden');
         toast(`Welcome back, ${cachedUsername}!`);
         updateAuthUI();
         refreshDocuments();
         refreshConversations();
       } catch (err) {
         toast(err.message, true);
-        // Refresh challenge on error
         loadMathChallenge('login');
       }
     };
   }
+
 
   // Handle Math Calculation Registration
   if ($('signupForm')) {
@@ -2094,7 +2458,7 @@
         return;
       }
       if (isNaN(calculation_result)) {
-        toast('Please enter the result of the calculation', true);
+        toast('Please calculate and enter the answer to the math problem', true);
         return;
       }
       if (!currentSignupChallenge) {
@@ -2120,6 +2484,8 @@
         token = result.access_token;
         user = result.user;
         cachedUsername = (user && user.username) || username;
+        guestToken = '';
+        localStorage.removeItem('astra_guest_token');
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
         $('authModal').classList.add('hidden');
@@ -2135,26 +2501,36 @@
   }
 
   // Event Listeners
-  if ($('chatForm')) $('chatForm').onsubmit = sendMessage;
-  if ($('sendButton')) $('sendButton').onclick = (e) => {
-    e.preventDefault();
-    sendMessage();
+  const submitHandler = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    sendMessage(e);
+    return false;
   };
-  if ($('composerHomeSendBtn')) $('composerHomeSendBtn').onclick = (e) => {
-    e.preventDefault();
-    sendMessage();
-  };
+
+  if ($('chatForm')) {
+    $('chatForm').onsubmit = submitHandler;
+  }
+  if ($('sendButton')) {
+    $('sendButton').onclick = submitHandler;
+  }
+  if ($('composerHomeSendBtn')) {
+    $('composerHomeSendBtn').onclick = submitHandler;
+  }
   if ($('message')) {
-    $('message').onkeydown = (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+    $('message').addEventListener('keydown', (e) => {
+      if ((e.key === 'Enter' || e.keyCode === 13) && !e.shiftKey) {
         e.preventDefault();
-        sendMessage();
+        e.stopPropagation();
+        sendMessage(e);
       }
-    };
-    $('message').oninput = (e) => {
+    });
+    $('message').addEventListener('input', (e) => {
       e.target.style.height = 'auto';
       e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
-    };
+    });
   }
 
   // ==========================================
@@ -2345,12 +2721,14 @@
     };
   });
 
-  $('fileInput').onchange = (e) => uploadFiles(e.target.files);
-  $('uploadDrop').ondragover = (e) => e.preventDefault();
-  $('uploadDrop').ondrop = (e) => {
-    e.preventDefault();
-    uploadFiles(e.dataTransfer.files);
-  };
+  if ($('fileInput')) $('fileInput').onchange = (e) => uploadFiles(e.target.files);
+  if ($('uploadDrop')) {
+    $('uploadDrop').ondragover = (e) => e.preventDefault();
+    $('uploadDrop').ondrop = (e) => {
+      e.preventDefault();
+      uploadFiles(e.dataTransfer.files);
+    };
+  }
   window.ondragover = (e) => e.preventDefault();
   window.ondrop = (e) => {
     e.preventDefault();
@@ -2359,7 +2737,8 @@
     }
   };
 
-  $('newChat').onclick = async () => {
+  if ($('newChat')) {
+    $('newChat').onclick = async () => {
     $('messages').innerHTML = '';
     $('welcome').classList.remove('hidden');
     const stage = $('centerStage');
@@ -2388,7 +2767,8 @@
       localStorage.removeItem('aster_active_conv_id');
     }
     toast('Started a new conversation session');
-  };
+    };
+  }
 
   // Wire Private Mode Toggle Buttons (Top right navbar button and Sidebar header icon)
 
@@ -2553,33 +2933,6 @@
     if (customBgStatus) customBgStatus.textContent = 'Custom wallpaper active';
   }
 
-  // API Endpoint configuration controls
-  const apiInput = $('apiEndpointInput');
-  const saveApiBtn = $('saveApiEndpointBtn');
-  const resetApiBtn = $('resetApiEndpointBtn');
-  if (apiInput) {
-    apiInput.value = localStorage.getItem('astra_api_base_url') || (window.ASTRA_API_BASE_URL || '');
-    if (saveApiBtn) {
-      saveApiBtn.onclick = () => {
-        const val = (apiInput.value || '').trim();
-        if (val) {
-          localStorage.setItem('astra_api_base_url', val);
-          window.ASTRA_API_BASE_URL = val;
-          toast('Saved API endpoint: ' + val);
-        } else {
-          localStorage.removeItem('astra_api_base_url');
-          toast('Reset to default API endpoint');
-        }
-      };
-    }
-    if (resetApiBtn) {
-      resetApiBtn.onclick = () => {
-        localStorage.removeItem('astra_api_base_url');
-        apiInput.value = window.ASTRA_API_BASE_URL || 'https://astra-ai-agent-production.up.railway.app';
-        toast('Restored default API endpoint');
-      };
-    }
-  }
 
   // User Auth Modal Controls & Gear Icon Routing
   if ($('userAuthBtn')) {
@@ -2590,6 +2943,11 @@
         openSettingsModal();
         return;
       }
+      if (!token) {
+        ensureLoginFormEmpty();
+        authMode = 'login';
+        switchAuthMode('login');
+      }
       $('authModal').classList.remove('hidden');
       loadMathChallenge(authMode);
     };
@@ -2597,56 +2955,79 @@
   if ($('closeAuthModal')) {
     $('closeAuthModal').onclick = () => {
       $('authModal').classList.add('hidden');
+      if (!token) {
+        ensureLoginFormEmpty();
+      }
     };
   }
   document.querySelectorAll('.modal-tab').forEach((t) => (t.onclick = () => switchAuthMode(t.dataset.mode)));
 
-  $('logoutBtn').onclick = () => {
-    // 1. Clear credentials and storage completely
-    token = '';
-    user = null;
-    cachedUsername = '';
-    currentConversationId = '';
-    activeChatHistory = [];
-    localStorage.clear();
+  if ($('logoutBtn')) {
+    $('logoutBtn').onclick = async () => {
+      // 1. Notify server to invalidate session cookie
+      try {
+        await api('/api/auth/logout', { method: 'POST' });
+      } catch (_) {}
 
-    // 2. Hide auth modal
-    $('authModal').classList.add('hidden');
+      // 2. Clear client credentials and local storage completely
+      token = '';
+      user = null;
+      cachedUsername = '';
+      currentConversationId = '';
+      activeChatHistory = [];
+      localStorage.clear();
 
-    // 3. Reset chat stream and show welcome card
-    $('messages').innerHTML = '';
-    $('welcome').classList.remove('hidden');
-    if ($('message')) {
-      $('message').value = '';
-      $('message').style.height = 'auto';
-    }
+      // Reset device ID and guest token to ensure complete isolation for the new session
+      deviceId = 'dev_' + (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : (Math.random().toString(36).substring(2) + Date.now().toString(36)));
+      localStorage.setItem('astra_device_id', deviceId);
+      guestToken = '';
 
-    // 4. Reset composer document focus tag
-    if ($('activeDocTag')) $('activeDocTag').classList.add('hidden');
-    if ($('activeDocName')) $('activeDocName').textContent = '';
+      // 3. Completely blank out every single login and registration form field
+      ensureLoginFormEmpty();
 
-    // 5. Completely wipe previous user's documents & conversations from the view
-    if ($('documentSelect')) {
-      $('documentSelect').innerHTML = '<option value="">All indexed documents</option>';
-    }
-    if ($('documentList')) {
-      $('documentList').innerHTML = '<p class="muted-box-msg">No documents uploaded yet</p>';
-    }
-    if ($('docCount')) $('docCount').textContent = '0';
-    if ($('conversationList')) {
-      $('conversationList').innerHTML = '<p class="muted-box-msg">No conversations yet</p>';
-    }
+      // 4. Hide auth modal
+      if ($('authModal')) $('authModal').classList.add('hidden');
 
-    // 6. Reset auth UI badges and state
-    updateAuthUI();
-    toast('Signed out. Started a completely new session.');
-  };
+      // 5. Reset chat stream and show welcome card
+      if ($('messages')) $('messages').innerHTML = '';
+      if ($('welcome')) $('welcome').classList.remove('hidden');
+      if ($('message')) {
+        $('message').value = '';
+        $('message').style.height = 'auto';
+      }
+
+      // 6. Reset composer document focus tag
+      if ($('activeDocTag')) $('activeDocTag').classList.add('hidden');
+      if ($('activeDocName')) $('activeDocName').textContent = '';
+
+      // 7. Completely wipe previous user's documents & conversations from the view
+      if ($('documentSelect')) {
+        $('documentSelect').innerHTML = '<option value="">All indexed documents</option>';
+      }
+      if ($('documentList')) {
+        $('documentList').innerHTML = '<p class="muted-box-msg">No documents uploaded yet</p>';
+      }
+      if ($('docCount')) $('docCount').textContent = '0';
+      if ($('conversationList')) {
+        $('conversationList').innerHTML = '<p class="muted-box-msg">No conversations yet</p>';
+      }
+
+      // 8. Reset auth UI badges and state to guest
+      authMode = 'login';
+      updateAuthUI();
+      loadMathChallenge('login');
+      toast('Signed out. Every field and session has been cleared.');
+    };
+  }
 
   // Initialize workspace immediately for everyone
   initSidebar();
   refreshDocuments();
   refreshConversations();
   checkHealth();
+  if (!token) {
+    ensureLoginFormEmpty();
+  }
   shuffleWelcomeTagline();
   updateStageMode();
 
@@ -2712,22 +3093,7 @@
     };
   }
 
-  // Dynamic Scrollbar: Show automatically when mouse wheel or trackpad is used, otherwise completely invisible
-  const msgStream = $('messages');
-  if (msgStream) {
-    let scrollTimeout = null;
-    const triggerScrollIndicator = () => {
-      msgStream.classList.add('is-scrolling');
-      if (scrollTimeout) clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => {
-        msgStream.classList.remove('is-scrolling');
-      }, 850);
-    };
 
-    msgStream.addEventListener('scroll', triggerScrollIndicator, { passive: true });
-    msgStream.addEventListener('wheel', triggerScrollIndicator, { passive: true });
-    msgStream.addEventListener('touchmove', triggerScrollIndicator, { passive: true });
-  }
 
   // Row: Quick Mode
   if ($('popoverModeQuick')) {

@@ -1,4 +1,4 @@
-﻿import os
+import os
 import shutil
 import subprocess
 import sys
@@ -73,7 +73,9 @@ if proc.returncode != 0:
 # Find the generated APK
 dist_dir = Path("d:/rag_agent/dist")
 dist_dir.mkdir(parents=True, exist_ok=True)
-target_apk = dist_dir / "Astra.apk"
+root_apk = Path("d:/rag_agent/Astra-Android-Release.apk")
+dist_release_apk = dist_dir / "Astra-Android-Release.apk"
+dist_apk = dist_dir / "Astra.apk"
 
 apk_candidates = list(android_proj_dir.glob("app/build/outputs/apk/**/*.apk"))
 print(f"Found APKs: {apk_candidates}")
@@ -81,10 +83,15 @@ print(f"Found APKs: {apk_candidates}")
 if apk_candidates:
     # Prefer release, then debug
     best_apk = next((a for a in apk_candidates if "release" in a.name), apk_candidates[0])
-    shutil.copy2(best_apk, target_apk)
-    size_mb = target_apk.stat().st_size / (1024 * 1024)
-    print(f"\nSUCCESS! Astra APK created at: {target_apk}")
+    shutil.copy2(best_apk, root_apk)
+    shutil.copy2(best_apk, dist_release_apk)
+    shutil.copy2(best_apk, dist_apk)
+    size_mb = root_apk.stat().st_size / (1024 * 1024)
+    print(f"\nSUCCESS! Astra Android Release APK created at:")
+    print(f"  -> {root_apk}")
+    print(f"  -> {dist_release_apk}")
     print(f"File Size: {size_mb:.2f} MB")
 else:
     print("ERROR: No APK file was generated.")
     sys.exit(1)
+

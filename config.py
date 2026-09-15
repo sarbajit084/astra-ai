@@ -37,8 +37,8 @@ class Settings:
     cors_origins: list[str] = None  # type: ignore[assignment]
     
     # LLM Provider Configuration
-    # Accepts xAI Grok (xai-...) or Groq Cloud (gsk_...)
-    xai_api_key: str = os.getenv("XAI_API_KEY", "")
+    # Accepts xAI Grok (xai-...), Grok API key (GROK_API_KEY), or Groq Cloud (gsk_...)
+    xai_api_key: str = os.getenv("GROK_API_KEY", os.getenv("XAI_API_KEY", ""))
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     grok_model: str = os.getenv("GROK_MODEL", "openai/gpt-oss-120b")
     groq_model: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
@@ -70,8 +70,9 @@ class Settings:
     db_pool_size: int = int(os.getenv("DB_POOL_SIZE", "20"))
     db_max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "40"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
-    max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
-    allowed_extensions: frozenset[str] = frozenset({".pdf", ".txt", ".md", ".csv", ".json", ".py", ".html", ".docx"})
+    max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(400 * 1024 * 1024)))
+    allowed_extensions: frozenset[str] = frozenset({".pdf", ".txt", ".md", ".csv", ".json", ".py", ".html", ".docx", ".zip"})
+
 
     # Persona & Professional/Formal Settings
     research_mode: bool = os.getenv("RESEARCH_MODE", "false").lower() in ("true", "1", "yes")
@@ -84,11 +85,13 @@ class Settings:
     image_height: int = int(os.getenv("IMAGE_HEIGHT", "1024"))
 
     def __post_init__(self):
-        cors_val = os.getenv("CORS_ORIGINS", "*").strip()
-        if cors_val == "*":
-            object.__setattr__(self, "cors_origins", ["*"])
+        cors_val = os.getenv("CORS_ORIGINS", "").strip()
+        trusted_defaults = ["http://127.0.0.1:8000", "http://localhost:8000", "http://127.0.0.1:3000", "http://localhost:3000"]
+        if not cors_val or cors_val == "*":
+            object.__setattr__(self, "cors_origins", trusted_defaults)
         else:
-            object.__setattr__(self, "cors_origins", [v.strip() for v in cors_val.split(",") if v.strip()])
+            parsed = [v.strip() for v in cors_val.split(",") if v.strip()]
+            object.__setattr__(self, "cors_origins", parsed or trusted_defaults)
         if not self.database_url:
             db_file = self.data_dir / "aster.db"
             object.__setattr__(self, "database_url", f"sqlite:///{db_file.as_posix()}")

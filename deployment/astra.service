@@ -1,0 +1,28 @@
+[Unit]
+Description=Astra RAG + AI Agent Production Service
+After=network.target
+
+[Service]
+Type=simple
+User=astra
+Group=www-data
+WorkingDirectory=/opt/astra
+EnvironmentFile=/opt/astra/.env
+ExecStart=/opt/astra/venv/bin/gunicorn app:app -c /opt/astra/deployment/gunicorn.conf.py
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+PrivateTmp=true
+
+# Security Hardening
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=true
+
+# Resource Limits for High-Concurrency Operations
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -1,42 +1,51 @@
-# Environment & secrets
+# Environment & Secrets (NEVER COMMIT)
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
 
-# Python
+# Python Cache & Virtual Environments
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 .Python
 env/
 venv/
 .venv/
+ENV/
 
-# PyInstaller & Build
+# Distribution & Build Artifacts
 build/
 dist/
 *.spec
 *.zip
+*.tar.gz
+*.apk
 
-# Database & runtime data
-data/
+# Database & Runtime Uploads
+data/*.db
+data/images/
 *.db
+uploads/*
+!uploads/.gitkeep
+backups/
 
-# Temporary & profile
-tmp_cdp_profile/
+# Logs & Temporary Files
 *.log
+logs/
+tmp/
+scratch/
+tmp_*/
 ss_*.png
 
-# Android & Gradle tools/build
+# Android SDK Tools & Gradle Cache
 tools/
 .gradle/
 android/.gradle/
 android/local.properties
 android/app/build/
 android/build/
-setup_android.py
-download_gradle.py
-download_sdk_tools.py
-install_platform.bat
-bundle_assets.py
-create_gradle_files.py
+.idea/
+*.iml

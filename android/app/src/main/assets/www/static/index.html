@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
-    <link rel="stylesheet" href="/static/style.css?v=3006">
+    <link rel="stylesheet" href="/static/style.css?v=3028">
 
   </head>
   <body>
@@ -371,13 +371,29 @@
                   </div>
 
                   <!-- Microphone Button beside Send Button on Homescreen -->
-                  <button type="button" id="composerHomeMicBtn" class="capsule-mic-btn composer-home-mic-btn" title="Voice Dictation" aria-label="Voice dictation">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                      <line x1="12" y1="19" x2="12" y2="22"></line>
-                    </svg>
-                  </button>
+                  <div id="composerHomeMicPill" class="voice-search-pill home-voice-pill">
+                    <div id="composerHomeVoiceWaveform" class="voice-wave-container hidden">
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                      <span class="wave-bar"></span>
+                    </div>
+                    <button type="button" id="composerHomeMicBtn" class="capsule-mic-btn composer-home-mic-btn" title="Voice Dictation" aria-label="Voice dictation">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                      </svg>
+                    </button>
+                  </div>
 
                   <!-- Homescreen Send Button (Squircle) -->
                   <button type="button" id="composerHomeSendBtn" class="capsule-squircle-btn send-btn composer-home-send-btn" aria-label="Send query" title="Send query">
@@ -607,6 +623,6 @@
     <!-- Global Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/app.js?v=3027"></script>
+    <script src="/static/app.js?v=3028"></script>
   </body>
 </html>

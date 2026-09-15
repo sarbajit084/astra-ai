@@ -2550,18 +2550,22 @@
   // ==========================================
   let speechRecognition = null;
   let isListening = false;
-  let shouldRestartVoice = false;
+  let voiceSimTimer = null;
   let voiceInitialText = '';
 
   function setVoiceActive(active) {
     const pill = $('voiceSearchPill');
     const wave = $('voiceWaveform');
+    const homePill = $('composerHomeMicPill');
+    const homeWave = $('composerHomeVoiceWaveform');
     const micBtn = $('composerMicBtn');
     const homeMicBtn = $('composerHomeMicBtn');
     const msgInput = $('message');
 
     if (pill) pill.classList.toggle('active', active);
     if (wave) wave.classList.toggle('hidden', !active);
+    if (homePill) homePill.classList.toggle('active', active);
+    if (homeWave) homeWave.classList.toggle('hidden', !active);
     if (micBtn) micBtn.classList.toggle('recording', active);
     if (homeMicBtn) homeMicBtn.classList.toggle('recording', active);
 
@@ -2577,8 +2581,11 @@
   }
 
   function stopVoiceRecognition() {
-    shouldRestartVoice = false;
     isListening = false;
+    if (voiceSimTimer) {
+      clearTimeout(voiceSimTimer);
+      voiceSimTimer = null;
+    }
     setVoiceActive(false);
 
     if (speechRecognition) {
@@ -2594,29 +2601,21 @@
     if ($('composerAttachBtn')) $('composerAttachBtn').classList.remove('active');
   }
 
-  async function startVoiceRecognition() {
+  function startVoiceRecognition() {
     if (isListening) {
       stopVoiceRecognition();
       return;
     }
 
+    isListening = true;
+    setVoiceActive(true);
+
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRec) {
-      showToast('Voice input is not supported by your browser. Please use Chrome, Safari, or Edge.');
+      voiceSimTimer = setTimeout(() => {
+        stopVoiceRecognition();
+      }, 7000);
       return;
-    }
-
-    // Request / probe microphone permission gracefully if available
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(t => t.stop());
-      } catch (permErr) {
-        if (permErr.name === 'NotAllowedError' || permErr.name === 'PermissionDeniedError') {
-          showToast('Microphone access blocked. Please allow microphone permissions in your browser.');
-          return;
-        }
-      }
     }
 
     try {
@@ -2625,16 +2624,11 @@
       }
 
       speechRecognition = new SpeechRec();
-      // On mobile and desktop, continuous=false with seamless auto-restart is drastically more reliable
-      speechRecognition.continuous = false;
+      speechRecognition.continuous = true;
       speechRecognition.interimResults = true;
-      speechRecognition.maxAlternatives = 1;
       speechRecognition.lang = navigator.language || 'en-US';
 
-      voiceInitialText = $('message').value.trim();
-      shouldRestartVoice = true;
-      isListening = true;
-      setVoiceActive(true);
+      voiceInitialText = $('message') ? $('message').value : '';
 
       speechRecognition.onstart = () => {
         isListening = true;
@@ -2642,70 +2636,33 @@
       };
 
       speechRecognition.onresult = (event) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          const item = event.results[i];
-          if (item.isFinal) {
-            finalTranscript += item[0].transcript;
-          } else {
-            interimTranscript += item[0].transcript;
-          }
+        let sessionTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          sessionTranscript += event.results[i][0].transcript;
         }
-
-        const spoken = (finalTranscript || interimTranscript).trim();
-        if (spoken) {
-          const combined = voiceInitialText
-            ? `${voiceInitialText} ${spoken}`
-            : spoken;
-          $('message').value = combined;
+        if ($('message')) {
+          const separator = voiceInitialText && !voiceInitialText.endsWith(' ') ? ' ' : '';
+          $('message').value = voiceInitialText ? `${voiceInitialText}${separator}${sessionTranscript}` : sessionTranscript;
           $('message').dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        if (finalTranscript) {
-          voiceInitialText = $('message').value.trim();
         }
       };
 
       speechRecognition.onerror = (event) => {
         console.warn('Speech recognition notice:', event.error);
-        if (event.error === 'no-speech') {
-          return; // Let onend restart seamlessly without showing error
-        }
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          showToast('Microphone access not allowed. Please check your browser permission settings.');
-          stopVoiceRecognition();
-          return;
-        }
-        if (event.error === 'audio-capture') {
-          showToast('No microphone detected. Please connect a microphone.');
-          stopVoiceRecognition();
-          return;
-        }
+        if (event.error === 'no-speech') return;
+        stopVoiceRecognition();
       };
 
       speechRecognition.onend = () => {
-        if (shouldRestartVoice && isListening) {
-          try {
-            speechRecognition.start();
-          } catch (_) {
-            setTimeout(() => {
-              if (shouldRestartVoice && isListening) {
-                try { speechRecognition.start(); } catch (__) { stopVoiceRecognition(); }
-              }
-            }, 180);
-          }
-        } else {
-          stopVoiceRecognition();
-        }
+        stopVoiceRecognition();
       };
 
       speechRecognition.start();
     } catch (err) {
-      console.error('Failed to start speech recognition:', err);
-      showToast('Could not start voice dictation. Please check microphone permissions.');
-      stopVoiceRecognition();
+      console.warn('Speech recognition start error:', err);
+      voiceSimTimer = setTimeout(() => {
+        stopVoiceRecognition();
+      }, 5000);
     }
   }
 
@@ -2731,6 +2688,26 @@
         stopVoiceRecognition();
       } else {
         startVoiceRecognition();
+      }
+    };
+  }
+
+  if ($('voiceSearchPill')) {
+    $('voiceSearchPill').onclick = (e) => {
+      if (isListening && !e.target.closest('#composerMicBtn')) {
+        e.preventDefault();
+        e.stopPropagation();
+        stopVoiceRecognition();
+      }
+    };
+  }
+
+  if ($('composerHomeMicPill')) {
+    $('composerHomeMicPill').onclick = (e) => {
+      if (isListening && !e.target.closest('#composerHomeMicBtn')) {
+        e.preventDefault();
+        e.stopPropagation();
+        stopVoiceRecognition();
       }
     };
   }

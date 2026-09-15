@@ -344,9 +344,37 @@ def verify_math_challenge(token: str, user_answer: int, max_age_seconds: int = 3
 
 
 def normalize_phone(val: str | None) -> str:
+    """
+    Normalizes phone numbers across India (+91) and international formats consistently.
+    Handles spaces, hyphens, parentheses, leading/trailing whitespace, and prefixes.
+    Examples:
+      '9531711863' -> '+919531711863'
+      '+91 95317 11863' -> '+919531711863'
+      '+91-95317-11863' -> '+919531711863'
+      '09531711863' -> '+919531711863'
+      '+1 (555) 019-9234' -> '+15550199234'
+    """
     if not val:
         return ""
-    return val.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
+    val = val.strip()
+    digits = re.sub(r"\D", "", val)
+    if not digits:
+        return ""
+
+    if val.startswith("+"):
+        return f"+{digits}"
+
+    # 10-digit standard Indian mobile format (starts with 6, 7, 8, 9)
+    if len(digits) == 10:
+        if digits[0] in "6789":
+            return f"+91{digits}"
+        return f"+{digits}"
+    elif len(digits) == 11 and digits.startswith("0"):
+        return f"+91{digits[1:]}"
+    elif len(digits) == 12 and digits.startswith("91"):
+        return f"+{digits}"
+
+    return f"+{digits}"
 
 
 @app.get("/api/auth/challenge")
@@ -374,9 +402,31 @@ def register_user(payload: RegisterPayload, db: Annotated[Session, Depends(get_d
 
     email = payload.email.strip().lower()
     username = payload.username.strip()
-    phone = normalize_phone(payload.phone)
+    raw_phone = (payload.phone or "").strip()
+    phone = normalize_phone(raw_phone) if raw_phone else ""
 
-    # Check existing
+    # Validate phone length if provided
+    if raw_phone:
+        p_clean = re.sub(r"\D", "", raw_phone)
+        if len(p_clean) < 10:
+            raise HTTPException(status_code=400, detail="Please enter a valid phone number with at least 10 digits.")
+
+        # Prevent duplicate accounts with the same phone number
+        existing_phone_user = db.scalar(
+            select(User).where(
+                User.role != "guest",
+                User.phone.isnot(None),
+                User.phone != "",
+                (User.phone == phone) | (User.phone.like(f"%{p_clean[-10:]}"))
+            )
+        )
+        if existing_phone_user and existing_phone_user.password_hash:
+            raise HTTPException(
+                status_code=400,
+                detail="An account with this phone number already exists. Please log in."
+            )
+
+    # Check existing account by email or username
     existing = db.scalar(select(User).where((User.email == email) | (User.username == username)))
     if existing and existing.password_hash:
         raise HTTPException(status_code=400, detail="An account with this email or username already exists. Please log in.")
@@ -402,7 +452,7 @@ def register_user(payload: RegisterPayload, db: Annotated[Session, Depends(get_d
     db.commit()
     db.refresh(user)
 
-    logger.info("user_registered_math_verified id=%s email=%s username=%s", user.id, user.email, user.username)
+    logger.info("user_registered_math_verified id=%s email=%s username=%s phone=%s", user.id, user.email, user.username, user.phone)
     return token_response(user)
 
 
@@ -436,6 +486,7 @@ def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, D
 
     # 1. Phone number match
     if len(clean_digits) >= 7:
+        norm_phone = normalize_phone(ident)
         last_10 = clean_digits[-10:]
         user = db.scalar(
             select(User)
@@ -443,10 +494,24 @@ def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, D
                 User.role != "guest",
                 User.phone.isnot(None),
                 User.phone != "",
-                (User.phone == ident) | (User.phone.like(f"%{last_10}"))
+                (User.phone == norm_phone) | (User.phone == ident) | (User.phone.like(f"%{last_10}"))
             )
             .order_by(User.created_at.desc())
         )
+        # Deep candidate scan for legacy formatting in DB
+        if not user:
+            candidates = db.scalars(
+                select(User).where(
+                    User.role != "guest",
+                    User.phone.isnot(None),
+                    User.phone != ""
+                )
+            ).all()
+            for cand in candidates:
+                cand_digits = re.sub(r"\D", "", cand.phone or "")
+                if cand_digits and (cand_digits == clean_digits or cand_digits[-10:] == last_10):
+                    user = cand
+                    break
 
     # 2. Email or username match
     if not user:
@@ -462,6 +527,7 @@ def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, D
 
     # 3. Fallback to payload.phone if separate
     if not user and payload.phone:
+        p_norm = normalize_phone(payload.phone)
         p_clean = re.sub(r"\D", "", payload.phone)
         if len(p_clean) >= 7:
             user = db.scalar(
@@ -470,7 +536,7 @@ def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, D
                     User.role != "guest",
                     User.phone.isnot(None),
                     User.phone != "",
-                    (User.phone == payload.phone) | (User.phone.like(f"%{p_clean[-10:]}"))
+                    (User.phone == p_norm) | (User.phone == payload.phone) | (User.phone.like(f"%{p_clean[-10:]}"))
                 )
                 .order_by(User.created_at.desc())
             )
@@ -482,7 +548,7 @@ def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, D
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Account temporarily locked due to too many failed attempts. Please try again in 10 minutes."
             )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid identifier or password.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
 
     if not verify_password(payload.password, user.password_hash):
         rem, lock_secs = record_failed_attempt(rate_key)
@@ -491,7 +557,7 @@ def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, D
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Account temporarily locked due to too many failed attempts. Please try again in 10 minutes."
             )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid identifier or password.")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials.")
 
     # Upgrade password hash to Argon2id if needed
     if needs_rehash(user.password_hash):

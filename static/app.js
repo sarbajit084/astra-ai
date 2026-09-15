@@ -2469,6 +2469,13 @@
         toast('Please fill in username, email, and password', true);
         return;
       }
+      if (phone) {
+        const phoneDigits = phone.replace(/\D/g, '');
+        if (phoneDigits.length < 10) {
+          toast('Please enter a valid phone number with at least 10 digits', true);
+          return;
+        }
+      }
       if (isNaN(calculation_result)) {
         toast('Please calculate and enter the answer to the math problem', true);
         return;
@@ -2603,9 +2610,79 @@
     if ($('composerAttachBtn')) $('composerAttachBtn').classList.remove('active');
   }
 
+  async function checkAndRequestMicPermission() {
+    // 1. Verify Web Speech API support
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      toast('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.', true);
+      return false;
+    }
+
+    // 2. Check if mediaDevices is supported (requires HTTPS or localhost)
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('Microphone access is not supported by your browser or connection (requires HTTPS).', true);
+      return false;
+    }
+
+    // 3. Check current permission status via Permissions API if available
+    let permissionState = 'prompt';
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const status = await navigator.permissions.query({ name: 'microphone' });
+        permissionState = status.state; // 'granted', 'prompt', or 'denied'
+        status.onchange = () => {
+          if (status.state === 'denied' && isListening) {
+            stopVoiceRecognition();
+          }
+        };
+      } catch (_) {
+        permissionState = 'prompt';
+      }
+    }
+
+    // If already denied/blocked, give explicit, actionable instructions for address bar settings
+    if (permissionState === 'denied') {
+      toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+      return false;
+    }
+
+    // 4. Request native browser permission via getUserMedia
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (stream) {
+        // Release tracks immediately so the microphone hardware is available for speech recognition
+        stream.getTracks().forEach((track) => {
+          try { track.stop(); } catch (_) {}
+        });
+      }
+      return true;
+    } catch (err) {
+      console.warn('Microphone getUserMedia error:', err);
+      const name = err.name || '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        toast('No microphone found on your device. Please connect a microphone and try again.', true);
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        toast('Microphone is currently in use by another application. Please free the device and try again.', true);
+      } else if (name === 'OverconstrainedError') {
+        toast('Microphone does not satisfy audio constraints.', true);
+      } else {
+        toast('Microphone access could not be acquired. Please check browser settings.', true);
+      }
+      return false;
+    }
+  }
+
   function startVoiceRecognition() {
     if (isListening) {
       stopVoiceRecognition();
+      return;
+    }
+
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      toast('Speech recognition is not supported in this browser.', true);
       return;
     }
 
@@ -2619,14 +2696,10 @@
       if (isListening) stopVoiceRecognition();
     }, 60000);
 
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRec) {
-      return;
-    }
-
     try {
       if (speechRecognition) {
         try { speechRecognition.abort(); } catch (_) {}
+        speechRecognition = null;
       }
 
       speechRecognition = new SpeechRec();
@@ -2656,7 +2729,14 @@
       speechRecognition.onerror = (event) => {
         console.warn('Speech recognition status:', event.error);
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          toast('Microphone permission required. Please allow microphone in browser.', true);
+          toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+          stopVoiceRecognition();
+        } else if (event.error === 'audio-capture') {
+          toast('Microphone device is currently unavailable or in use.', true);
+          stopVoiceRecognition();
+        } else if (event.error === 'network') {
+          toast('Speech recognition requires an active network connection.', true);
+          stopVoiceRecognition();
         }
       };
 
@@ -2678,10 +2758,11 @@
       speechRecognition.start();
     } catch (err) {
       console.warn('Speech recognition note:', err);
+      stopVoiceRecognition();
     }
   }
 
-  function handleMicClick(e) {
+  async function handleMicClick(e) {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -2689,9 +2770,16 @@
     }
     if (isListening) {
       stopVoiceRecognition();
-    } else {
-      startVoiceRecognition();
+      return;
     }
+
+    const permitted = await checkAndRequestMicPermission();
+    if (!permitted) {
+      stopVoiceRecognition();
+      return;
+    }
+
+    startVoiceRecognition();
   }
 
   if ($('composerMicBtn')) {

@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
-    <link rel="stylesheet" href="/static/style.css?v=3030">
+    <link rel="stylesheet" href="/static/style.css?v=3032">
 
   </head>
   <body>
@@ -430,7 +430,7 @@
         <!-- Login Form with Password + 2-digit Math Challenge -->
         <form id="loginForm" class="auth-modal-form" autocomplete="off">
           <label>Phone Number, Email, or Username
-            <input id="loginIdentifier" type="text" required autocomplete="off" placeholder="e.g. user@example.com">
+            <input id="loginIdentifier" type="text" required autocomplete="off" placeholder="e.g. +91 95317 11863 or username">
           </label>
 
           <label>Password
@@ -468,8 +468,8 @@
           <label>Email Address
             <input id="signupEmail" type="email" required autocomplete="off" placeholder="you@company.com">
           </label>
-          <label>Phone Number (Optional)
-            <input id="signupPhone" type="tel" autocomplete="off" placeholder="+1 555-0199">
+          <label>Phone Number (e.g. +91 or 10 digits)
+            <input id="signupPhone" type="tel" autocomplete="off" placeholder="e.g. +91 95317 11863 or 9531711863">
           </label>
           <label>Password
             <input id="signupPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 chars with letters & numbers">
@@ -515,7 +515,7 @@
         <form id="forgotPasswordForm" class="auth-modal-form">
           <p class="auth-sub-desc">Enter your account identifier and solve the calculation to verify identity.</p>
           <label>Phone Number, Email, or Username
-            <input id="forgotIdentifier" type="text" required placeholder="e.g. user@example.com">
+            <input id="forgotIdentifier" type="text" required placeholder="e.g. +91 95317 11863 or username">
           </label>
 
           <div class="math-challenge-box">
@@ -623,6 +623,6 @@
     <!-- Global Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/app.js?v=3030"></script>
+    <script src="/static/app.js?v=3032"></script>
   </body>
 </html>

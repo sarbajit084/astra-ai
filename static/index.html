@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
-    <link rel="stylesheet" href="/static/style.css?v=3034">
+    <link rel="stylesheet" href="/static/style.css?v=3035">
 
   </head>
   <body>
@@ -411,17 +411,17 @@
       </main>
     </div>
 
-    <!-- User Sign In / Register Modal with 2-digit Math Calculation & First-Visit Welcome Gate -->
-    <div id="authModal" class="modal" role="dialog" aria-modal="true" aria-label="Sign In">
+    <!-- User Sign In / Register Modal with 2-digit Math Calculation & Optional Sync -->
+    <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Sign In">
       <div class="glass-modal-card">
         <div class="modal-header">
           <div>
             <span class="modal-brand-title">ASTRA</span>
-            <p class="modal-eyebrow" id="authEyebrow">SECURE WORKSPACE GATEWAY</p>
-            <h2 id="authHeading" class="modal-h2">Welcome to Astra</h2>
-            <p id="authSubtitle" style="font-size: 13.5px; color: #94a3b8; margin-top: 4px; line-height: 1.4;">Your secure AI-powered RAG workspace.</p>
+            <p class="modal-eyebrow" id="authEyebrow">SECURE WORKSPACE</p>
+            <h2 id="authHeading" class="modal-h2">Account Login</h2>
+            <p id="authSubtitle" style="font-size: 13.5px; color: #94a3b8; margin-top: 4px; line-height: 1.4;">Sign in to sync your conversations across devices, or continue as guest.</p>
           </div>
-          <button id="closeAuthModal" class="close-icon-btn hidden" title="Close">✕</button>
+          <button id="closeAuthModal" class="close-icon-btn" title="Close">✕</button>
         </div>
 
         <div class="modal-tabs">
@@ -655,6 +655,6 @@
     <!-- Global Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/app.js?v=3034"></script>
+    <script src="/static/app.js?v=3035"></script>
   </body>
 </html>

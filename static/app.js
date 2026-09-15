@@ -869,8 +869,6 @@
       if ($('signupForm')) $('signupForm').classList.add('hidden');
       $('authLogoutSection').classList.remove('hidden');
       $('loggedInUserEmail').textContent = `${displayName}${user && user.email ? ` (${user.email})` : ''}`;
-      if ($('authModal')) $('authModal').classList.add('hidden');
-      if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
       if ($('authEyebrow')) $('authEyebrow').textContent = 'SECURE ACCESS';
       if ($('authHeading')) $('authHeading').textContent = 'Account Info';
       if ($('authSubtitle')) $('authSubtitle').textContent = `Signed in as ${displayName}`;
@@ -882,13 +880,12 @@
         $('mobileUserAuthBtn').classList.remove('logged-in');
       }
       $('authLogoutSection').classList.add('hidden');
-      if ($('authModal')) $('authModal').classList.remove('hidden');
-      if ($('closeAuthModal')) $('closeAuthModal').classList.add('hidden');
-      if ($('authEyebrow')) $('authEyebrow').textContent = 'SECURE WORKSPACE GATEWAY';
+      if ($('authEyebrow')) $('authEyebrow').textContent = 'SECURE WORKSPACE';
       if ($('authHeading')) $('authHeading').textContent = 'Welcome to Astra';
-      if ($('authSubtitle')) $('authSubtitle').textContent = 'Your secure AI-powered RAG workspace.';
+      if ($('authSubtitle')) $('authSubtitle').textContent = 'Sign in to sync your conversations across devices, or continue as guest.';
       switchAuthMode(authMode);
     }
+    if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
   }
 
   async function checkHealth() {
@@ -3168,6 +3165,16 @@
         ensureLoginFormEmpty();
       }
     };
+  }
+  if ($('authModal')) {
+    $('authModal').addEventListener('click', (e) => {
+      if (e.target === $('authModal')) {
+        $('authModal').classList.add('hidden');
+        if (!token) {
+          ensureLoginFormEmpty();
+        }
+      }
+    });
   }
   document.querySelectorAll('.modal-tab').forEach((t) => (t.onclick = () => switchAuthMode(t.dataset.mode)));
 

@@ -41,6 +41,7 @@ from auth import (
     clear_session_cookie,
     create_access_token,
     get_current_user,
+    get_optional_user,
     hash_password,
     needs_rehash,
     record_failed_attempt,
@@ -105,14 +106,14 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
 
 
 cors_origins = settings.cors_origins
-if cors_origins == ["*"]:
+if cors_origins == ["*"] or not cors_origins or "*" in cors_origins:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
+        allow_origin_regex=r"^https?://.*",
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Guest-Token"],
+        expose_headers=["X-Guest-Token", "Content-Disposition"],
     )
 else:
     app.add_middleware(
@@ -121,7 +122,7 @@ else:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Guest-Token"],
+        expose_headers=["X-Guest-Token", "Content-Disposition"],
     )
 
 
@@ -138,14 +139,14 @@ async def security_headers_middleware(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
     if not request.url.path.startswith("/preview/"):
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
+            "default-src 'self' data: blob:; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
             "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
-            "img-src 'self' data: blob: https:; "
-            "connect-src 'self'; "
-            "frame-src 'self'; "
-            "frame-ancestors 'self';"
+            "img-src 'self' data: blob: https: http:; "
+            "connect-src 'self' *; "
+            "frame-src 'self' *; "
+            "frame-ancestors 'self' *;"
         )
     return response
 
@@ -780,7 +781,7 @@ def delete_account(
 # Conversation History Navigation Endpoints
 # ==========================================
 @app.get("/api/conversations")
-def get_conversations(user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def get_conversations(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     convs = db.scalars(
         select(Conversation).where(Conversation.user_id == user.id).order_by(Conversation.updated_at.desc())
     ).all()
@@ -811,7 +812,7 @@ def get_conversations(user: Annotated[User, Depends(get_current_user)], db: Anno
 
 
 @app.post("/api/conversations")
-def create_conversation(user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def create_conversation(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     conv = Conversation(user_id=user.id, title="New Conversation", messages=[])
     db.add(conv)
     db.commit()
@@ -820,7 +821,7 @@ def create_conversation(user: Annotated[User, Depends(get_current_user)], db: An
 
 
 @app.get("/api/conversations/{conv_id}")
-def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     conv = db.scalar(select(Conversation).where(Conversation.id == conv_id, Conversation.user_id == user.id))
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -844,7 +845,7 @@ def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_curr
 
 
 @app.delete("/api/conversations/{conv_id}")
-def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     conv = db.scalar(select(Conversation).where(Conversation.id == conv_id, Conversation.user_id == user.id))
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -854,7 +855,7 @@ def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_current_
 
 
 @app.get("/api/documents")
-def documents(user: Annotated[User, Depends(get_current_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def documents(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
     rows = db.scalars(
         select(Document).where(Document.owner_id == user.id).order_by(Document.created_at.desc())
     ).all()
@@ -863,7 +864,7 @@ def documents(user: Annotated[User, Depends(get_current_user)], db: Annotated[Se
 
 @app.post("/api/upload")
 async def upload_document(
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_optional_user)],
     db: Annotated[Session, Depends(get_db)],
     file: UploadFile = File(...),
 ) -> dict:
@@ -899,7 +900,7 @@ async def upload_document(
 @app.delete("/api/documents/{document_id}")
 def delete_document(
     document_id: str,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_optional_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     document = db.scalar(select(Document).where(Document.id == document_id, Document.owner_id == user.id))
@@ -914,7 +915,7 @@ def delete_document(
 @app.post("/api/chat")
 async def chat(
     request: ChatRequest,
-    user: Annotated[User, Depends(get_current_user)],
+    user: Annotated[User, Depends(get_optional_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     started = time.perf_counter()

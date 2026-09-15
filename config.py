@@ -86,12 +86,11 @@ class Settings:
 
     def __post_init__(self):
         cors_val = os.getenv("CORS_ORIGINS", "").strip()
-        trusted_defaults = ["http://127.0.0.1:8000", "http://localhost:8000", "http://127.0.0.1:3000", "http://localhost:3000"]
         if not cors_val or cors_val == "*":
-            object.__setattr__(self, "cors_origins", trusted_defaults)
+            object.__setattr__(self, "cors_origins", ["*"])
         else:
             parsed = [v.strip() for v in cors_val.split(",") if v.strip()]
-            object.__setattr__(self, "cors_origins", parsed or trusted_defaults)
+            object.__setattr__(self, "cors_origins", parsed or ["*"])
         if not self.database_url:
             db_file = self.data_dir / "aster.db"
             object.__setattr__(self, "database_url", f"sqlite:///{db_file.as_posix()}")

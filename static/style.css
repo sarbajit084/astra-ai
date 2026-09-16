@@ -110,8 +110,10 @@ button:active {
 
 html, body {
   width: 100%;
+  max-width: 100%;
   height: 100%;
-  overflow: hidden;
+  min-height: 100dvh;
+  overflow-x: hidden !important;
   font-family: 'Instrument Serif', Georgia, serif;
   color: var(--text-charcoal);
   -webkit-font-smoothing: antialiased;
@@ -126,13 +128,10 @@ body::-webkit-scrollbar {
   height: 0 !important;
 }
 
-html, body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  font-family: 'Instrument Serif', Georgia, serif;
-  color: var(--text-charcoal);
-  -webkit-font-smoothing: antialiased;
+/* Universal Media Safeguard: Prevent images, canvas, videos, and SVGs from exceeding viewport */
+img, video, canvas, svg {
+  max-width: 100%;
+  height: auto;
 }
 
 /* Background Wallpaper (Matches Uploaded Artwork 100%) */
@@ -150,10 +149,13 @@ html, body {
 /* Main Shell */
 .astra-shell {
   display: flex;
-  width: 100vw;
+  width: 100%;
+  max-width: 100vw;
   height: 100vh;
+  height: 100dvh;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden !important;
+  overflow-y: hidden;
   box-sizing: border-box;
   padding: 18px 20px;
   gap: 24px;
@@ -1022,6 +1024,8 @@ html, body {
   align-self: flex-end;
   margin-left: auto;
   max-width: 80%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .user-bubble {
@@ -1042,7 +1046,10 @@ html, body {
     inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.55),
     inset 0 -1px 1px 0 rgba(255, 255, 255, 0.10) !important;
   word-break: break-word;
+  overflow-wrap: anywhere !important;
   white-space: pre-wrap;
+  max-width: 100% !important;
+  box-sizing: border-box;
 }
 
 /* Dark background: flip to a lighter tonal surface so dark text stays legible */
@@ -1078,6 +1085,9 @@ html, body {
   align-items: flex-start;
   align-self: flex-start;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .assistant-row {
@@ -1085,6 +1095,9 @@ html, body {
   align-items: flex-start;
   gap: 16px;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 /* In Code View: Hide Astra avatar so code editor card spans full width like ChatGPT */
@@ -1100,15 +1113,20 @@ html, body {
 }
 
 .assistant-body {
-  flex: 1;
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .astra-center-stage.has-code-view .assistant-body,
 .astra-center-stage:has(.code-editor-card) .assistant-body {
   width: 100% !important;
+  max-width: 100% !important;
 }
 
 .assistant-content {
@@ -1118,8 +1136,27 @@ html, body {
   color: #111827;
   font-weight: 400;
   word-break: break-word;
+  overflow-wrap: anywhere !important;
   white-space: normal;
   letter-spacing: 0.15px;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
+}
+
+.assistant-content p,
+.assistant-content li,
+.assistant-content blockquote,
+.assistant-content h1,
+.assistant-content h2,
+.assistant-content h3,
+.assistant-content h4,
+.assistant-content h5,
+.assistant-content h6 {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .astra-center-stage.has-code-view .assistant-content,
@@ -1128,6 +1165,11 @@ html, body {
   font-size: 16.5px !important;
   line-height: 1.65 !important;
   color: #0f172a !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box;
 }
 
 .assistant-meta-row {
@@ -2634,36 +2676,65 @@ html, body {
 /* Extra small phones (320px - 380px) */
 @media (max-width: 380px) {
   .welcome-brand-title {
-    font-size: 38px;
-    letter-spacing: 3px;
+    font-size: 28px !important;
+    letter-spacing: 1.5px !important;
   }
 
   .welcome-hero-tagline {
-    font-size: 12px;
-    letter-spacing: 1.5px;
+    font-size: 11px !important;
+    letter-spacing: 1px !important;
   }
 
-  .capsule-squircle-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 12px;
+  .capsule-squircle-btn,
+  .composer-home-mic-btn,
+  .composer-home-send-btn {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    border-radius: 10px !important;
   }
 
   .capsule-squircle-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 15px !important;
+    height: 15px !important;
+  }
+
+  .composer-recessed-pill {
+    padding: 4px 6px !important;
+    gap: 4px !important;
+    min-height: 48px !important;
   }
 
   #message {
-    font-size: 16px;
+    font-size: 15px !important;
+    line-height: 22px !important;
   }
 
   #message::placeholder {
-    font-size: 16px;
+    font-size: 14px !important;
   }
 
   .composer-sub-disclaimer {
-    display: none;
+    display: none !important;
+  }
+
+  .message-card.user {
+    max-width: 95% !important;
+  }
+
+  .user-bubble {
+    font-size: 14.5px !important;
+    padding: 8px 11px !important;
+  }
+
+  .assistant-content {
+    font-size: 15.5px !important;
+  }
+
+  .model-engine-popover,
+  .attach-dropdown {
+    max-width: calc(100vw - 12px) !important;
   }
 }
 
@@ -3166,19 +3237,171 @@ html, body {
 }
 
 /* ==========================================================================
+   AI GENERATED ARTWORK & IMAGE CARD RESPONSIVENESS
+   ========================================================================== */
+
+.chat-image-card {
+  width: 100%;
+  max-width: 520px;
+  margin: 16px 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.chat-image-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  cursor: pointer;
+  background: #0b0f19;
+}
+
+.chat-image-preview {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.chat-image-wrapper:hover .chat-image-preview {
+  transform: scale(1.02);
+}
+
+.chat-image-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.chat-image-wrapper:hover .chat-image-overlay {
+  opacity: 1;
+}
+
+.chat-image-overlay-text {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 6px 14px;
+  border-radius: 20px;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.chat-image-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-image-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.chat-image-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-image-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.chat-image-action-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* ==========================================================================
+   RESPONSIVE KATEX & MATH CONTAINERS
+   ========================================================================== */
+
+.math-block-wrapper,
+.katex-display {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  box-sizing: border-box !important;
+  padding: 6px 0 !important;
+  margin: 10px 0 !important;
+  scrollbar-width: thin;
+}
+
+.math-block-wrapper::-webkit-scrollbar,
+.katex-display::-webkit-scrollbar {
+  height: 4px;
+}
+
+.math-block-wrapper::-webkit-scrollbar-thumb,
+.katex-display::-webkit-scrollbar-thumb {
+  background: rgba(145, 175, 195, 0.4);
+  border-radius: 4px;
+}
+
+.katex {
+  max-width: 100% !important;
+  text-rendering: auto;
+}
+
+/* ==========================================================================
    CODE BLOCK CARDS & INLINE CODE
    ========================================================================== */
 
 .code-editor-card,
 .code-block-card {
   width: 100%;
-  max-width: 780px;
+  max-width: 100%;
   margin: 16px 0;
   background: #080c14;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
 }
 
 .code-editor-header,
@@ -3489,6 +3712,10 @@ html, body {
 .code-editor-viewport {
   background: #171717;
   overflow-x: auto;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
@@ -3516,6 +3743,10 @@ html, body {
   word-break: normal !important;
   word-wrap: normal !important;
   overflow-x: auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  -webkit-overflow-scrolling: touch;
 }
 
 .code-editor-code {
@@ -4636,12 +4867,29 @@ body.temporary-chat-mode .chat-emoji,
   .code-editor-header,
   .code-block-header {
     padding: 6px 10px !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  .code-editor-actions {
+    gap: 4px !important;
+  }
+
+  .copy-btn-label,
+  .download-btn-label {
+    display: none !important;
   }
 
   .copy-code-btn,
+  .download-code-btn,
   .live-demo-btn {
-    font-size: 11.5px !important;
-    padding: 3px 8px !important;
+    font-size: 11px !important;
+    padding: 3px 6px !important;
+  }
+
+  .model-engine-popover,
+  .attach-dropdown {
+    max-width: min(280px, calc(100vw - 20px)) !important;
   }
 
   /* Small Mobile voice search pill */

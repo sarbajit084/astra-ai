@@ -21,6 +21,7 @@ from pypdf import PdfReader
 from qdrant_client import QdrantClient, models
 
 from config import settings
+from math_solver import MathSolver
 
 logger = logging.getLogger("rag")
 COLLECTION = "document_chunks_v2"
@@ -352,7 +353,7 @@ class ProductionRAGService:
 
         # Phase 0: Instant Local Mathematics / Integration / Calculus Solver (skip if asking for code)
         is_code_request = (mode == "code") or any(k in query.lower() for k in ["code", "script", "program", "python", "solve using code", "write a function", "website", "html"])
-        math_sol = None if is_code_request else self._solve_math_locally(query)
+        math_sol = None if is_code_request else (MathSolver.solve(query, mode=mode, detailed=detailed) or self._solve_math_locally(query))
         if math_sol:
             cleaned_math = clean_agent_response(math_sol)
             is_chem = is_chemistry_query(query, cleaned_math)
@@ -1328,6 +1329,9 @@ class ProductionRAGService:
     def _solve_math_locally(self, query: str) -> str | None:
         """Solves a wide range of symbolic mathematics problems using SymPy, with full step-by-step
         workings. Covers: integration, differentiation, limits, factorials, quadratics, trig, and more."""
+        ms_res = MathSolver.solve(query)
+        if ms_res:
+            return ms_res
         try:
             import sympy as sp
             from sympy import (

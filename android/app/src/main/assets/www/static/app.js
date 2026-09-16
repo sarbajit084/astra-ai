@@ -212,10 +212,10 @@
 
     // 1. Block math: $$ ... $$ or \[ ... \]
     let processed = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
-      return `<div style="margin: 12px 0; text-align: center; overflow-x: auto;">${formatLatexChunk(math, true)}</div>`;
+      return `<div class="math-block-wrapper">${formatLatexChunk(math, true)}</div>`;
     });
     processed = processed.replace(/\\\[([\s\S]+?)\\\]/g, (_, math) => {
-      return `<div style="margin: 12px 0; text-align: center; overflow-x: auto;">${formatLatexChunk(math, true)}</div>`;
+      return `<div class="math-block-wrapper">${formatLatexChunk(math, true)}</div>`;
     });
 
     // 2. Inline math: $ ... $ or \( ... \) (carefully ignoring currency like $100 or 100$)
@@ -869,6 +869,9 @@
       if ($('signupForm')) $('signupForm').classList.add('hidden');
       $('authLogoutSection').classList.remove('hidden');
       $('loggedInUserEmail').textContent = `${displayName}${user && user.email ? ` (${user.email})` : ''}`;
+      if ($('authEyebrow')) $('authEyebrow').textContent = 'SECURE ACCESS';
+      if ($('authHeading')) $('authHeading').textContent = 'Account Info';
+      if ($('authSubtitle')) $('authSubtitle').textContent = `Signed in as ${displayName}`;
     } else {
       $('userAccountLabel').textContent = 'LOGIN';
       if ($('userAuthBtn')) $('userAuthBtn').setAttribute('title', 'Sign In / Register');
@@ -877,8 +880,12 @@
         $('mobileUserAuthBtn').classList.remove('logged-in');
       }
       $('authLogoutSection').classList.add('hidden');
+      if ($('authEyebrow')) $('authEyebrow').textContent = 'SECURE WORKSPACE';
+      if ($('authHeading')) $('authHeading').textContent = 'Welcome to Astra';
+      if ($('authSubtitle')) $('authSubtitle').textContent = 'Sign in to sync your conversations across devices, or continue as guest.';
       switchAuthMode(authMode);
     }
+    if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
   }
 
   async function checkHealth() {
@@ -2443,6 +2450,7 @@
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
         if ($('authModal')) $('authModal').classList.add('hidden');
+        if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
         toast(`Welcome back, ${cachedUsername}!`);
         updateAuthUI();
         refreshDocuments();
@@ -2464,9 +2472,14 @@
       const phone = $('signupPhone') ? $('signupPhone').value.trim() : '';
       const password = $('signupPassword').value;
       const calculation_result = parseInt($('signupMathAnswer').value.trim(), 10);
+      const termsConsent = $('signupTermsConsent') ? $('signupTermsConsent').checked : false;
 
       if (!username || !email || !password) {
         toast('Please fill in username, email, and password', true);
+        return;
+      }
+      if (!termsConsent) {
+        toast('Please agree to the Terms & Conditions and Privacy Policy to create an account.', true);
         return;
       }
       if (phone) {
@@ -2498,6 +2511,7 @@
             password,
             challenge_token: currentSignupChallenge.challenge_token,
             calculation_result,
+            agreed_to_terms: true,
           }),
         });
         token = result.access_token;
@@ -2507,7 +2521,8 @@
         localStorage.removeItem('astra_guest_token');
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
-        $('authModal').classList.add('hidden');
+        if ($('authModal')) $('authModal').classList.add('hidden');
+        if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
         toast(`Account created! Welcome, ${cachedUsername}!`);
         updateAuthUI();
         refreshDocuments();
@@ -2557,9 +2572,26 @@
   // ==========================================
   let speechRecognition = null;
   let isListening = false;
+  let isRequestingMic = false;
   let shouldRestartVoice = false;
   let voiceInitialText = '';
   let voiceSafetyTimer = null;
+  let micPermissionState = 'prompt'; // 'prompt' | 'granted' | 'denied'
+
+  // Initialize permission watcher to dynamically track browser permission changes
+  if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
+    try {
+      navigator.permissions.query({ name: 'microphone' }).then((status) => {
+        micPermissionState = status.state;
+        status.onchange = () => {
+          micPermissionState = status.state;
+          if (status.state === 'denied' && isListening) {
+            stopVoiceRecognition();
+          }
+        };
+      }).catch(() => {});
+    } catch (_) {}
+  }
 
   function setVoiceActive(active) {
     const pill = $('voiceSearchPill');
@@ -2590,6 +2622,7 @@
 
   function stopVoiceRecognition() {
     isListening = false;
+    isRequestingMic = false;
     shouldRestartVoice = false;
     if (voiceSafetyTimer) {
       clearTimeout(voiceSafetyTimer);
@@ -2618,60 +2651,172 @@
       return false;
     }
 
-    // 2. Check if mediaDevices is supported (requires HTTPS or localhost)
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      toast('Microphone access is not supported by your browser or connection (requires HTTPS).', true);
-      return false;
-    }
-
-    // 3. Check current permission status via Permissions API if available
-    let permissionState = 'prompt';
-    if (navigator.permissions && navigator.permissions.query) {
+    // 2. Query Permissions API if available to check state dynamically
+    if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
       try {
         const status = await navigator.permissions.query({ name: 'microphone' });
-        permissionState = status.state; // 'granted', 'prompt', or 'denied'
+        micPermissionState = status.state; // 'granted', 'prompt', or 'denied'
         status.onchange = () => {
+          micPermissionState = status.state;
           if (status.state === 'denied' && isListening) {
             stopVoiceRecognition();
           }
         };
-      } catch (_) {
-        permissionState = 'prompt';
-      }
+      } catch (_) {}
     }
 
-    // If already denied/blocked, give explicit, actionable instructions for address bar settings
-    if (permissionState === 'denied') {
-      toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+    // 3. If already granted, immediately return true without touching getUserMedia
+    // (Bypassing getUserMedia avoids hardware teardown race conditions on Windows/Chrome audio devices)
+    if (micPermissionState === 'granted') {
+      return true;
+    }
+
+    // 4. If explicitly denied, provide clear instruction to change site settings in address bar
+    if (micPermissionState === 'denied') {
+      toast('Microphone access is blocked in your browser settings. Click the lock/tune icon in the address bar to allow Microphone, then try again.', true);
       return false;
     }
 
-    // 4. Request native browser permission via getUserMedia
+    // 5. In 'prompt' state or where Permissions API is unsupported, verify mediaDevices & prompt cleanly
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      // In insecure contexts or browsers without mediaDevices
+      // Some browsers (like desktop Chrome) still allow SpeechRecognition directly
+      return true;
+    }
+
     try {
+      isRequestingMic = true;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micPermissionState = 'granted';
       if (stream) {
-        // Release tracks immediately so the microphone hardware is available for speech recognition
         stream.getTracks().forEach((track) => {
           try { track.stop(); } catch (_) {}
         });
       }
+      isRequestingMic = false;
       return true;
     } catch (err) {
+      isRequestingMic = false;
       console.warn('Microphone getUserMedia error:', err);
       const name = err.name || '';
       if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-        toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+        micPermissionState = 'denied';
+        toast('Microphone access was denied. Please allow microphone access in your browser settings to speak.', true);
       } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
         toast('No microphone found on your device. Please connect a microphone and try again.', true);
       } else if (name === 'NotReadableError' || name === 'TrackStartError') {
         toast('Microphone is currently in use by another application. Please free the device and try again.', true);
-      } else if (name === 'OverconstrainedError') {
-        toast('Microphone does not satisfy audio constraints.', true);
+      } else if (name === 'SecurityError') {
+        toast('Microphone access is blocked by browser security policy.', true);
       } else {
         toast('Microphone access could not be acquired. Please check browser settings.', true);
       }
       return false;
     }
+  }
+
+  // Context-aware speech transcription normalizer: technical terminology, mathematics, punctuation
+  function cleanAndFormatSpeechTranscription(rawText) {
+    if (!rawText) return '';
+    let text = rawText.trim();
+
+    // 1. Remove vocal filler and hesitations
+    text = text.replace(/\b(um+|uh+|er+|ah+|like\s+like|you\s+know)\b/gi, '');
+
+    // 2. Technical terminology mapping FIRST so compounds like "see plus plus" are preserved
+    const techTerms = [
+      [/\b(?:see|c)\s*(?:plus\s*plus|\+\s*\+)\b/gi, 'C++'],
+      [/\b(?:see|c)\s*sharp\b/gi, 'C#'],
+      [/\bpipe\s*torch\b/gi, 'PyTorch'],
+      [/\bpytorch\b/gi, 'PyTorch'],
+      [/\btensor\s*flow\b/gi, 'TensorFlow'],
+      [/\bterraform\b/gi, 'Terraform'],
+      [/\bfast\s*a\s*p\s*i\b|\bfast\s*api\b/gi, 'FastAPI'],
+      [/\bpost\s*gress\b|\bpostgres\s*q\s*l\b/gi, 'PostgreSQL'],
+      [/\bmy\s*s\s*q\s*l\b|\bmysql\b/gi, 'MySQL'],
+      [/\bs\s*q\s*l\b/gi, 'SQL'],
+      [/\bno\s*s\s*q\s*l\b|\bnosql\b/gi, 'NoSQL'],
+      [/\bj\s*son\b|\bjay\s*son\b/gi, 'JSON'],
+      [/\ba\s*p\s*i\b/gi, 'API'],
+      [/\bu\s*r\s*l\b/gi, 'URL'],
+      [/\bh\s*t\s*t\s*p\s*s?\b/gi, (m) => m.toUpperCase()],
+      [/\bh\s*t\s*m\s*l\b/gi, 'HTML'],
+      [/\bc\s*s\s*s\b/gi, 'CSS'],
+      [/\bgit\s*hub\b/gi, 'GitHub'],
+      [/\bgit\s*lab\b/gi, 'GitLab'],
+      [/\bnode\s*j\s*s\b|\bnode\s*js\b/gi, 'Node.js'],
+      [/\bnext\s*j\s*s\b|\bnext\s*js\b/gi, 'Next.js'],
+      [/\breact\s*j\s*s\b|\breact\s*js\b/gi, 'React'],
+      [/\bvue\s*j\s*s\b|\bvue\s*js\b/gi, 'Vue.js'],
+      [/\bdot\s*js\b/gi, '.js'],
+      [/\bdot\s*py\b/gi, '.py'],
+      [/\bdot\s*ts\b/gi, '.ts'],
+      [/\bdot\s*html\b/gi, '.html'],
+      [/\bdot\s*css\b/gi, '.css'],
+      [/\bdot\s*json\b/gi, '.json'],
+      [/\bq\s*drant\b/gi, 'Qdrant'],
+      [/\br\s*a\s*g\b/gi, 'RAG'],
+      [/\bl\s*l\s*m\b/gi, 'LLM'],
+      [/\bgpu\b/gi, 'GPU'],
+      [/\bcpu\b/gi, 'CPU'],
+      [/\bconsole\s*dot\s*log\b/gi, 'console.log'],
+    ];
+
+    for (const [pattern, replacement] of techTerms) {
+      text = text.replace(pattern, replacement);
+    }
+
+    // 3. Remove accidental stutter / duplicate repeated words (e.g., "the the", "I I", "is is")
+    text = text.replace(/\b([a-zA-Z]{2,})\s+\1\b/gi, '$1');
+
+    // 4. Mathematical terms and spoken notation formatting
+    const mathTerms = [
+      [/\b([a-zA-Z])\s+squared\b/gi, '$1^2'],
+      [/\b([a-zA-Z])\s+cubed\b/gi, '$1^3'],
+      [/\bto the power of\b/gi, '^'],
+      [/\braised to(?: the power of)?\b/gi, '^'],
+      [/\bsquare root of\s*([0-9a-zA-Z\(\)]+)/gi, 'sqrt($1)'],
+      [/\bcube root of\s*([0-9a-zA-Z\(\)]+)/gi, 'cbrt($1)'],
+      [/\bplus or minus\b/gi, '±'],
+      [/\bdivided by\b/gi, '/'],
+      [/\bmultiplied by\b/gi, '*'],
+      [/\btimes\b/gi, '*'],
+      [/\bplus\b/gi, '+'],
+      [/\bminus\b/gi, '-'],
+      [/\bequals\b|\bis equal to\b/gi, '='],
+      [/\bnot equal to\b/gi, '≠'],
+      [/\bless than or equal to\b/gi, '≤'],
+      [/\bgreater than or equal to\b/gi, '≥'],
+      [/\bintegral of\b/gi, 'integrate'],
+      [/\bderivative of\b/gi, 'derivative of'],
+      [/\blimit as x approaches\b/gi, 'limit as x ->'],
+      [/\bpercent of\b/gi, '% of'],
+      [/\bpercentage of\b/gi, '% of'],
+    ];
+
+    for (const [pattern, replacement] of mathTerms) {
+      text = text.replace(pattern, replacement);
+    }
+
+    // Contextual math "pie" -> "pi"
+    text = text.replace(/\b(?:value of\s+)?pie\b(?=\s*(?:over|\/|\*|\^|\+|-|\d|r|radians|\)|$))/gi, 'pi');
+    text = text.replace(/(\d+)\s*pie\b/gi, '$1*pi');
+
+    // 5. Whitespace cleanup
+    text = text.replace(/\s{2,}/g, ' ').trim();
+
+    // 6. Sentence capitalization
+    if (text.length > 0) {
+      text = text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    // 7. Auto-punctuate interrogative queries
+    const questionStarters = /^(what|how|why|where|when|who|which|can you|could you|would you|is there|are there|does|do)\b/i;
+    if (questionStarters.test(text) && !/[?!.]$/.test(text)) {
+      text += '?';
+    }
+
+    return text;
   }
 
   function startVoiceRecognition() {
@@ -2690,11 +2835,11 @@
     shouldRestartVoice = true;
     setVoiceActive(true);
 
-    // Auto-stop safety timeout after 60s of inactivity so it doesn't run forever
+    // Auto-stop safety timeout after 90s of continuous listening so it doesn't drain battery
     if (voiceSafetyTimer) clearTimeout(voiceSafetyTimer);
     voiceSafetyTimer = setTimeout(() => {
       if (isListening) stopVoiceRecognition();
-    }, 60000);
+    }, 90000);
 
     try {
       if (speechRecognition) {
@@ -2715,33 +2860,49 @@
       };
 
       speechRecognition.onresult = (event) => {
-        let sessionTranscript = '';
+        let finalTranscript = '';
+        let interimTranscript = '';
         for (let i = 0; i < event.results.length; i++) {
-          sessionTranscript += event.results[i][0].transcript;
+          const item = event.results[i];
+          const text = item[0] ? item[0].transcript : '';
+          if (item.isFinal) {
+            finalTranscript += (finalTranscript ? ' ' : '') + text.trim();
+          } else {
+            interimTranscript += (interimTranscript ? ' ' : '') + text.trim();
+          }
         }
+        let fullTranscript = finalTranscript;
+        if (interimTranscript) {
+          fullTranscript = fullTranscript ? `${fullTranscript} ${interimTranscript}` : interimTranscript;
+        }
+
+        const cleaned = cleanAndFormatSpeechTranscription(fullTranscript);
         if ($('message')) {
           const separator = voiceInitialText && !voiceInitialText.endsWith(' ') ? ' ' : '';
-          $('message').value = voiceInitialText ? `${voiceInitialText}${separator}${sessionTranscript}` : sessionTranscript;
+          $('message').value = voiceInitialText ? `${voiceInitialText}${separator}${cleaned}` : cleaned;
           $('message').dispatchEvent(new Event('input', { bubbles: true }));
         }
       };
 
       speechRecognition.onerror = (event) => {
-        console.warn('Speech recognition status:', event.error);
+        console.warn('Speech recognition event error:', event.error);
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          toast('Microphone access is blocked in your browser. Click the lock/settings icon in the address bar to allow Microphone, then try again.', true);
+          micPermissionState = 'denied';
+          toast('Microphone access was denied. Please allow microphone in browser settings.', true);
           stopVoiceRecognition();
         } else if (event.error === 'audio-capture') {
-          toast('Microphone device is currently unavailable or in use.', true);
+          toast('Microphone device is busy or unavailable.', true);
           stopVoiceRecognition();
         } else if (event.error === 'network') {
           toast('Speech recognition requires an active network connection.', true);
           stopVoiceRecognition();
+        } else if (event.error === 'no-speech' || event.error === 'aborted') {
+          // Graceful silence or user pause, do not stop or show error
         }
       };
 
       speechRecognition.onend = () => {
-        // Keep the animation alive! If still in listening mode, restart gracefully
+        // If still listening and not manually stopped, keep session alive
         if (isListening && shouldRestartVoice) {
           try {
             speechRecognition.start();
@@ -2752,12 +2913,14 @@
               }
             }, 250);
           }
+        } else {
+          setVoiceActive(false);
         }
       };
 
       speechRecognition.start();
     } catch (err) {
-      console.warn('Speech recognition note:', err);
+      console.warn('Speech recognition start failed:', err);
       stopVoiceRecognition();
     }
   }
@@ -3120,6 +3283,16 @@
       }
     };
   }
+  if ($('authModal')) {
+    $('authModal').addEventListener('click', (e) => {
+      if (e.target === $('authModal')) {
+        $('authModal').classList.add('hidden');
+        if (!token) {
+          ensureLoginFormEmpty();
+        }
+      }
+    });
+  }
   document.querySelectorAll('.modal-tab').forEach((t) => (t.onclick = () => switchAuthMode(t.dataset.mode)));
 
   if ($('logoutBtn')) {
@@ -3314,40 +3487,6 @@
       $('sendButton').click();
     }, 500);
   }
-
-  // Security: Disable Right-Click Context Menu & Inspection Shortcuts
-  window.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    return false;
-  }, true);
-
-  window.addEventListener('keydown', (e) => {
-    // F12 key
-    if (e.key === 'F12' || e.keyCode === 123) {
-      e.preventDefault();
-      e.stopPropagation();
-      toast('🔒 Developer tools inspection is disabled.', true);
-      return false;
-    }
-
-    const isCtrl = e.ctrlKey || e.metaKey;
-
-    // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
-    if (isCtrl && e.shiftKey && ['I', 'J', 'C', 'i', 'j', 'c'].includes(e.key)) {
-      e.preventDefault();
-      e.stopPropagation();
-      toast('🔒 Inspect Element is disabled.', true);
-      return false;
-    }
-
-    // Ctrl+U (View Page Source), Ctrl+S (Save Page)
-    if (isCtrl && ['u', 'U', 's', 'S'].includes(e.key)) {
-      e.preventDefault();
-      e.stopPropagation();
-      toast('🔒 Viewing page source is disabled.', true);
-      return false;
-    }
-  }, true);
 
   // ── Mobile Virtual Keyboard Auto-Scroll & Viewport Handling ────────────────
   if (window.visualViewport) {

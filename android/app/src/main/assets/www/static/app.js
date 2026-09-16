@@ -540,6 +540,7 @@
         else if (rawLang === 'json') langDisplay = 'JSON';
         else if (rawLang === 'rust' || rawLang === 'rs') langDisplay = 'Rust';
         else if (rawLang === 'go' || rawLang === 'golang') langDisplay = 'Go';
+        else if (rawLang === 'blender' || rawLang === 'bpy') langDisplay = 'Blender Python (bpy)';
         else if (rawLang) langDisplay = rawLang.charAt(0).toUpperCase() + rawLang.slice(1);
 
         widgetHtml = `

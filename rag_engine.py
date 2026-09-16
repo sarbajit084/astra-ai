@@ -562,8 +562,8 @@ class ProductionRAGService:
                 "research_trace": None,
             }
 
-        # Phase 0.7: Dedicated Interactive 3D Model Generator
-        is_3d, answer_3d = self._is_3d_request(query)
+        # Phase 0.7: Dedicated Interactive 3D Model Generator (strictly for standalone scientific simulations)
+        is_3d, answer_3d = self._is_3d_request(query, history=clean_history)
         if is_3d:
             cleaned_3d = clean_agent_response(answer_3d)
             total_ms = max(4.0, round((time.perf_counter() - total_start) * 1000, 1))
@@ -791,10 +791,252 @@ class ProductionRAGService:
         
         return clean or query
 
+    def _detect_project_state(self, history: list[dict] | None, query: str = "") -> dict:
+        """Detects active web/software project state across conversation history,
+        extracts previous code blocks (HTML, CSS, JS, Blender), identifies the industry domain,
+        and determines if the current query is an incremental modification."""
+        state = {
+            "is_active_project": False,
+            "domain": "general",
+            "project_type": "website",
+            "is_modification": False,
+            "previous_code": {},
+            "summary": "",
+        }
+        if not history:
+            return state
+
+        # 1. Scan history for active web / coding context
+        has_code_in_history = False
+        latest_code = {"html": "", "css": "", "js": "", "blender": ""}
+        all_text_history = []
+
+        for turn in history:
+            role = turn.get("role", "")
+            content = turn.get("content") or turn.get("text") or ""
+            if not content:
+                continue
+            all_text_history.append(content)
+
+            if role == "assistant":
+                # Check for code blocks
+                html_match = re.findall(r"```html\s*\n([\s\S]*?)```", content, re.IGNORECASE)
+                if html_match:
+                    latest_code["html"] = html_match[-1].strip()
+                    has_code_in_history = True
+
+                css_match = re.findall(r"```css\s*\n([\s\S]*?)```", content, re.IGNORECASE)
+                if css_match:
+                    latest_code["css"] = css_match[-1].strip()
+                    has_code_in_history = True
+
+                js_match = re.findall(r"```(?:javascript|js)\s*\n([\s\S]*?)```", content, re.IGNORECASE)
+                if js_match:
+                    latest_code["js"] = js_match[-1].strip()
+                    has_code_in_history = True
+
+                blender_match = re.findall(r"```(?:python|blender|bpy)\s*\n([\s\S]*?)```", content, re.IGNORECASE)
+                if blender_match and any("bpy" in bm for bm in blender_match):
+                    latest_code["blender"] = blender_match[-1].strip()
+                    has_code_in_history = True
+
+        hist_str = " ".join(all_text_history).lower()
+        has_web_mentions = any(k in hist_str for k in [
+            "website", "landing page", "web app", "portfolio", "store", "ecommerce",
+            "hero section", "webgl-canvas", "three.js", "threejs", "3d website", "configurator"
+        ])
+
+        if has_code_in_history or has_web_mentions:
+            state["is_active_project"] = True
+            state["previous_code"] = latest_code
+
+        # 2. Identify Industry Domain
+        combined_words = set(re.findall(r"\w+", f"{hist_str} {query.lower()}"))
+        if combined_words & {"car", "cars", "supercar", "supercars", "hypercar", "vehicle", "vehicles", "ev", "automotive", "porsche", "ferrari", "lamborghini", "bmw", "tesla", "speed", "chassis", "cockpit", "wheels"}:
+            state["domain"] = "automotive"
+        elif combined_words & {"watch", "watches", "timepiece", "timepieces", "chronograph", "horology", "rolex", "bezel", "dial", "watchmaker", "swiss"}:
+            state["domain"] = "horology_watch"
+        elif combined_words & {"architecture", "building", "buildings", "villa", "villas", "house", "pavilion", "interior", "estate", "concrete"}:
+            state["domain"] = "architecture"
+        elif combined_words & {"jewelry", "perfume", "scent", "vessel", "vessels", "pottery", "bottle", "bottles", "ceramic", "fashion", "boutique", "luxury", "konk"}:
+            state["domain"] = "luxury_goods"
+        elif combined_words & {"saas", "tech", "ai", "developer", "agency", "cyber", "nexus", "portfolio", "software"}:
+            state["domain"] = "creative_tech"
+        elif combined_words & {"restaurant", "food", "dining", "cafe", "coffee", "bakery", "bistro", "menu"}:
+            state["domain"] = "restaurant"
+
+        # 3. Detect if current query is a modification / continuation
+        q_lower = query.lower().strip()
+        words = set(re.findall(r"\w+", q_lower))
+
+        topic_switch = any(ts in q_lower for ts in [
+            "forget about", "new topic", "different question", "never mind", "who is", "what is the capital"
+        ])
+
+        if state["is_active_project"] and not topic_switch:
+            modification_verbs = {
+                "make", "change", "add", "remove", "turn", "set", "switch", "replace",
+                "fix", "improve", "modify", "update", "customize", "tweak", "adjust",
+                "rotate", "color", "dark", "light", "black", "white", "red", "blue",
+                "green", "gold", "silver", "faster", "slower", "bigger", "smaller",
+                "speed", "style", "canvas", "camera", "light", "lighting", "shadow"
+            }
+            project_entities = {
+                "the car", "the watch", "the website", "the site", "the hero", "the model",
+                "the background", "the page", "the button", "the color", "the text",
+                "the logo", "the navigation", "the 3d", "the wheels", "the dial",
+                "the bezel", "the canvas", "the section", "the header", "the footer",
+                "the cart", "the material", "hero section", "3d model"
+            }
+            has_mod_verb = bool(words & modification_verbs)
+            has_project_entity = any(pe in q_lower for pe in project_entities)
+            is_relative_followup = any(q_lower.startswith(p) for p in [
+                "make it", "make the", "add a", "add the", "can you", "could you", "also add", "now make", "turn the", "change the", "switch to", "make"
+            ])
+
+            if has_mod_verb or has_project_entity or is_relative_followup or (len(words) <= 7 and not q_lower.startswith("what is")):
+                state["is_modification"] = True
+
+        return state
+
+    def _build_web_directive(self, project_state: dict, query: str) -> str:
+        """Builds a dynamic 3D web experience directive tailored to the domain and whether this is an incremental modification."""
+        domain = project_state.get("domain", "general")
+        is_mod = project_state.get("is_modification", False)
+        q_lower = query.lower()
+
+        needs_blender = any(k in q_lower for k in [
+            "blender", "bpy", "glb", "gltf", "3d asset", "3d model asset",
+            "procedural 3d", "cinema 4d", "c4d", "export to glb", "export glb"
+        ])
+
+        if domain == "automotive":
+            domain_guide = (
+                "INDUSTRY FOCUS: HIGH-END AUTOMOTIVE / FUTURISTIC SUPERCAR 3D SHOWCASE\n"
+                "• 3D Scene Architecture:\n"
+                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
+                "  - Procedural composite 3D supercar model: Aerodynamic low-slung chassis, glass cockpit canopy, front splitter, side air intakes, rear diffuser, glowing LED headlights and taillight strip, wheels with rims, and ground shadow/reflection grid plane.\n"
+                "  - PBR Materials: `THREE.MeshPhysicalMaterial` with metallic car paint shader (roughness: 0.15, metalness: 0.85, clearcoat: 1.0, clearcoatRoughness: 0.1), tinted glass canopy (transmission: 0.9, transparent: true), glowing emissive headlights.\n"
+                "  - Studio Lighting: 3-point lighting setup (warm key, cool fill, specular rim light) + ambient light.\n"
+                "  - Interactivity: 360° mouse drag and touch rotation with smooth lerp damping, mouse parallax tilt, and dynamic color switcher swatches (e.g. Stealth Matte Black, Cyber Silver, Electric Cyan, Rosso Corsa Red) that live-update the car paint material.\n"
+                "• Display Typography & Layout:\n"
+                "  - Split monumental typography (e.g. 'VELOCE' top-left, 'HYPER-GT' bottom-right) in clamp(4.5rem, 13vw, 12rem) font-weight: 800.\n"
+                "  - Technical Specs Matrix (0-60 mph, horsepower, top speed, electric range).\n"
+                "  - Interactive configurator controls, slide-out drawer, and working cart/order modal.\n"
+            )
+        elif domain == "horology_watch":
+            domain_guide = (
+                "INDUSTRY FOCUS: LUXURY HOROLOGY & CHRONOGRAPH TIMEPIECE 3D SHOWCASE\n"
+                "• 3D Scene Architecture:\n"
+                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
+                "  - High-precision composite 3D chronograph timepiece: Brushed metallic case, rotatable fluted ceramic bezel, sapphire crystal face with transmission, sub-dials, textured crown, link bracelet, and functioning ticking hour, minute, and second hands synced to real time or smoothly ticking in requestAnimationFrame.\n"
+                "  - PBR Materials: High-grade brushed steel/titanium (metalness: 0.9, roughness: 0.25), 18K gold accents, glowing Super-LumiNova hour indices.\n"
+                "  - Studio Lighting: Dramatic jewelry caustics lighting with high specular rim light.\n"
+                "  - Interactivity: 360° drag rotation, interactive rotatable bezel on drag, material switcher (Platinum, Rose Gold, Midnight DLC, Titanium).\n"
+                "• Display Typography & Layout:\n"
+                "  - Split monumental typography (e.g. 'CHRONOS' top-left, 'GENEVE' bottom-right).\n"
+                "  - Calibre movement specs matrix, power reserve, water resistance depth.\n"
+            )
+        elif domain == "architecture":
+            domain_guide = (
+                "INDUSTRY FOCUS: MODERNIST ARCHITECTURE & LIVING PAVILION 3D SHOWCASE\n"
+                "• 3D Scene Architecture:\n"
+                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
+                "  - Cantilevered architectural pavilion / modernist villa: Textured concrete slabs, floor-to-ceiling glass curtain walls, glowing warm interior lighting, reflecting pool with water surface reflection.\n"
+                "  - Lighting & Atmosphere: Dynamic directional Sun light with shadow casting.\n"
+                "  - Interactivity: Interactive Sun/Shadow Time-of-Day slider that shifts directional light angle and sky ambient tone from dawn to midday to golden hour dusk.\n"
+                "• Display Typography & Layout:\n"
+                "  - Split monumental typography (e.g. 'PAVILION' top-left, 'ATELIER' bottom-right).\n"
+                "  - Floor plan matrix, material narrative, and booking/inquiry modal.\n"
+            )
+        elif domain == "creative_tech":
+            domain_guide = (
+                "INDUSTRY FOCUS: CREATIVE TECH / CYBER SAAS / AI STUDIO 3D SHOWCASE\n"
+                "• 3D Scene Architecture:\n"
+                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
+                "  - Kinetic geometric core / neural nexus: Pulsating wireframe rings, faceted polyhedron with holographic physical material, drifting particle constellation reacting to cursor position.\n"
+                "  - Interactivity: 360° interactive drag, mouse parallax acceleration, interactive particle dispersion on hover.\n"
+                "• Display Typography & Layout:\n"
+                "  - Split monumental typography (e.g. 'NEXUS' top-left, 'SYSTEM' bottom-right).\n"
+                "  - Performance benchmarks, feature breakdown grid, and interactive terminal/cart.\n"
+            )
+        else:
+            domain_guide = (
+                "INDUSTRY FOCUS: LUXURY CRAFT, SCULPTURAL DESIGN & STUDIO SHOWCASE\n"
+                "• 3D Scene Architecture:\n"
+                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
+                "  - Sculptural composite 3D artifact tailored to the brand (e.g. fluted ceramic vessel, luxury perfume flacon, faceted prism, or modern design artifact).\n"
+                "  - PBR Materials: `THREE.MeshPhysicalMaterial` with clearcoat, roughness 0.3, metalness 0.15, studio 3-point lighting, and floating dust particle field.\n"
+                "  - Interactivity: 360° click-and-drag and touch rotation with damping, mouse parallax tilt, and interactive color/material swatch buttons.\n"
+                "• Display Typography & Layout:\n"
+                "  - Monumental split architectural typography in clamp(4.5rem, 14vw, 13rem) font-weight: 800.\n"
+                "  - Flanking editorial micro-copy columns and dual pill CTA buttons.\n"
+                "  - Multi-section depth (material studio, craftsmanship story, product grid, specs matrix, reviews, slide-out drawer, editorial footer).\n"
+            )
+
+        if is_mod:
+            mod_directive = (
+                "\n=== INCREMENTAL UPDATE MODE (DO NOT REGENERATE FROM SCRATCH) ===\n"
+                f"The user is asking to modify their existing website project with the following request:\n"
+                f"\"{query}\"\n\n"
+                "MANDATORY CONTINUITY RULES:\n"
+                "1. PRESERVE the existing brand identity, theme, typography, color palette (except requested color changes), layout, and sections.\n"
+                "2. TARGETED UPDATE: Modify the specific HTML elements, CSS styles, and JavaScript 3D logic (e.g. material colors, geometries, lighting, or controls) needed to fulfill the user's request.\n"
+                "   - For example, if asked to 'Make the car black', update the 3D car paint material to deep gloss black (#0a0a0a with high clearcoat), update the active color swatch in HTML, update corresponding CSS accent highlights, and keep all existing sections, controls, and features intact.\n"
+                "3. OUTPUT COMPLETE UPDATED CODE BLOCKS: You must deliver the complete updated files (```html, ```css, ```javascript) with zero placeholders so Astra's Live Demo button immediately previews the updated website.\n"
+                "4. Provide a friendly, concise summary of the applied updates before the code blocks.\n"
+            )
+        else:
+            mod_directive = (
+                "\n=== COMPLETE PRODUCTION WEBSITE CREATION DIRECTIVE ===\n"
+                "Deliver a complete, Awwwards Site-of-the-Day caliber 3D creative digital experience.\n"
+                "NEVER generate a flat, boring, black-and-orange or generic card-grid website!\n"
+            )
+
+        blender_directive = ""
+        if needs_blender:
+            blender_directive = (
+                "\n=== BLENDER 3D ASSET PIPELINE (BPY) DIRECTIVE ===\n"
+                "The user requested custom 3D asset modeling or a Blender pipeline. In addition to the website code blocks, you MUST provide a 4th code block:\n"
+                "4. ```python (<!-- generate_asset.py -->)\n"
+                "   - Complete, executable Blender Python script using `import bpy`.\n"
+                "   - Procedural mesh modeling (clean vertices, bmesh, subdivision modifiers, smooth shading).\n"
+                "   - Principled BSDF PBR material node setup (Base Color, Metallic, Roughness, Normal).\n"
+                "   - Studio lighting (3-point lights), camera setup, and export to Draco-compressed .glb:\n"
+                "     `bpy.ops.export_scene.gltf(filepath=\"model.glb\", export_format='GLB', export_draco_mesh_compression_enable=True)`\n"
+                "   - In // script.js, include `THREE.GLTFLoader` with automatic fallback to procedural Three.js geometry so the Live Demo works instantly!\n"
+            )
+
+        return (
+            f"\n\n=== MANDATORY 3D WEB PRODUCTION DIRECTIVE ===\n"
+            f"{domain_guide}"
+            f"{mod_directive}"
+            f"{blender_directive}\n"
+            "MANDATORY CODE OUTPUT STRUCTURE (ZERO PLACEHOLDERS):\n"
+            "1. ```html (<!-- index.html -->) - Semantic HTML5 with <canvas id=\"webgl-canvas\"></canvas>, header, hero overlay, sections, drawer, footer.\n"
+            "2. ```css (/* styles.css */) - Modern, responsive CSS with CSS variables, fluid typography clamp(), frosted glass, dark aesthetic, and overflow-x: hidden.\n"
+            "3. ```javascript (// script.js) - Complete Three.js scene (window.THREE, OrbitControls, GSAP pre-loaded), camera, lighting, PBR materials, drag & touch controls, resize listener, swatch hooks, and UI interactions.\n"
+            f"{'4. ```python (<!-- generate_asset.py -->) - Blender procedural generation script.\n' if needs_blender else ''}"
+        )
+
     def _heuristic_resolve(self, query: str, history: list[dict]) -> str:
         """Instant heuristic coreference resolver that replaces pronouns and clarifies follow-up queries using previous dialogue context."""
         if not history:
             return query
+
+        # Check project state first for follow-up website updates
+        project_state = self._detect_project_state(history, query)
+        if project_state["is_active_project"] and project_state["is_modification"]:
+            domain_label = {
+                "automotive": "futuristic car 3D website",
+                "horology_watch": "luxury watch 3D website",
+                "architecture": "modern architecture 3D website",
+                "luxury_goods": "luxury boutique 3D website",
+                "creative_tech": "creative tech 3D website",
+                "restaurant": "restaurant website",
+            }.get(project_state["domain"], "website project")
+            return f"Update the {domain_label}: {query.strip()}"
+
         last_user = next((m.get("content") or m.get("text") or "" for m in reversed(history) if m.get("role") == "user"), "")
         last_asst = next((m.get("content") or m.get("text") or "" for m in reversed(history) if m.get("role") == "assistant"), "")
 
@@ -840,16 +1082,22 @@ class ProductionRAGService:
         # Quick heuristic candidate as instant baseline
         heuristic_rewritten = self._heuristic_resolve(query, history)
 
-        # Check if query contains pronouns or follow-up indicators
+        project_state = self._detect_project_state(history, query)
+
+        # Check if query contains pronouns, project continuation, or follow-up indicators
         q_lower = query.lower().strip()
         words = set(re.findall(r"\w+", q_lower))
         pronoun_tokens = {
             "he", "she", "it", "they", "this", "that", "these", "those",
             "his", "her", "its", "their", "him", "them",
             "more", "continue", "summarize", "tell me more",
-            "second", "third", "another", "else", "elaborate"
+            "second", "third", "another", "else", "elaborate",
+            "make", "change", "add", "turn", "update", "switch", "replace",
+            "color", "black", "white", "dark", "rotate", "hero", "model"
         }
-        has_pronoun_or_continuation = bool(words & pronoun_tokens)
+        has_pronoun_or_continuation = bool(words & pronoun_tokens) or (
+            project_state["is_active_project"] and project_state["is_modification"]
+        )
         if not has_pronoun_or_continuation:
             return await self._rewrite(query)
 
@@ -866,13 +1114,14 @@ class ProductionRAGService:
                 context_str = "\n".join(context_lines)
                 sys_prompt = (
                     "You are a conversational query reformulation engine with human-like understanding. "
-                    "The user is asking a follow-up question in an ongoing conversation. "
-                    "Your job is to rewrite the user's latest question into a self-contained, unambiguous search query by replacing pronouns ('he', 'she', 'it', 'they', 'this', 'that') and vague references with the actual entities, names, or subjects discussed. "
+                    "The user is asking a follow-up question or modification in an ongoing conversation. "
+                    "Your job is to rewrite the user's latest question into a self-contained, unambiguous search and task query by replacing pronouns ('he', 'she', 'it', 'they', 'this', 'that') and definite references ('the car', 'the watch', 'the hero', 'the website') with the actual entities and project context discussed. "
                     "Rules:\n"
                     "1. If the question is already fully self-contained, return it as-is.\n"
-                    "2. Resolve all pronouns and ambiguous references using the conversation context.\n"
-                    "3. Expand abbreviations and acronyms accurately (e.g., 'GP' to 'Grand Prix', 'F1' to 'Formula 1'). NEVER truncate names or terms (e.g. write 'Italian Grand Prix', NEVER cut off as 'Italian Grand').\n"
-                    "4. Do NOT answer the question. Output ONLY the complete rewritten standalone query in plain text without quotes or formatting."
+                    "2. If the user is modifying, updating, or adding to an ongoing website or software project (e.g. 'Make the car black', 'Add rotating 3D model to hero section'), rewrite it to explicitly identify the project subject and requested change (e.g. 'Update the futuristic car 3D website: make the car body color black', 'Add an interactive rotating 3D watch model to the hero section of the luxury watch website').\n"
+                    "3. Resolve all pronouns and ambiguous references using the conversation context.\n"
+                    "4. Expand abbreviations and acronyms accurately (e.g., 'GP' to 'Grand Prix', 'F1' to 'Formula 1'). NEVER truncate names or terms.\n"
+                    "5. Do NOT answer the question. Output ONLY the complete rewritten standalone query in plain text without quotes or formatting."
                 )
                 try:
                     payload = {
@@ -1007,7 +1256,8 @@ class ProductionRAGService:
             "- Ground answers directly on the verified live search context or document evidence. Do NOT include citation tags like [W1], [W2], [S1], 【W1】 in your text.\n"
             f"{grounding_rule}\n"
             "INTERACTIVE 3D MODELS & VISUALIZATIONS:\n"
-            "- When asked for a 3D model or visualization, or when explaining spatial structures (DNA double helix, molecules, atomic orbitals, solar systems, neural networks, crystal lattices, mechanical gears, geometries), generate an interactive 3D model using a ```3d code block with JSON:\n"
+            "- CRITICAL RULE FOR 3D WEBSITES: When asked for a 3D WEBSITE, landing page, portfolio, or web configurator (e.g. 'Build me a futuristic car website', 'Make a luxury watch website with a 3D hero', 'Add a rotating 3D model to the hero section', 'Make the car black'), NEVER output a ```3d JSON widget card. Instead, deliver the complete, production-grade website with HTML, CSS, and Three.js JavaScript (<canvas id=\"webgl-canvas\">, window.THREE, OrbitControls, lighting, materials, and interactivity) across the standard ```html, ```css, and ```javascript code blocks!\n"
+            "- Standalone ```3d JSON blocks are reserved strictly for standalone scientific/educational simulations (DNA double helix, water molecule, benzene ring, Bohr atom, solar system, crystal lattice, spur gear, spiral galaxy, or parametric torus knot) when the user specifically asks for that scientific model.\n"
             "```3d\n"
             "{\n"
             '  "type": "dna" | "molecule" | "solar_system" | "atom" | "neural_network" | "crystal" | "torus_knot" | "gear" | "galaxy" | "math_surface",\n'
@@ -1018,7 +1268,7 @@ class ProductionRAGService:
             '  }\n'
             "}\n"
             "```\n"
-            "- Alternatively, for custom Three.js scenes, provide executable Three.js JavaScript inside a ```threejs block using `scene`, `camera`, `renderer`, `THREE`.\n\n"
+            "- Alternatively, for standalone custom Three.js scenes, provide executable Three.js JavaScript inside a ```threejs block using `scene`, `camera`, `renderer`, `THREE`.\n\n"
             "INTERACTIVE CHARTS & GRAPHS:\n"
             "- When presenting quantitative data, comparisons, or metrics, or when asked for a chart/graph/plot, generate an interactive chart using a ```chart block with valid Chart.js JSON:\n"
             "```chart\n"
@@ -1213,7 +1463,8 @@ class ProductionRAGService:
         now_str = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
         system_prompt = self._deep_research_system_prompt(is_grounded=True, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
 
-        is_coding = (mode == "code") or any(
+        project_state = self._detect_project_state(history, original_query)
+        is_coding = (mode == "code") or project_state["is_active_project"] or any(
             k in original_query.lower() for k in [
                 "code", "script", "program", "website", "html", "css", "javascript", "python",
                 "function", "class", "react", "c++", "java", "sql", "build a site", "landing page",
@@ -1222,7 +1473,7 @@ class ProductionRAGService:
                 "ui", "front-end", "frontend", "redesign", "web page"
             ]
         )
-        is_web_design = (mode == "code") or any(
+        is_web_design = (mode == "code") or (project_state["is_active_project"] and project_state["is_modification"]) or any(
             k in original_query.lower() for k in [
                 "website", "landing page", "web app", "dashboard", "portfolio",
                 "e-commerce", "ecommerce", "store", "shop", "restaurant website",
@@ -1238,39 +1489,7 @@ class ProductionRAGService:
 
         web_directive = ""
         if is_web_design:
-            web_directive = (
-                "\n\n=== MANDATORY PRODUCTION 3D WEB EXPERIENCE DIRECTIVE (AWWWARDS / JINTO 'KONK OUT' BENCHMARK) ===\n"
-                "You are designing an extraordinary, Awwwards Site-of-the-Day caliber 3D creative digital experience matching the 'KONK OUT' / Studio Jinto benchmark in the uploaded reference.\n"
-                "NEVER generate a flat, boring, black-and-orange or generic card-grid website!\n"
-                "YOU MUST DELIVER:\n"
-                "1. FULL-BLEED 3D WEBGL HERO POWERED BY THREE.JS:\n"
-                "   - Hero contains `<canvas id=\"webgl-canvas\"></canvas>`.\n"
-                "   - In // script.js, initialize Three.js (window.THREE, OrbitControls, and gsap are pre-loaded in the runtime) with a realistic, high-fidelity 3D composite object tailored to the project (e.g. sculptural bottle/vessel, modern furniture, tech artifact, faceted prism, or luxury container).\n"
-                "   - Use `THREE.MeshPhysicalMaterial` or `THREE.MeshStandardMaterial` with roughness (0.2-0.6), metalness (0.1-0.3), and clearcoat (0.5-0.9).\n"
-                "   - Studio 3-point lighting: warm key light, cool fill light, high-intensity rim light for specular contours, and soft ambient light.\n"
-                "   - Floating particle dust field (`THREE.Points`) drifting through 3D space.\n"
-                "   - Full interactivity: smooth floating levitation, mouse parallax tilt, AND full 360-degree click-and-drag rotation (supporting both mouse and touch events).\n"
-                "   - Interactive 3D Color/Material Switcher: clickable color swatches that dynamically update the 3D model's material color live.\n"
-                "2. MONUMENTAL SPLIT ARCHITECTURAL TYPOGRAPHY:\n"
-                "   - Massive display typography framing the 3D object: First word top-left (e.g. 'KONK', 'AURA', 'LUMEN', 'PRISM') and second word bottom-right (e.g. 'OUT', 'STUDIO', 'VESSEL', 'CRAFT') in `clamp(4.5rem, 14vw, 13rem)` font-weight: 800; color: #f2eee3; with pointer-events: none.\n"
-                "3. SLEEK EDITORIAL FRAMING & DUAL PILL BUTTONS:\n"
-                "   - Minimalist header with pill brand badge `( BRAND )`, sub-label `STUDIO STOREFRONT`, and `CART (0)` counter.\n"
-                "   - Editorial micro-copy columns flanking the 3D canvas with feature lists and manifesto snippets.\n"
-                "   - Dual floating pill buttons: Solid ivory 'SHOP NOW' / 'EXPLORE' button + frosted glass '3D VIEWER' / 'BOOK A CALL' button.\n"
-                "   - Deep warm atmospheric radial background: `background: radial-gradient(ellipse at 50% 45%, #2a2622 0%, #171513 55%, #0d0c0a 100%);`\n"
-                "4. MULTI-SECTION EDITORIAL DEPTH BELOW THE HERO (6 to 9 sections):\n"
-                "   - Interactive Material/Finish Studio with real-time 3D color change.\n"
-                "   - Architectural Brand Story & Craftsmanship with high-resolution photography.\n"
-                "   - Interactive Curated Product Grid with hover effects and 'Add to Cart' buttons.\n"
-                "   - Technical Specifications & Dimensions matrix.\n"
-                "   - Verified Critic & Customer Reviews.\n"
-                "   - Working Slide-out Cart Drawer (with item list, total calculation, and checkout button).\n"
-                "   - Monumental Editorial Footer.\n"
-                "5. EXACT 3 CODE BLOCKS WITH ZERO PLACEHOLDERS:\n"
-                "   1. ```html (<!-- index.html -->)\n"
-                "   2. ```css (/* styles.css */)\n"
-                "   3. ```javascript (// script.js) with the complete, working Three.js scene, drag rotation, mouse parallax, and cart interactions.\n"
-            )
+            web_directive = self._build_web_directive(project_state, original_query)
 
         user_prompt = (
             f"User Question: {original_query}\n\n"
@@ -1616,9 +1835,30 @@ class ProductionRAGService:
             "prompt": prompt,
         }
 
-    def _is_3d_request(self, query: str) -> tuple[bool, str]:
-        """Detects if user is asking to generate/view a 3D model, and constructs the 3D widget with rigorous scientific explanation."""
+    def _is_3d_request(self, query: str, history: list[dict] | None = None) -> tuple[bool, str]:
+        """Detects if user is asking to generate/view a standalone scientific 3D model, and constructs the 3D widget.
+        Returns (False, "") for website/app requests or if none of the explicit scientific models match."""
         q = query.lower().strip()
+
+        # 1. Reject ANY website, landing page, app, UI, hero, store, portfolio, or coding requests
+        web_terms = [
+            "website", "web site", "webpage", "web page", "site", "landing page",
+            "web app", "webapp", "ui", "ux", "frontend", "front-end", "html",
+            "css", "portfolio", "store", "shop", "ecommerce", "e-commerce",
+            "configurator", "hero section", "navbar", "footer", "button",
+            "screen", "page", "makethe website", "interactive website",
+            "3d website", "3d site", "3d web", "script.js", "index.html"
+        ]
+        if any(term in q for term in web_terms):
+            return False, ""
+
+        # Reject if previous history has an active web project
+        if history:
+            for turn in history[-4:]:
+                c = (turn.get("content") or turn.get("text") or "").lower()
+                if any(k in c for k in ["```html", "```css", "```javascript", "<canvas id=\"webgl-canvas\"", "website", "landing page"]):
+                    return False, ""
+
         is_3d = any(term in q for term in ["3d", "threejs", "three.js", "webgl", "spatial model", "interactive model"])
         has_vis_verb = any(v in q for v in ["generate", "create", "show", "make", "render", "display", "build", "visualize", "view", "simulate"])
 
@@ -1826,31 +2066,38 @@ class ProductionRAGService:
             )
             return True, ans
 
-        # Topic 8: Torus Knot / Geometry
-        ans = (
-            "Here is your interactive 3D model of a **Parametric Torus Knot**:\n\n"
-            "```3d\n"
-            "{\n"
-            '  "type": "torus_knot",\n'
-            '  "title": "Parametric Torus Knot (p=2, q=3) Trefoil",\n'
-            '  "description": "Interactive 3D WebGL geometric surface with metallic material and wireframe toggle.",\n'
-            '  "params": {\n'
-            '    "p": 2,\n'
-            '    "q": 3\n'
-            "  }\n"
-            "}\n"
-            "```\n\n"
-            "**Differential Geometry & Parametric Curves:**\n"
-            "• **Parametric Equation**: A $(p, q)$-torus knot winds $p$ times around the rotational symmetry axis of the torus and $q$ times through its interior hole.\n"
-            "$$ x(t) = \\left(R + r\\cos(qt)\\right)\\cos(pt) $$\n"
-            "$$ y(t) = \\left(R + r\\cos(qt)\\right)\\sin(pt) $$\n"
-            "$$ z(t) = -r\\sin(qt) $$"
-        )
-        return True, ans
+        # Topic 8: Torus Knot / Geometry (strictly when explicit torus / knot geometry is requested)
+        if any(w in q for w in ["torus", "torus knot", "knot", "trefoil", "parametric curve", "mobius"]):
+            ans = (
+                "Here is your interactive 3D model of a **Parametric Torus Knot**:\n\n"
+                "```3d\n"
+                "{\n"
+                '  "type": "torus_knot",\n'
+                '  "title": "Parametric Torus Knot (p=2, q=3) Trefoil",\n'
+                '  "description": "Interactive 3D WebGL geometric surface with metallic material and wireframe toggle.",\n'
+                '  "params": {\n'
+                '    "p": 2,\n'
+                '    "q": 3\n'
+                "  }\n"
+                "}\n"
+                "```\n\n"
+                "**Differential Geometry & Parametric Curves:**\n"
+                "• **Parametric Equation**: A $(p, q)$-torus knot winds $p$ times around the rotational symmetry axis of the torus and $q$ times through its interior hole.\n"
+                "$$ x(t) = \\left(R + r\\cos(qt)\\right)\\cos(pt) $$\n"
+                "$$ y(t) = \\left(R + r\\cos(qt)\\right)\\sin(pt) $$\n"
+                "$$ z(t) = -r\\sin(qt) $$"
+            )
+            return True, ans
+
+        # If none of the dedicated scientific 3D topics match, NEVER fall back to torus knot!
+        return False, ""
 
     def _is_chart_request(self, query: str) -> tuple[bool, str]:
         """Detects if user is asking for an interactive chart/graph, and constructs the Chart.js widget."""
         q = query.lower().strip()
+        web_terms = ["website", "web site", "webpage", "web page", "site", "landing page", "web app", "webapp", "build a site", "html", "front-end", "frontend"]
+        if any(term in q for term in web_terms):
+            return False, ""
         chart_terms = ["chart", "bar chart", "line chart", "pie chart", "doughnut chart", "radar chart", "plot comparing", "graph comparing"]
         if not any(term in q for term in chart_terms):
             return False, ""
@@ -1942,7 +2189,8 @@ class ProductionRAGService:
         mode: str = "general",
     ) -> str:
         """Answer general greetings, outside questions, or follow-ups conversationally like ChatGPT/Grok, incorporating web search facts and dialogue context."""
-        is_coding = (mode == "code") or any(
+        project_state = self._detect_project_state(history, query)
+        is_coding = (mode == "code") or project_state["is_active_project"] or any(
             k in query.lower() for k in [
                 "code", "script", "program", "website", "html", "css", "javascript", "python",
                 "function", "class", "react", "c++", "java", "sql", "build a site", "landing page",
@@ -1951,7 +2199,7 @@ class ProductionRAGService:
                 "ui", "front-end", "frontend", "redesign", "web page"
             ]
         )
-        is_web_design = (mode == "code") or any(
+        is_web_design = (mode == "code") or (project_state["is_active_project"] and project_state["is_modification"]) or any(
             k in query.lower() for k in [
                 "website", "landing page", "web app", "dashboard", "portfolio",
                 "e-commerce", "ecommerce", "store", "shop", "restaurant website",
@@ -1983,39 +2231,7 @@ class ProductionRAGService:
 
         web_directive = ""
         if is_web_design:
-            web_directive = (
-                "\n\n=== MANDATORY PRODUCTION 3D WEB EXPERIENCE DIRECTIVE (AWWWARDS / JINTO 'KONK OUT' BENCHMARK) ===\n"
-                "You are designing an extraordinary, Awwwards Site-of-the-Day caliber 3D creative digital experience matching the 'KONK OUT' / Studio Jinto benchmark in the uploaded reference.\n"
-                "NEVER generate a flat, boring, black-and-orange or generic card-grid website!\n"
-                "YOU MUST DELIVER:\n"
-                "1. FULL-BLEED 3D WEBGL HERO POWERED BY THREE.JS:\n"
-                "   - Hero contains `<canvas id=\"webgl-canvas\"></canvas>`.\n"
-                "   - In // script.js, initialize Three.js (window.THREE, OrbitControls, and gsap are pre-loaded in the runtime) with a realistic, high-fidelity 3D composite object tailored to the project (e.g. sculptural bottle/vessel, modern furniture, tech artifact, faceted prism, or luxury container).\n"
-                "   - Use `THREE.MeshPhysicalMaterial` or `THREE.MeshStandardMaterial` with roughness (0.2-0.6), metalness (0.1-0.3), and clearcoat (0.5-0.9).\n"
-                "   - Studio 3-point lighting: warm key light, cool fill light, high-intensity rim light for specular contours, and soft ambient light.\n"
-                "   - Floating particle dust field (`THREE.Points`) drifting through 3D space.\n"
-                "   - Full interactivity: smooth floating levitation, mouse parallax tilt, AND full 360-degree click-and-drag rotation (supporting both mouse and touch events).\n"
-                "   - Interactive 3D Color/Material Switcher: clickable color swatches that dynamically update the 3D model's material color live.\n"
-                "2. MONUMENTAL SPLIT ARCHITECTURAL TYPOGRAPHY:\n"
-                "   - Massive display typography framing the 3D object: First word top-left (e.g. 'KONK', 'AURA', 'LUMEN', 'PRISM') and second word bottom-right (e.g. 'OUT', 'STUDIO', 'VESSEL', 'CRAFT') in `clamp(4.5rem, 14vw, 13rem)` font-weight: 800; color: #f2eee3; with pointer-events: none.\n"
-                "3. SLEEK EDITORIAL FRAMING & DUAL PILL BUTTONS:\n"
-                "   - Minimalist header with pill brand badge `( BRAND )`, sub-label `STUDIO STOREFRONT`, and `CART (0)` counter.\n"
-                "   - Editorial micro-copy columns flanking the 3D canvas with feature lists and manifesto snippets.\n"
-                "   - Dual floating pill buttons: Solid ivory 'SHOP NOW' / 'EXPLORE' button + frosted glass '3D VIEWER' / 'BOOK A CALL' button.\n"
-                "   - Deep warm atmospheric radial background: `background: radial-gradient(ellipse at 50% 45%, #2a2622 0%, #171513 55%, #0d0c0a 100%);`\n"
-                "4. MULTI-SECTION EDITORIAL DEPTH BELOW THE HERO (6 to 9 sections):\n"
-                "   - Interactive Material/Finish Studio with real-time 3D color change.\n"
-                "   - Architectural Brand Story & Craftsmanship with high-resolution photography.\n"
-                "   - Interactive Curated Product Grid with hover effects and 'Add to Cart' buttons.\n"
-                "   - Technical Specifications & Dimensions matrix.\n"
-                "   - Verified Critic & Customer Reviews.\n"
-                "   - Working Slide-out Cart Drawer (with item list, total calculation, and checkout button).\n"
-                "   - Monumental Editorial Footer.\n"
-                "5. EXACT 3 CODE BLOCKS WITH ZERO PLACEHOLDERS:\n"
-                "   1. ```html (<!-- index.html -->)\n"
-                "   2. ```css (/* styles.css */)\n"
-                "   3. ```javascript (// script.js) with the complete, working Three.js scene, drag rotation, mouse parallax, and cart interactions.\n"
-            )
+            web_directive = self._build_web_directive(project_state, query)
 
         if web_context_text:
             user_content = (

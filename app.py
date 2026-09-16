@@ -1100,6 +1100,11 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
   <style>
     *, *::before, *::after {{ box-sizing: border-box; }}
     html {{ scroll-behavior: smooth; }}
+    html, body {{
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100vw;
+    }}
     body {{
       margin: 0;
       padding: 0;
@@ -1107,6 +1112,10 @@ def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: 
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       line-height: 1.5;
+    }}
+    canvas {{
+      display: block;
+      max-width: 100%;
     }}
     {cleaned_css}
   </style>

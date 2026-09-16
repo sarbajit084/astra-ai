@@ -21,7 +21,7 @@ from database import User, get_db
 bearer = HTTPBearer(auto_error=False)
 
 SESSION_COOKIE = "astra_session"
-TOKEN_TTL = timedelta(days=30)
+TOKEN_TTL = timedelta(days=3650)  # 10 years persistent session
 BCRYPT_ROUNDS = 12
 ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4)
 

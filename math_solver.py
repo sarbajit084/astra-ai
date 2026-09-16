@@ -52,6 +52,14 @@ from sympy import (
     tan,
     trigsimp,
 )
+from sympy.parsing.sympy_parser import (
+    parse_expr,
+    standard_transformations,
+    implicit_multiplication_application,
+    convert_xor,
+)
+
+_TRANSFORMATIONS = standard_transformations + (implicit_multiplication_application, convert_xor)
 
 
 class MathSolver:
@@ -146,6 +154,7 @@ class MathSolver:
         text = re.sub(r"\bplus\b", "+", text, flags=re.IGNORECASE)
         text = re.sub(r"\bminus\b", "-", text, flags=re.IGNORECASE)
         text = re.sub(r"\bequals\b|\bequal to\b|\bis equal to\b", "=", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bzero\b", "0", text, flags=re.IGNORECASE)
 
         # Clean unicode math symbols
         text = text.replace("×", "*").replace("÷", "/").replace("−", "-")
@@ -510,63 +519,173 @@ class MathSolver:
     # 5. CALCULUS (Derivatives, Integrals, Limits, Series)
     # =========================================================================
     @classmethod
+    def _parse_math_expression(cls, expr_str: str, default_var: Symbol | None = None) -> Any:
+        """Parses mathematical expressions supporting implicit multiplication, powers (^ or **), and standard functions."""
+        x = default_var if default_var is not None else symbols('x')
+        local_dict = {
+            'x': x, 'y': symbols('y'), 'z': symbols('z'), 't': symbols('t'), 'u': symbols('u'),
+            'e': E, 'pi': pi, 'sin': sin, 'cos': cos, 'tan': tan,
+            'exp': exp, 'log': log, 'ln': log, 'sqrt': sqrt, 'oo': oo
+        }
+        s = expr_str.strip().replace("^", "**")
+        return parse_expr(s, local_dict=local_dict, transformations=_TRANSFORMATIONS)
+
+    @classmethod
+    def _format_integration_steps(cls, expr: Any, var: Symbol, bounds: tuple | None = None) -> str:
+        """Generates clear, human-readable, mobile-responsive step-by-step calculus integration results."""
+        antiderivative = integrate(expr, var)
+        expr_latex = latex(expr)
+        antideriv_latex = latex(antiderivative)
+        v_str = str(var)
+
+        lines: list[str] = []
+        if bounds:
+            a_val, b_val = bounds[1], bounds[2]
+            a_latex = latex(a_val)
+            b_latex = latex(b_val)
+            res = integrate(expr, bounds)
+            res_latex = latex(res)
+
+            lines.append("### 📐 Definite Integral Calculation\n")
+            lines.append(f"$$\\int_{{{a_latex}}}^{{{b_latex}}} {expr_latex} \\, d{v_str}$$\n")
+            lines.append(f"#### 1. Determine the Antiderivative $F({v_str})$\n")
+            lines.append(f"• Integrate the integrand with respect to ${v_str}$:\n")
+            lines.append(f"$$F({v_str}) = \\int {expr_latex} \\, d{v_str} = {antideriv_latex}$$\n")
+
+            # Contextual rule explanation
+            if (expr.is_Pow and expr.base == var and expr.exp == -1) or expr == 1 / var:
+                lines.append(f"• **Logarithmic Rule**: $\\int \\frac{{1}}{{{v_str}}} \\, d{v_str} = \\ln|{v_str}| + C$\n")
+            elif (expr.is_Pow and expr.base == var and expr.exp != -1) or expr == var:
+                n = expr.exp if expr.is_Pow else 1
+                lines.append(f"• **Power Rule of Integration**: $\\int {v_str}^n \\, d{v_str} = \\frac{{{v_str}^{{n+1}}}}{{n+1}} + C \\quad (n \\neq -1)$\n")
+                lines.append(f"• Here $n = {latex(n)}$, giving new exponent $n + 1 = {latex(n+1)}$\n")
+            elif expr.is_Add:
+                lines.append(f"• **Sum Rule of Integration**: $\\int [f({v_str}) \\pm g({v_str})] \\, d{v_str} = \\int f({v_str}) \\, d{v_str} \\pm \\int g({v_str}) \\, d{v_str}$\n")
+                lines.append("• Integrate term-by-term:\n")
+                for term in expr.as_ordered_terms():
+                    lines.append(f"  - $\\int {latex(term)} \\, d{v_str} = {latex(integrate(term, var))}$\n")
+            elif expr.func == sin:
+                lines.append(f"• **Trigonometric Rule**: $\\int \\sin({v_str}) \\, d{v_str} = -\\cos({v_str}) + C$\n")
+            elif expr.func == cos:
+                lines.append(f"• **Trigonometric Rule**: $\\int \\cos({v_str}) \\, d{v_str} = \\sin({v_str}) + C$\n")
+            elif expr.func == exp:
+                lines.append(f"• **Exponential Rule**: $\\int e^{{{v_str}}} \\, d{v_str} = e^{{{v_str}}} + C$\n")
+
+            lines.append("\n#### 2. Apply the Fundamental Theorem of Calculus\n")
+            lines.append(f"$$\\int_{{{a_latex}}}^{{{b_latex}}} {expr_latex} \\, d{v_str} = \\left[ F({v_str}) \\right]_{{{a_latex}}}^{{{b_latex}}} = F({b_latex}) - F({a_latex})$$\n")
+
+            try:
+                fa = antiderivative.subs(var, a_val)
+                fb = antiderivative.subs(var, b_val)
+                lines.append(f"• **Upper Limit (${v_str} = {b_latex}$):** $F({b_latex}) = {latex(fb)}$\n")
+                lines.append(f"• **Lower Limit (${v_str} = {a_latex}$):** $F({a_latex}) = {latex(fa)}$\n")
+                lines.append(f"• **Calculate Difference:** $F({b_latex}) - F({a_latex}) = {latex(fb)} - ({latex(fa)}) = {res_latex}$\n")
+            except Exception:
+                pass
+
+            lines.append("#### 3. Final Result\n")
+            lines.append(f"$$\\int_{{{a_latex}}}^{{{b_latex}}} {expr_latex} \\, d{v_str} = \\mathbf{{{res_latex}}}$$\n")
+            lines.append(f"**Final Answer:** **${res_latex}$**")
+        else:
+            lines.append("### 📐 Indefinite Integral Calculation\n")
+            lines.append(f"$$\\int {expr_latex} \\, d{v_str}$$\n")
+            lines.append("#### 1. Integration Method & Applicable Rules\n")
+            if (expr.is_Pow and expr.base == var and expr.exp == -1) or expr == 1 / var:
+                lines.append(f"• **Logarithmic Rule**: $\\int \\frac{{1}}{{{v_str}}} \\, d{v_str} = \\ln|{v_str}| + C$\n")
+            elif (expr.is_Pow and expr.base == var and expr.exp != -1) or expr == var:
+                n = expr.exp if expr.is_Pow else 1
+                lines.append(f"• **Power Rule**: $\\int {v_str}^n \\, d{v_str} = \\frac{{{v_str}^{{n+1}}}}{{n+1}} + C \\quad (n \\neq -1)$\n")
+                lines.append(f"• Here $n = {latex(n)}$, so the new power is $n + 1 = {latex(n+1)}$\n")
+            elif expr.is_Add:
+                lines.append(f"• **Sum Rule**: $\\int [f({v_str}) \\pm g({v_str})] \\, d{v_str} = \\int f({v_str}) \\, d{v_str} \\pm \\int g({v_str}) \\, d{v_str}$\n")
+                lines.append("• Integrate term-by-term:\n")
+                for term in expr.as_ordered_terms():
+                    lines.append(f"  - $\\int {latex(term)} \\, d{v_str} = {latex(integrate(term, var))}$\n")
+            elif expr.func == sin:
+                lines.append(f"• **Trigonometric Rule**: $\\int \\sin({v_str}) \\, d{v_str} = -\\cos({v_str}) + C$\n")
+            elif expr.func == cos:
+                lines.append(f"• **Trigonometric Rule**: $\\int \\cos({v_str}) \\, d{v_str} = \\sin({v_str}) + C$\n")
+            elif expr.func == exp:
+                lines.append(f"• **Exponential Rule**: $\\int e^{{{v_str}}} \\, d{v_str} = e^{{{v_str}}} + C$\n")
+            else:
+                lines.append(f"• Apply standard calculus integration rules with respect to ${v_str}$\n")
+
+            lines.append("\n#### 2. Antiderivative & Step-by-Step\n")
+            lines.append(f"$$\\int {expr_latex} \\, d{v_str} = {antideriv_latex} + C$$\n")
+            lines.append("#### 3. Final Result\n")
+            lines.append(f"$$\\int {expr_latex} \\, d{v_str} = \\mathbf{{{antideriv_latex} + C}}$$\n")
+            lines.append(f"**Final Answer:** **${antideriv_latex} + C$** *(where $C$ is the constant of integration)*")
+
+        return "\n".join(lines)
+
+    @classmethod
     def _solve_calculus(cls, query: str, detailed: bool = False) -> str | None:
         q = cls.sanitize_math_input(query).lower()
         x = symbols('x')
 
         # ── A. Definite & Indefinite Integrals ──
-        if any(w in q for w in ["integrate", "integral", "antiderivative", "∫"]):
+        if any(w in q for w in ["integrate", "integral", "antiderivative", "integration", "∫"]):
             try:
                 # Check for definite integral with bounds: "from a to b"
                 m_bounds = re.search(r"from\s+([+-]?\d+(?:\.\d+)?|[a-zA-Z_]+)\s+to\s+([+-]?\d+(?:\.\d+)?|[a-zA-Z_]+)", q)
                 bounds = None
-                if m_bounds:
-                    b_low = sympify(m_bounds.group(1), locals={"pi": pi, "e": E})
-                    b_high = sympify(m_bounds.group(2), locals={"pi": pi, "e": E})
-                    bounds = (x, b_low, b_high)
 
-                # Extract expression
-                clean_expr_str = re.sub(r"(?:evaluate|calculate|find)?\s*(?:the\s+)?(?:definite\s+)?(?:integral\s+(?:of)?|integrate)\s*", "", q)
-                clean_expr_str = re.sub(r"from\s+.*?\s+to\s+.*", "", clean_expr_str)
-                clean_expr_str = re.sub(r"d[xX]$", "", clean_expr_str).strip()
+                # Extract expression string
+                clean_expr_str = re.sub(
+                    r"^(?:what\s+is\s+(?:the\s+)?|solve\s+(?:for\s+)?|evaluate\s+|calculate\s+|find\s+(?:the\s+)?)*\s*(?:definite\s+)?(?:integral\s+(?:of)?|integration\s+(?:of)?|antiderivative\s+(?:of)?|integrate|∫)\s*",
+                    "",
+                    q,
+                    flags=re.IGNORECASE
+                )
+                clean_expr_str = re.sub(r"from\s+.*?\s+to\s+.*", "", clean_expr_str, flags=re.IGNORECASE)
+                clean_expr_str = re.sub(r"d[xXyt]\s*$", "", clean_expr_str).strip()
+                clean_expr_str = re.sub(r"with\s+respect\s+to\s+[xXyt]", "", clean_expr_str, flags=re.IGNORECASE).strip()
 
                 if clean_expr_str:
-                    clean_expr_str = clean_expr_str.replace("^", "**")
-                    expr = sympify(clean_expr_str, locals={"x": x, "e": E, "pi": pi, "sin": sin, "cos": cos, "tan": tan, "exp": exp, "log": log, "sqrt": sqrt})
+                    expr = cls._parse_math_expression(clean_expr_str, default_var=x)
 
-                    if bounds:
-                        res = integrate(expr, bounds)
-                        return (
-                            f"**Definite Integral:**\n\n"
-                            f"$$\\int_{{{latex(bounds[1])}}}^{{{latex(bounds[2])}}} {latex(expr)}\\,dx$$\n\n"
-                            f"**Antiderivative:** $$F(x) = {latex(integrate(expr, x))}$$\n\n"
-                            f"**Evaluation:** $$\\left[ F(x) \\right]_{{{latex(bounds[1])}}}^{{{latex(bounds[2])}}} = \\mathbf{{{latex(res)}}}$$"
-                        )
-                    else:
-                        res = integrate(expr, x)
-                        return (
-                            f"**Indefinite Integral:**\n\n"
-                            f"$$\\int {latex(expr)}\\,dx = \\mathbf{{{latex(res)} + C}}$$"
-                        )
+                    # Determine active variable
+                    var = x
+                    for sym in expr.free_symbols:
+                        if sym.name in ("x", "y", "t", "u", "z"):
+                            var = sym
+                            break
+
+                    if m_bounds:
+                        b_low = cls._parse_math_expression(m_bounds.group(1), default_var=var)
+                        b_high = cls._parse_math_expression(m_bounds.group(2), default_var=var)
+                        bounds = (var, b_low, b_high)
+
+                    return cls._format_integration_steps(expr, var, bounds)
             except Exception:
                 pass
 
         # ── B. Derivatives & Differentiation ──
         if any(w in q for w in ["derivative", "differentiate", "diff", "dy/dx", "d/dx"]):
             try:
-                # Detect order (e.g., second derivative)
                 order = 2 if "second" in q or "2nd" in q or "d^2/dx^2" in q else 1
 
                 clean_expr_str = re.sub(r"(?:find|calculate|evaluate)?\s*(?:the\s+)?(?:first|second|2nd)?\s*(?:derivative\s+(?:of)?|differentiate)\s*", "", q)
-                clean_expr_str = re.sub(r"with\s+respect\s+to\s+x", "", clean_expr_str).strip()
+                clean_expr_str = re.sub(r"with\s+respect\s+to\s+[xXyt]", "", clean_expr_str).strip()
                 if clean_expr_str:
-                    clean_expr_str = clean_expr_str.replace("^", "**")
-                    expr = sympify(clean_expr_str, locals={"x": x, "e": E, "pi": pi, "sin": sin, "cos": cos, "tan": tan, "exp": exp, "log": log, "sqrt": sqrt})
-                    res = diff(expr, x, order)
-                    order_sym = "\\frac{d^2}{dx^2}" if order == 2 else "\\frac{d}{dx}"
+                    expr = cls._parse_math_expression(clean_expr_str, default_var=x)
+                    var = x
+                    for sym in expr.free_symbols:
+                        if sym.name in ("x", "y", "t", "u", "z"):
+                            var = sym
+                            break
+
+                    res = diff(expr, var, order)
+                    order_sym = f"\\frac{{d^2}}{{d{var}^2}}" if order == 2 else f"\\frac{{d}}{{d{var}}}"
+                    order_label = "2nd Order" if order == 2 else "1st Order"
                     return (
-                        f"**Derivative ({'2nd Order' if order == 2 else '1st Order'}):**\n\n"
-                        f"$${order_sym}\\left[{latex(expr)}\\right] = \\mathbf{{{latex(res)}}}$$"
+                        f"### 📐 Derivative Calculation ({order_label})\n\n"
+                        f"$${order_sym}\\left[ {latex(expr)} \\right]$$\n\n"
+                        f"#### 1. Differentiate with respect to ${var}$\n"
+                        f"• Apply standard calculus differentiation rules to each component\n\n"
+                        f"#### 2. Final Result\n"
+                        f"$${order_sym}\\left[ {latex(expr)} \\right] = \\mathbf{{{latex(res)}}}$$\n\n"
+                        f"**Final Answer:** **${latex(res)}$**"
                     )
             except Exception:
                 pass
@@ -576,14 +695,19 @@ class MathSolver:
             try:
                 m_lim = re.search(r"limit\s+(?:of\s+)?(.*?)\s+as\s+x\s*(?:approaches|->|to)\s*([+-]?(?:oo|inf|infinity|\d+(?:\.\d+)?))", q)
                 if m_lim:
-                    expr_str = m_lim.group(1).replace("^", "**").strip()
+                    expr_str = m_lim.group(1).strip()
                     target_str = m_lim.group(2).strip()
                     target = oo if target_str in ("oo", "inf", "infinity") else (-oo if target_str in ("-oo", "-inf", "-infinity") else sympify(target_str))
-                    expr = sympify(expr_str, locals={"x": x, "sin": sin, "cos": cos, "tan": tan, "exp": exp, "log": log})
+                    expr = cls._parse_math_expression(expr_str, default_var=x)
                     res = limit(expr, x, target)
                     return (
-                        f"**Limit:**\n\n"
-                        f"$$\\lim_{{x \\to {latex(target)}}} \\left({latex(expr)}\\right) = \\mathbf{{{latex(res)}}}$$"
+                        f"### 📐 Limit Evaluation\n\n"
+                        f"$$\\lim_{{x \\to {latex(target)}}} \\left({latex(expr)}\\right)$$\n\n"
+                        f"#### 1. Step-by-Step Evaluation\n"
+                        f"• Evaluate the limiting value as $x$ approaches ${latex(target)}$\n\n"
+                        f"#### 2. Final Result\n"
+                        f"$$\\lim_{{x \\to {latex(target)}}} \\left({latex(expr)}\\right) = \\mathbf{{{latex(res)}}}$$\n\n"
+                        f"**Final Answer:** **${latex(res)}$**"
                     )
             except Exception:
                 pass
@@ -717,10 +841,10 @@ class MathSolver:
 
         # ── Factor ──
         if "factor" in q.lower():
-            m = re.search(r"factor\s+(?:the\s+expression\s+)?([a-zA-Z0-9\s\+\-\*\/\^\(\)]+)", q, flags=re.IGNORECASE)
+            m = re.search(r"factor\s*(?:the\s+expression\s+)?([a-zA-Z0-9\s\+\-\*\/\^\(\)]+)", q, flags=re.IGNORECASE)
             if m:
                 try:
-                    expr = sympify(m.group(1).replace("^", "**").strip(), locals=locals_dict)
+                    expr = cls._parse_math_expression(m.group(1), default_var=x)
                     factored = factor(expr)
                     return f"**Factored Form:** $${latex(expr)} = \\mathbf{{{latex(factored)}}}$$"
                 except Exception:
@@ -728,10 +852,10 @@ class MathSolver:
 
         # ── Expand ──
         if "expand" in q.lower():
-            m = re.search(r"expand\s+(?:the\s+expression\s+)?([a-zA-Z0-9\s\+\-\*\/\^\(\)]+)", q, flags=re.IGNORECASE)
+            m = re.search(r"expand\s*(?:the\s+expression\s+)?([a-zA-Z0-9\s\+\-\*\/\^\(\)]+)", q, flags=re.IGNORECASE)
             if m:
                 try:
-                    expr = sympify(m.group(1).replace("^", "**").strip(), locals=locals_dict)
+                    expr = cls._parse_math_expression(m.group(1), default_var=x)
                     expanded = expand(expr)
                     return f"**Expanded Polynomial:** $${latex(expr)} = \\mathbf{{{latex(expanded)}}}$$"
                 except Exception:
@@ -739,10 +863,10 @@ class MathSolver:
 
         # ── Simplify ──
         if "simplify" in q.lower():
-            m = re.search(r"simplify\s+(?:the\s+expression\s+)?([a-zA-Z0-9\s\+\-\*\/\^\(\)]+)", q, flags=re.IGNORECASE)
+            m = re.search(r"simplify\s*(?:the\s+expression\s+)?([a-zA-Z0-9\s\+\-\*\/\^\(\)]+)", q, flags=re.IGNORECASE)
             if m:
                 try:
-                    expr = sympify(m.group(1).replace("^", "**").strip(), locals=locals_dict)
+                    expr = cls._parse_math_expression(m.group(1), default_var=x)
                     simplified = simplify(expr)
                     return f"**Simplified Expression:** $${latex(expr)} = \\mathbf{{{latex(simplified)}}}$$"
                 except Exception:
@@ -813,6 +937,15 @@ class MathSolver:
             total = float(m_pct.group(2))
             res = (pct / 100.0) * total
             return f"**Percentage Calculation:** $${pct:g}\\% \\times {total:g} = \\mathbf{{{res:g}}}$$"
+
+        # Square root: "sqrt(225)", "square root of 225"
+        m_sqrt = re.search(r"(?:sqrt|square root(?: of)?)\s*\(?\s*(\d+(?:\.\d+)?)\s*\)?", q)
+        if m_sqrt:
+            num = sympify(m_sqrt.group(1))
+            res = sqrt(num)
+            dec_approx = float(res.evalf()) if not isinstance(res, (sp.Integer, int)) else None
+            approx_txt = f" \\approx \\mathbf{{{dec_approx:.6g}}}" if dec_approx is not None else ""
+            return f"**Square Root:** $$\\sqrt{{{latex(num)}}} = \\mathbf{{{latex(res)}}}{approx_txt}$$"
 
         # Pure numeric / arithmetic expression (e.g. "245 * 18", "sqrt(144) + 15", "2^10")
         m_expr = re.search(r"(?:calculate|compute|evaluate|what is|=?\s*)?([0-9\s\+\-\*\/\(\)\^\.\,]+)$", q)

@@ -3,6 +3,10 @@
   let token = localStorage.getItem('aster_token') || '';
   let cachedUsername = localStorage.getItem('aster_username') || '';
   let user = null;
+  try {
+    const storedUser = localStorage.getItem('aster_user');
+    if (storedUser) user = JSON.parse(storedUser);
+  } catch (_) {}
   let authMode = 'login';
 
   // Device-bound guest token management for unauthenticated / anonymous users
@@ -175,40 +179,61 @@
       }
     }
   }
+  // Function to render a single math chunk with KaTeX and clean Unicode fallback
+  const formatLatexChunk = (tex, isBlock) => {
+    const trimmed = (tex || '').trim();
+    if (!trimmed) return '';
+    if (window.katex && typeof window.katex.renderToString === 'function') {
+      try {
+        return window.katex.renderToString(trimmed, {
+          displayMode: isBlock,
+          throwOnError: false,
+        });
+      } catch (e) {
+        // Fallback below
+      }
+    }
+    // Readable clean text fallback when KaTeX isn't loaded:
+    let clean = trimmed
+      .replace(/\\mathbf\{([^}]+)\}/g, '$1')
+      .replace(/\\mathit\{([^}]+)\}/g, '$1')
+      .replace(/\\text\{([^}]+)\}/g, '$1')
+      .replace(/\\left\[/g, '[')
+      .replace(/\\right\]/g, ']')
+      .replace(/\\left\(/g, '(')
+      .replace(/\\right\)/g, ')')
+      .replace(/\\left/g, '')
+      .replace(/\\right/g, '')
+      .replace(/\\int_\{([^}]+)\}\^\{([^}]+)\}\s*/g, '∫[$1 to $2] ')
+      .replace(/\\int\^\{([^}]+)\}_\{([^}]+)\}\s*/g, '∫[$2 to $1] ')
+      .replace(/\\int\s*/g, '∫ ')
+      .replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, '($1 / $2)')
+      .replace(/\\neq\s*/g, ' ≠ ')
+      .replace(/\\leq\s*/g, ' ≤ ')
+      .replace(/\\geq\s*/g, ' ≥ ')
+      .replace(/\\times\s*/g, ' × ')
+      .replace(/\\cdot\s*/g, ' · ')
+      .replace(/\\pm\s*/g, ' ± ')
+      .replace(/\\infty\s*/g, '∞')
+      .replace(/\\sqrt\s*\{([^}]+)\}/g, '√($1)')
+      .replace(/\\sin\b/g, 'sin')
+      .replace(/\\cos\b/g, 'cos')
+      .replace(/\\tan\b/g, 'tan')
+      .replace(/\\ln\b/g, 'ln')
+      .replace(/\\log\b/g, 'log')
+      .replace(/\\pi\b/g, 'π')
+      .replace(/\\\s*/g, ' ')
+      .replace(/\\,/g, ' ')
+      .replace(/\\;/g, ' ')
+      .replace(/\\quad/g, '  ')
+      .replace(/\^\{([^}]+)\}/g, '^$1')
+      .replace(/_\{([^}]+)\}/g, '_$1')
+      .replace(/\\/g, '');
+    return `<span class="math-fallback-chunk" style="font-family: 'DM Mono', monospace; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 6px;">${escapeHtml(clean)}</span>`;
+  };
+
   const renderMathContent = (text) => {
     if (!text) return '';
-
-    // Function to render a single math chunk
-    const formatLatexChunk = (tex, isBlock) => {
-      const trimmed = tex.trim();
-      if (!trimmed) return '';
-      if (window.katex && typeof window.katex.renderToString === 'function') {
-        try {
-          return window.katex.renderToString(trimmed, {
-            displayMode: isBlock,
-            throwOnError: false,
-          });
-        } catch (e) {
-          // Fallback below
-        }
-      }
-      // Readable clean text fallback when KaTeX isn't loaded:
-      let clean = trimmed
-        .replace(/\\int\s*/g, '∫ ')
-        .replace(/\\frac\s*\{([^}]+)\}\s*\{([^}]+)\}/g, '($1 / $2)')
-        .replace(/\\neq\s*/g, ' ≠ ')
-        .replace(/\\leq\s*/g, ' ≤ ')
-        .replace(/\\geq\s*/g, ' ≥ ')
-        .replace(/\\times\s*/g, ' × ')
-        .replace(/\\cdot\s*/g, ' · ')
-        .replace(/\\pm\s*/g, ' ± ')
-        .replace(/\\infty\s*/g, '∞')
-        .replace(/\\sqrt\s*\{([^}]+)\}/g, '√($1)')
-        .replace(/\\\s*/g, ' ')
-        .replace(/\^\{([^}]+)\}/g, '^$1')
-        .replace(/_\{([^}]+)\}/g, '_$1');
-      return `<span style="font-family: 'DM Mono', monospace; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 6px; border-radius: 6px;">${escapeHtml(clean)}</span>`;
-    };
 
     // 1. Block math: $$ ... $$ or \[ ... \]
     let processed = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
@@ -348,19 +373,39 @@
       return `<div class="deep-research-table-wrapper"><table class="deep-research-table"><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table></div>`;
     });
 
-    // Extract and render math blocks/inlines safely
-    let mathHandled = renderMathContent(processed);
+    // Extract math blocks and inlines into safe placeholders to protect from markdown stripping
+    const mathWidgets = [];
+    const saveMathWidget = (tex, isBlock) => {
+      const widgetId = `math_${Math.random().toString(36).substr(2, 9)}`;
+      mathWidgets.push({ id: widgetId, tex, isBlock });
+      return `%%MATHWIDGET_${widgetId}%%`;
+    };
+
+    // 1. Block math: $$ ... $$ or \[ ... \]
+    let mathShielded = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => `\n${saveMathWidget(math, true)}\n`);
+    mathShielded = mathShielded.replace(/\\\[([\s\S]+?)\\\]/g, (_, math) => `\n${saveMathWidget(math, true)}\n`);
+
+    // 2. Inline math: \( ... \) or $ ... $ (ignoring pure currency like $50 or $100)
+    mathShielded = mathShielded.replace(/\\\(([\s\S]+?)\\\)/g, (_, math) => saveMathWidget(math, false));
+    mathShielded = mathShielded.replace(/\$([^\n$]+?)\$/g, (match, math) => {
+      if (/^\s*\d+(\.\d+)?\s*$/.test(math)) {
+        return `$${escapeHtml(math)}`;
+      }
+      return saveMathWidget(math, false);
+    });
+
+    let mathHandled = mathShielded;
 
     // Format markdown headers cleanly without hashtags (#)
     // Only apply to lines that are NOT placeholder lines
     mathHandled = mathHandled.replace(/^(#{1,6})\s*(.+)$/gm, (m, hashes, title) => {
-      if (title.includes('%%CODEWIDGET')) return m; // skip placeholder lines
+      if (title.includes('%%CODEWIDGET') || title.includes('%%MATHWIDGET')) return m;
       return `<h4 class="chat-subheading">${title}</h4>`;
     });
 
     // Format bullet points cleanly without asterisks (*)
     mathHandled = mathHandled.replace(/^[\s]*\*\s+(.+)$/gm, (m, content) => {
-      if (content.includes('%%CODEWIDGET')) return m;
+      if (content.includes('%%CODEWIDGET') || content.includes('%%MATHWIDGET')) return m;
       return `• ${content}`;
     });
 
@@ -380,10 +425,9 @@
     mathHandled = mathHandled.replace(/^[ \t]*\/+[ \t]*[-=~_]+.*?[-=~_]+[ \t]*\/+[ \t]*$/gm, '');
     mathHandled = mathHandled.replace(/(?<![a-zA-Z0-9_])\/[ \t]*[-=~_]{3,}[ \t]*\/(?![a-zA-Z0-9_])/g, '');
 
-    // Remove any remaining stray asterisks, hashtags, and citation brackets from the agent response outside code
-    // Only remove them on lines that don't contain placeholders
+    // Remove any remaining stray asterisks, hashtags, and citation brackets outside code and math
     mathHandled = mathHandled.split('\n').map(line => {
-      if (line.includes('%%CODEWIDGET')) return line;
+      if (line.includes('%%CODEWIDGET') || line.includes('%%MATHWIDGET')) return line;
       return line.replace(/[*#]/g, '');
     }).join('\n');
     mathHandled = mathHandled.replace(/【[^】]*】/g, '').replace(/\[[WwSs]\d+\]/g, '').replace(/\([WwSs]\d+\)/g, '');
@@ -394,6 +438,14 @@
       if (!emoji) return match;
       return `<span class="chat-emoji">${emoji}</span>`;
     });
+
+    // Restore and render all math widgets cleanly with KaTeX and responsive fallback
+    for (const mw of mathWidgets) {
+      const rendered = mw.isBlock
+        ? `<div class="math-block-wrapper">${formatLatexChunk(mw.tex, true)}</div>`
+        : formatLatexChunk(mw.tex, false);
+      mathHandled = mathHandled.replace(`%%MATHWIDGET_${mw.id}%%`, rendered);
+    }
 
     // 3. Restore and render all code widgets (3D Models, Charts, Diagrams, Code Blocks)
     for (const w of codeWidgets) {
@@ -1890,7 +1942,7 @@
   window.addMessage = addMessage;
 
   // Conversations Management
-  async function refreshConversations() {
+  async function refreshConversations(autoRestore = false) {
     try {
       const data = await api('/api/conversations');
       const list = $('conversationList');
@@ -1909,6 +1961,19 @@
           </div>
         `)
         .join('');
+
+      // Auto-restore active or most recent conversation into chat view on page load / refresh
+      if (autoRestore && data.conversations && data.conversations.length > 0) {
+        const stream = $('messages');
+        const isStreamEmpty = !stream || stream.children.length === 0;
+        if (isStreamEmpty) {
+          const savedId = localStorage.getItem('aster_active_conv_id');
+          const target = data.conversations.find((c) => c.id === savedId) || data.conversations[0];
+          if (target && target.id) {
+            loadConversation(target.id);
+          }
+        }
+      }
 
       // Wire conversation item click
       list.querySelectorAll('.conv-item').forEach((item) => {
@@ -2449,12 +2514,13 @@
         localStorage.removeItem('astra_guest_token');
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
+        if (user) localStorage.setItem('aster_user', JSON.stringify(user));
         if ($('authModal')) $('authModal').classList.add('hidden');
         if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
         toast(`Welcome back, ${cachedUsername}!`);
         updateAuthUI();
         refreshDocuments();
-        refreshConversations();
+        refreshConversations(true);
       } catch (err) {
         toast(err.message, true);
         loadMathChallenge('login');
@@ -2521,12 +2587,13 @@
         localStorage.removeItem('astra_guest_token');
         localStorage.setItem('aster_token', token);
         localStorage.setItem('aster_username', cachedUsername);
+        if (user) localStorage.setItem('aster_user', JSON.stringify(user));
         if ($('authModal')) $('authModal').classList.add('hidden');
         if ($('closeAuthModal')) $('closeAuthModal').classList.remove('hidden');
         toast(`Account created! Welcome, ${cachedUsername}!`);
         updateAuthUI();
         refreshDocuments();
-        refreshConversations();
+        refreshConversations(true);
       } catch (err) {
         toast(err.message, true);
         loadMathChallenge('signup');
@@ -3356,7 +3423,7 @@
   // Initialize workspace immediately for everyone
   initSidebar();
   refreshDocuments();
-  refreshConversations();
+  refreshConversations(true);
   checkHealth();
   if (!token) {
     ensureLoginFormEmpty();
@@ -3465,15 +3532,34 @@
           cachedUsername = user.username;
           localStorage.setItem('aster_username', cachedUsername);
         }
+        if (user) localStorage.setItem('aster_user', JSON.stringify(user));
         updateAuthUI();
-        refreshConversations();
+        refreshConversations(true);
       })
-      .catch(() => {
-        token = '';
-        cachedUsername = '';
-        localStorage.removeItem('aster_token');
-        localStorage.removeItem('aster_username');
-        updateAuthUI();
+      .catch((err) => {
+        // ONLY clear token if the server explicitly reported an unauthorized / invalid auth error
+        // Do NOT clear token on network drops, offline mode, or temporary 5xx errors!
+        const errMsg = (err && err.message ? err.message.toLowerCase() : '');
+        const isAuthError = (err && err.status === 401) ||
+          errMsg.includes('sign in is required') ||
+          errMsg.includes('unauthorized') ||
+          errMsg.includes('not authenticated') ||
+          errMsg.includes('invalid token') ||
+          errMsg.includes('could not validate');
+        if (isAuthError) {
+          token = '';
+          user = null;
+          cachedUsername = '';
+          localStorage.removeItem('aster_token');
+          localStorage.removeItem('aster_username');
+          localStorage.removeItem('aster_user');
+          updateAuthUI();
+        } else {
+          // Keep the existing session intact and attempt conversation loading
+          console.warn('Network issue verifying auth status, retaining cached session:', err);
+          updateAuthUI();
+          refreshConversations(true);
+        }
       });
   } else {
     updateAuthUI();

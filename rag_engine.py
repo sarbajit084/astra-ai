@@ -61,8 +61,13 @@ def clean_agent_response(text: str) -> str:
     # Match code blocks with optional language identifier and any code content
     cleaned = re.sub(r"```[^\n]*\n[\s\S]*?```", _save_code, normalized)
 
-    # Convert markdown headers like '### Header' into clean lines without '#'
-    cleaned = re.sub(r"^[ \t]*#{1,6}[ \t]*", "", cleaned, flags=re.MULTILINE)
+    # 4. Protect all math display blocks ($$...$$) and inline math ($...$)
+    math_blocks = []
+    def _save_math(m):
+        math_blocks.append(m.group(0))
+        return f"__ASTRA_MATHBLOCK_{len(math_blocks)-1}__"
+
+    cleaned = re.sub(r"\$\$[\s\S]+?\$\$|\$[^\n$]+?\$", _save_math, cleaned)
 
     # Remove stray banner-like comment slashes in prose (e.g. / ---- ... ---- / or / --- /)
     cleaned = re.sub(r"^[ \t]*/+[ \t]*[-=~_]+.*?[-=~_]+[ \t]*/+[ \t]*$", "", cleaned, flags=re.MULTILINE)
@@ -79,8 +84,8 @@ def clean_agent_response(text: str) -> str:
     cleaned = re.sub(r"\*\*([^*]+?)\*\*", r"__BOLD__\1__ENDBOLD__", cleaned)
     cleaned = re.sub(r"\*([^*\n]+?)\*", r"\1", cleaned)
 
-    # Remove any remaining stray '#' or '*' characters outside code
-    cleaned = cleaned.replace("*", "").replace("#", "")
+    # Remove any remaining stray asterisks outside code and math
+    cleaned = cleaned.replace("*", "")
 
     # Restore bold markdown
     cleaned = cleaned.replace("__BOLDITALIC__", "***").replace("__ENDBOLDITALIC__", "***")
@@ -92,9 +97,12 @@ def clean_agent_response(text: str) -> str:
     cleaned = re.sub(r"\([WwSs]\d+\)", "", cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
 
-    # Restore saved code blocks completely untouched
+    # Restore saved code blocks and math blocks completely untouched
     for i, cb in enumerate(code_blocks):
         cleaned = cleaned.replace(f"__ASTRA_CODEBLOCK_{i}__", cb)
+
+    for i, mb in enumerate(math_blocks):
+        cleaned = cleaned.replace(f"__ASTRA_MATHBLOCK_{i}__", mb)
 
     # Security & Privacy Redaction: Never leak API keys, tokens, or credentials
     cleaned = re.sub(r"gsk_[a-zA-Z0-9]{20,}", "[REDACTED_API_KEY]", cleaned)

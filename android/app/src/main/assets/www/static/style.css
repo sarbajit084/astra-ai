@@ -3358,7 +3358,22 @@ img, video, canvas, svg {
    RESPONSIVE KATEX & MATH CONTAINERS
    ========================================================================== */
 
-.math-block-wrapper,
+.math-block-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  box-sizing: border-box !important;
+  padding: 10px 14px !important;
+  margin: 12px 0 !important;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  border-radius: 10px;
+  text-align: center;
+  scrollbar-width: thin;
+}
+
 .katex-display {
   width: 100% !important;
   max-width: 100% !important;
@@ -3366,8 +3381,8 @@ img, video, canvas, svg {
   overflow-y: hidden !important;
   -webkit-overflow-scrolling: touch !important;
   box-sizing: border-box !important;
-  padding: 6px 0 !important;
-  margin: 10px 0 !important;
+  padding: 4px 0 !important;
+  margin: 6px 0 !important;
   scrollbar-width: thin;
 }
 
@@ -3378,13 +3393,43 @@ img, video, canvas, svg {
 
 .math-block-wrapper::-webkit-scrollbar-thumb,
 .katex-display::-webkit-scrollbar-thumb {
-  background: rgba(145, 175, 195, 0.4);
+  background: rgba(56, 189, 248, 0.4);
   border-radius: 4px;
 }
 
 .katex {
   max-width: 100% !important;
   text-rendering: auto;
+}
+
+.math-fallback-chunk {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+@media screen and (max-width: 768px) {
+  .math-block-wrapper {
+    padding: 8px 10px !important;
+    margin: 10px 0 !important;
+    font-size: 0.95rem !important;
+  }
+  .math-block-wrapper .katex-display {
+    margin: 2px 0 !important;
+    font-size: 1.05em !important;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .math-block-wrapper {
+    padding: 6px 8px !important;
+    font-size: 0.88rem !important;
+  }
+  .math-block-wrapper .katex-display {
+    font-size: 0.96em !important;
+  }
 }
 
 /* ==========================================================================

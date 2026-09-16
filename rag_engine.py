@@ -696,37 +696,57 @@ class ProductionRAGService:
                 for i, item in enumerate(ranked[:4])
             ]
         else:
-            # Query is outside document: execute web search
-            web_results = await self._multi_angle_web_search(sub_queries)
-            if not web_results:
-                web_results = await self._web_search(rewritten or query)
+            is_3d_model = self._is_3d_model_request(query)
+            if is_3d_model:
+                # Dedicated 3D Creation Request: bypass external web search entirely!
+                web_results = None
+                if settings.grok_configured:
+                    answer = await self._general_llm_answer(query, None, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
+                    model_used = "Astracore 3D Shader Studio"
+                else:
+                    answer = self._generate_3d_model_fallback(query)
+                    model_used = "Astracore 3D Shader Studio"
 
-            if settings.grok_configured:
-                answer = await self._general_llm_answer(query, web_results, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
-                model_used = "Astra (SSR Core)"
-            else:
-                answer = "I am Astra! What's on your mind today? Ask me anything or upload files to explore."
-                model_used = "Astra (SSR Core)"
-
-            if web_results:
                 sources = [
                     {
-                        "id": f"W{i + 1}",
-                        "label": f"🌐 {w['title']}",
-                        "type": "web",
-                        "snippet": w["snippet"],
-                    }
-                    for i, w in enumerate(web_results[:4])
-                ]
-            else:
-                sources = [
-                    {
-                        "id": "AI",
-                        "label": "🧠 Astra Knowledge Base",
+                        "id": "3D",
+                        "label": "✦ WebGL 3D Real-Time Viewport",
                         "type": "ai",
-                        "snippet": "Parametric Knowledge Base",
+                        "snippet": "Interactive Three.js 3D Simulation with PBR Shaders & OrbitControls",
                     }
                 ]
+            else:
+                # Query is outside document: execute web search
+                web_results = await self._multi_angle_web_search(sub_queries)
+                if not web_results:
+                    web_results = await self._web_search(rewritten or query)
+
+                if settings.grok_configured:
+                    answer = await self._general_llm_answer(query, web_results, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
+                    model_used = "Astra (SSR Core)"
+                else:
+                    answer = "I am Astra! What's on your mind today? Ask me anything or upload files to explore."
+                    model_used = "Astra (SSR Core)"
+
+                if web_results:
+                    sources = [
+                        {
+                            "id": f"W{i + 1}",
+                            "label": f"🌐 {w['title']}",
+                            "type": "web",
+                            "snippet": w["snippet"],
+                        }
+                        for i, w in enumerate(web_results[:4])
+                    ]
+                else:
+                    sources = [
+                        {
+                            "id": "AI",
+                            "label": "🧠 Astra Knowledge Base",
+                            "type": "ai",
+                            "snippet": "Parametric Knowledge Base",
+                        }
+                    ]
 
         generation_ms = max(1.0, round((time.perf_counter() - generation_start) * 1000, 1))
         total_ms = max(2.0, round((time.perf_counter() - total_start) * 1000, 1))
@@ -1017,6 +1037,609 @@ class ProductionRAGService:
             "2. ```css (/* styles.css */) - Modern, responsive CSS with CSS variables, fluid typography clamp(), frosted glass, dark aesthetic, and overflow-x: hidden.\n"
             "3. ```javascript (// script.js) - Complete Three.js scene (window.THREE, OrbitControls, GSAP pre-loaded), camera, lighting, PBR materials, drag & touch controls, resize listener, swatch hooks, and UI interactions.\n"
             f"{'4. ```python (<!-- generate_asset.py -->) - Blender procedural generation script.\n' if needs_blender else ''}"
+        )
+
+    def _is_3d_model_request(self, query: str) -> bool:
+        """Detects if user is asking to create, generate, render, or build a 3D model, object, scene, landscape, or asset."""
+        q = query.lower().strip()
+        
+        # Check explicit patterns
+        explicit_patterns = [
+            r"\b(?:create|make|generate|build|render|design)\s+(?:a\s+)?3d\b",
+            r"\b3d\s+(?:model|scene|landscape|environment|object|asset|mesh|character|car|sword|room|tree|building|terrain|world|weapon|avatar|geometry)\b",
+            r"\b3d\s+model\s+of\b",
+            r"\bmodel\s+of\s+(?:a\s+)?3d\b",
+            r"\b(?:blender|three\.?js|webgl)\s+(?:script|code|scene|model)\b"
+        ]
+        if any(re.search(p, q) for p in explicit_patterns):
+            return True
+
+        has_3d = any(k in q for k in ["3d", "threejs", "three.js", "webgl", "blender", "bpy", "glb", "gltf", "shader"])
+        has_action = any(k in q for k in [
+            "create", "make", "generate", "build", "render", "design", "model", "simulate",
+            "visualize", "code", "develop", "craft", "produce", "setup", "write"
+        ])
+        has_3d_object = any(k in q for k in [
+            "model", "landscape", "terrain", "scene", "mesh", "character", "car", "sword",
+            "room", "tree", "building", "asset", "sculpture", "world", "environment",
+            "vehicle", "spaceship", "robot", "figure", "shader"
+        ])
+        return (has_3d and (has_action or has_3d_object))
+
+    def _build_3d_model_directive(self, query: str) -> str:
+        """Constructs an expert 3D modeling and shader engineering directive for creating a standalone 3D model with realistic PBR materials, custom shaders, cinematic lighting, and OrbitControls."""
+        return (
+            "\n\n=== MANDATORY PRODUCTION 3D MODEL, SHADER & LIGHTING DIRECTIVE ===\n"
+            f"The user wants a complete, realistic 3D model with proper shaders, lighting, and materials for: \"{query}\".\n"
+            "You are a Principal 3D Graphics Engineer, Shader Artist, and Creative Technologist.\n"
+            "You must deliver a complete, production-grade 3D model with realistic PBR materials, custom shaders, cinematic 3-point lighting, ground reflection/shadows, and smooth interactive controls.\n\n"
+            "MANDATORY DELIVERABLES (ALL IN ONE COMPREHENSIVE RESPONSE WITH ZERO PLACEHOLDERS):\n"
+            "1. ```html (<!-- index.html -->):\n"
+            "   - Semantic viewport container: `<div id=\"webgl-container\"><canvas id=\"webgl-canvas\"></canvas><div class=\"hud-controls\"><span class=\"badge\">3D REAL-TIME VIEWPORT</span><div class=\"actions\"><button id=\"btn-wireframe\">Wireframe</button><button id=\"btn-lighting\">Lighting</button><button id=\"btn-reset\">Reset Camera</button></div></div></div>`.\n"
+            "2. ```css (/* styles.css */):\n"
+            "   - Modern, responsive full-viewport styling: `html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: radial-gradient(circle at 50% 50%, #151824 0%, #0a0c12 70%, #040508 100%); font-family: 'Inter', system-ui, sans-serif; }`.\n"
+            "   - Canvas styling: `canvas { width: 100%; height: 100%; display: block; }`.\n"
+            "   - Floating glassmorphic HUD pill panels (`backdrop-filter: blur(16px); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 9999px; padding: 8px 16px;`).\n"
+            "3. ```javascript (// script.js):\n"
+            "   - Complete Three.js scene (window.THREE, OrbitControls, and gsap are pre-loaded in Astra runtime):\n"
+            "     • SCENE, FOG & CAMERA:\n"
+            "       - `const scene = new THREE.Scene();` with atmospheric fog `scene.fog = new THREE.FogExp2(0x0a0c12, 0.015);`.\n"
+            "       - `const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);` positioned to frame the 3D model beautifully.\n"
+            "     • RENDERER WITH ACES FILMIC TONE MAPPING & SHADOWS:\n"
+            "       - `const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });`\n"
+            "       - `renderer.setSize(window.innerWidth, window.innerHeight);`\n"
+            "       - `renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));`\n"
+            "       - `renderer.toneMapping = THREE.ACESFilmicToneMapping;`\n"
+            "       - `renderer.toneMappingExposure = 1.25;`\n"
+            "       - `renderer.shadowMap.enabled = true;`\n"
+            "       - `renderer.shadowMap.type = THREE.PCFSoftShadowMap;`\n"
+            "     • CINEMATIC 3-POINT STUDIO LIGHTING SETUP:\n"
+            "       - Key Light: `THREE.DirectionalLight(0xfff3e0, 2.5)` positioned at (5, 8, 5) with `castShadow = true`, `shadow.mapSize.width = 2048`, `shadow.bias = -0.0001`.\n"
+            "       - Fill Light: `THREE.DirectionalLight(0x90caf9, 1.2)` positioned at (-5, 3, -3) to soften contrast.\n"
+            "       - Specular Rim / Hair Light: `THREE.DirectionalLight(0x64b5f6, 3.2)` placed behind the model at (0, 6, -8) creating luminous edge highlights.\n"
+            "       - Ambient Hemisphere Light: `THREE.HemisphereLight(0xffffff, 0x111625, 0.7)`.\n"
+            "     • PROCEDURAL 3D GEOMETRY TAILORED TO THE REQUEST:\n"
+            "       - Build a rich, composite procedural 3D model exactly matching what the user requested:\n"
+            "         * If a landscape/terrain is requested: Build a dynamic heightfield terrain (`THREE.PlaneGeometry` with displaced vertices using multi-octave noise, custom vertex shader coloring based on altitude from valley to rocky cliffs to snow peaks, reflective water plane mesh with wave animation, and celestial sun/moon).\n"
+            "         * If an object/vehicle/prop is requested: Build detailed composite geometry with bevels, articulated components, and realistic proportions.\n"
+            "     • HIGH-END PBR SHADERS & MATERIALS:\n"
+            "       - Use `THREE.MeshPhysicalMaterial` or `THREE.MeshStandardMaterial` with realistic material channels:\n"
+            "         `roughness` (0.1 to 0.7), `metalness` (0.0 to 0.9), `clearcoat` (0.5 to 1.0), `clearcoatRoughness` (0.1), `transmission` (if glass/water), `reflectivity` (0.9).\n"
+            "     • GROUND CONTACT SHADOW & AMBIENT PARTICLES:\n"
+            "       - Reflective shadow receiver ground plane (`THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.ShadowMaterial({ opacity: 0.4 }))`).\n"
+            "       - Atmospheric floating dust/ember particle field (`THREE.Points`) drifting through the 3D scene.\n"
+            "     • FULL USER CONTROLS & EVENT LISTENERS:\n"
+            "       - `const controls = new THREE.OrbitControls(camera, canvas);` with `controls.enableDamping = true; controls.dampingFactor = 0.05;`.\n"
+            "       - Window resize listener updating camera aspect ratio and renderer viewport.\n"
+            "       - HUD buttons connected: toggle wireframe mode, toggle lighting intensity, and reset camera view.\n"
+            "       - Smooth render loop with `requestAnimationFrame`.\n"
+            "4. ```python (<!-- generate_asset.py -->):\n"
+            "   - Complete, executable procedural asset script for Blender 3.x/4.x (`import bpy, bmesh, math, mathutils`).\n"
+            "   - Procedurally creates the mesh (vertices, faces, bmesh modifiers, subdivision surface, displacement, smooth shading).\n"
+            "   - Sets up a complete node-based Principled BSDF PBR material with procedural Noise/Voronoi textures connected to Base Color, Roughness, and Bump/Normal nodes.\n"
+            "   - Sets up 3-point studio lights (Key, Fill, Rim Sun/Area lights) and camera.\n"
+            "   - Exports to Draco-compressed `.glb` (`bpy.ops.export_scene.gltf(...)`).\n"
+            "5. 3D SHADER & LIGHTING ARTISTIC BREAKDOWN:\n"
+            "   - Explain the PBR shader channels, lighting radiance ratios, and procedural geometric techniques in clean, authoritative prose.\n"
+        )
+
+    def _generate_3d_model_fallback(self, query: str) -> str:
+        """High-fidelity procedural Three.js 3D model fallback with PBR shaders, studio lighting, OrbitControls, and Blender export script."""
+        clean_name = re.sub(r"[^\w\s-]", "", query).strip().title() or "3D Procedural Scene"
+        is_landscape = any(k in query.lower() for k in ["landscape", "terrain", "mountain", "valley", "nature", "ground", "world"])
+        
+        if is_landscape:
+            title = f"Procedural 3D Mountain Landscape & Dynamic Atmosphere"
+            threejs_logic = """// --- 1. Scene, Fog & Perspective Camera ---
+const container = document.getElementById('webgl-container');
+const canvas = document.getElementById('webgl-canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0c16);
+scene.fog = new THREE.FogExp2(0x0a0c16, 0.012);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 18, 38);
+
+// --- 2. ACES Filmic Tone-Mapped WebGL Renderer ---
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.3;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+// --- 3. Cinematic 3-Point & Atmospheric Lighting ---
+const keyLight = new THREE.DirectionalLight(0xffecd2, 2.4);
+keyLight.position.set(20, 35, 20);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.width = 2048;
+keyLight.shadow.mapSize.height = 2048;
+keyLight.shadow.bias = -0.0001;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0x7694cc, 1.0);
+fillLight.position.set(-25, 20, -15);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xff7744, 2.8);
+rimLight.position.set(0, 15, -40);
+scene.add(rimLight);
+
+const ambientLight = new THREE.HemisphereLight(0x5c72a8, 0x12141f, 0.7);
+scene.add(ambientLight);
+
+// --- 4. Procedural Heightfield Terrain with PBR Vertex Shading ---
+const terrainWidth = 60, terrainDepth = 60, segments = 120;
+const terrainGeo = new THREE.PlaneGeometry(terrainWidth, terrainDepth, segments, segments);
+terrainGeo.rotateX(-Math.PI / 2);
+
+const pos = terrainGeo.attributes.position;
+const count = pos.count;
+const colors = new Float32Array(count * 3);
+
+// Multi-octave procedural displacement
+for (let i = 0; i < count; i++) {
+  const x = pos.getX(i);
+  const z = pos.getZ(i);
+  // Ridge noise + rolling terrain
+  const d1 = Math.sin(x * 0.12) * Math.cos(z * 0.12) * 5.0;
+  const d2 = Math.sin(x * 0.28 + 1.2) * Math.sin(z * 0.28 + 2.1) * 2.2;
+  const d3 = Math.cos(x * 0.55) * Math.sin(z * 0.55) * 0.8;
+  const distFromCenter = Math.sqrt(x * x + z * z);
+  const falloff = Math.max(0, 1 - Math.pow(distFromCenter / 28, 2));
+  const height = (d1 + d2 + d3) * falloff;
+  pos.setY(i, height);
+
+  // Elevation-based PBR color gradient (waterline -> lush moss -> slate cliff -> snow peaks)
+  let r, g, b;
+  if (height < 0.2) {
+    // Shore sand / wet mud
+    r = 0.22; g = 0.24; b = 0.20;
+  } else if (height < 2.5) {
+    // Pine green / moss
+    r = 0.14; g = 0.32; b = 0.18;
+  } else if (height < 4.8) {
+    // Dark volcanic basalt / slate
+    r = 0.25; g = 0.27; b = 0.30;
+  } else {
+    // High alpine snow
+    r = 0.85; g = 0.90; b = 0.95;
+  }
+  colors[i * 3] = r;
+  colors[i * 3 + 1] = g;
+  colors[i * 3 + 2] = b;
+}
+terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+terrainGeo.computeVertexNormals();
+
+const terrainMat = new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.75,
+  metalness: 0.1,
+  flatShading: true
+});
+const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+terrainMesh.receiveShadow = true;
+terrainMesh.castShadow = true;
+scene.add(terrainMesh);
+
+// --- 5. Reflective Water Plane with Physical Specular Shader ---
+const waterGeo = new THREE.PlaneGeometry(55, 55, 32, 32);
+waterGeo.rotateX(-Math.PI / 2);
+const waterMat = new THREE.MeshPhysicalMaterial({
+  color: 0x1a3854,
+  roughness: 0.08,
+  metalness: 0.15,
+  transmission: 0.65,
+  transparent: true,
+  opacity: 0.88,
+  reflectivity: 0.95,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.05
+});
+const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+waterMesh.position.y = 0.15;
+waterMesh.receiveShadow = true;
+scene.add(waterMesh);
+
+// --- 6. Atmospheric Drifting Dust Particles ---
+const particleCount = 600;
+const particleGeo = new THREE.BufferGeometry();
+const particlePos = new Float32Array(particleCount * 3);
+for (let i = 0; i < particleCount * 3; i += 3) {
+  particlePos[i] = (Math.random() - 0.5) * 60;
+  particlePos[i + 1] = Math.random() * 20;
+  particlePos[i + 2] = (Math.random() - 0.5) * 60;
+}
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
+const particleMat = new THREE.PointsMaterial({
+  color: 0xffe0b2,
+  size: 0.12,
+  transparent: true,
+  opacity: 0.6
+});
+const particles = new THREE.Points(particleGeo, particleMat);
+scene.add(particles);
+
+// --- 7. Interactive OrbitControls ---
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.maxPolarAngle = Math.PI / 2 - 0.02;
+controls.minDistance = 8;
+controls.maxDistance = 80;
+controls.target.set(0, 2, 0);
+
+// --- 8. HUD Event Handlers ---
+let wireframeActive = false;
+document.getElementById('btn-wireframe')?.addEventListener('click', () => {
+  wireframeActive = !wireframeActive;
+  terrainMat.wireframe = wireframeActive;
+});
+
+let lightingToggle = 0;
+document.getElementById('btn-lighting')?.addEventListener('click', () => {
+  lightingToggle = (lightingToggle + 1) % 3;
+  if (lightingToggle === 0) {
+    // Golden Hour
+    keyLight.color.setHex(0xffecd2);
+    keyLight.intensity = 2.4;
+    rimLight.color.setHex(0xff7744);
+  } else if (lightingToggle === 1) {
+    // Midnight Moonlight
+    keyLight.color.setHex(0x5588ff);
+    keyLight.intensity = 1.2;
+    rimLight.color.setHex(0x00ffff);
+  } else {
+    // Cyber Neon
+    keyLight.color.setHex(0xff0066);
+    keyLight.intensity = 3.0;
+    rimLight.color.setHex(0x00ffcc);
+  }
+});
+
+document.getElementById('btn-reset')?.addEventListener('click', () => {
+  if (window.gsap) {
+    gsap.to(camera.position, { x: 0, y: 18, z: 38, duration: 1.2, ease: 'power2.inOut' });
+    gsap.to(controls.target, { x: 0, y: 2, z: 0, duration: 1.2, ease: 'power2.inOut' });
+  } else {
+    camera.position.set(0, 18, 38);
+    controls.target.set(0, 2, 0);
+  }
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+});
+
+// --- 9. Animation Loop ---
+let clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const time = clock.getElapsedTime();
+  
+  // Water wave oscillation
+  const wPos = waterGeo.attributes.position;
+  for (let i = 0; i < wPos.count; i++) {
+    const x = wPos.getX(i);
+    const z = wPos.getZ(i);
+    wPos.setY(i, Math.sin(x * 0.4 + time * 1.5) * Math.cos(z * 0.4 + time * 1.5) * 0.1);
+  }
+  waterGeo.computeVertexNormals();
+  waterGeo.attributes.position.needsUpdate = true;
+
+  // Gentle scene rotation
+  terrainMesh.rotation.y = Math.sin(time * 0.05) * 0.03;
+  waterMesh.rotation.y = terrainMesh.rotation.y;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();"""
+        else:
+            title = f"Procedural 3D {clean_name} Model & PBR Shader Viewport"
+            threejs_logic = """// --- 1. Scene, Camera & Background ---
+const canvas = document.getElementById('webgl-canvas');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x080a10);
+scene.fog = new THREE.FogExp2(0x080a10, 0.02);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 6, 14);
+
+// --- 2. ACES Filmic Tone-Mapped Renderer ---
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.3;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+// --- 3. Studio 3-Point Lighting ---
+const keyLight = new THREE.DirectionalLight(0xfff3e0, 2.5);
+keyLight.position.set(8, 12, 8);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.width = 2048;
+keyLight.shadow.mapSize.height = 2048;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0x8cb6ff, 1.2);
+fillLight.position.set(-8, 5, -5);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0x38bdf8, 3.5);
+rimLight.position.set(0, 8, -10);
+scene.add(rimLight);
+
+const ambientLight = new THREE.HemisphereLight(0xffffff, 0x111625, 0.6);
+scene.add(ambientLight);
+
+// --- 4. High-Fidelity Procedural 3D Composite Object ---
+const modelGroup = new THREE.Group();
+
+const pbrMat = new THREE.MeshPhysicalMaterial({
+  color: 0x1e2638,
+  metalness: 0.85,
+  roughness: 0.18,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.08,
+  reflectivity: 0.9
+});
+
+const accentMat = new THREE.MeshPhysicalMaterial({
+  color: 0x38bdf8,
+  emissive: 0x0284c7,
+  emissiveIntensity: 0.8,
+  metalness: 0.2,
+  roughness: 0.15,
+  clearcoat: 1.0
+});
+
+const coreGeo = new THREE.DodecahedronGeometry(3.2, 2);
+const coreMesh = new THREE.Mesh(coreGeo, pbrMat);
+coreMesh.castShadow = true;
+coreMesh.receiveShadow = true;
+modelGroup.add(coreMesh);
+
+const ringGeo = new THREE.TorusGeometry(4.6, 0.14, 16, 100);
+const ringMesh = new THREE.Mesh(ringGeo, accentMat);
+ringMesh.rotation.x = Math.PI / 3;
+modelGroup.add(ringMesh);
+
+const innerRingGeo = new THREE.TorusGeometry(3.9, 0.08, 16, 80);
+const innerRing = new THREE.Mesh(innerRingGeo, accentMat);
+innerRing.rotation.y = Math.PI / 4;
+modelGroup.add(innerRing);
+
+scene.add(modelGroup);
+
+// --- 5. Shadow Ground Grid Plane ---
+const shadowGeo = new THREE.PlaneGeometry(40, 40);
+const shadowMat = new THREE.ShadowMaterial({ opacity: 0.35 });
+const shadowPlane = new THREE.Mesh(shadowGeo, shadowMat);
+shadowPlane.rotation.x = -Math.PI / 2;
+shadowPlane.position.y = -4.0;
+shadowPlane.receiveShadow = true;
+scene.add(shadowPlane);
+
+// --- 6. OrbitControls & Interactivity ---
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+
+let wireframe = false;
+document.getElementById('btn-wireframe')?.addEventListener('click', () => {
+  wireframe = !wireframe;
+  pbrMat.wireframe = wireframe;
+  accentMat.wireframe = wireframe;
+});
+
+document.getElementById('btn-lighting')?.addEventListener('click', () => {
+  const c = Math.random() > 0.5 ? 0xf43f5e : 0x10b981;
+  rimLight.color.setHex(c);
+  accentMat.emissive.setHex(c);
+});
+
+document.getElementById('btn-reset')?.addEventListener('click', () => {
+  camera.position.set(0, 6, 14);
+  controls.target.set(0, 0, 0);
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// --- 7. Animation Loop ---
+function animate() {
+  requestAnimationFrame(animate);
+  modelGroup.rotation.y += 0.005;
+  ringMesh.rotation.z += 0.008;
+  innerRing.rotation.x += 0.006;
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();"""
+
+        blender_script = f"""# Blender 3.x / 4.x Procedural Asset Generator for {clean_name}
+import bpy
+import bmesh
+import math
+
+# 1. Clean default scene
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+
+# 2. Procedural Mesh Generation
+bpy.ops.mesh.primitive_grid_add(x_subdivisions=64, y_subdivisions=64, size=10.0, location=(0, 0, 0))
+obj = bpy.context.active_object
+obj.name = "{clean_name.replace(' ', '_')}"
+
+# Smooth shading & subdivision modifier
+bpy.ops.object.shade_smooth()
+sub_mod = obj.modifiers.new(name="Subdivision", type='SUBSURF')
+sub_mod.levels = 2
+sub_mod.render_levels = 3
+
+# Displace modifier with procedural noise
+disp_mod = obj.modifiers.new(name="Displace", type='DISPLACE')
+tex = bpy.data.textures.new("NoiseDisplace", type='CLOUDS')
+tex.noise_scale = 1.2
+disp_mod.texture = tex
+disp_mod.strength = 1.8
+
+# 3. Principled BSDF PBR Shader Material
+mat = bpy.data.materials.new(name="{clean_name.replace(' ', '_')}_PBR")
+mat.use_nodes = True
+nodes = mat.node_tree.nodes
+nodes.clear()
+
+node_output = nodes.new(type='ShaderNodeOutputMaterial')
+node_bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
+node_noise = nodes.new(type='ShaderNodeTexNoise')
+node_color_ramp = nodes.new(type='ShaderNodeValToRGB')
+node_bump = nodes.new(type='ShaderNodeBump')
+
+node_noise.inputs['Scale'].default_value = 4.0
+node_noise.inputs['Detail'].default_value = 6.0
+node_bump.inputs['Strength'].default_value = 0.35
+
+# Color Ramp Color Palette
+node_color_ramp.color_ramp.elements[0].color = (0.12, 0.22, 0.15, 1.0)
+node_color_ramp.color_ramp.elements[1].color = (0.75, 0.82, 0.88, 1.0)
+
+# Wire nodes
+links = mat.node_tree.links
+links.new(node_noise.outputs['Fac'], node_color_ramp.inputs['Fac'])
+links.new(node_color_ramp.outputs['Color'], node_bsdf.inputs['Base Color'])
+links.new(node_noise.outputs['Fac'], node_bump.inputs['Height'])
+links.new(node_bump.outputs['Normal'], node_bsdf.inputs['Normal'])
+links.new(node_bsdf.outputs['BSDF'], node_output.inputs['Surface'])
+
+obj.data.materials.append(mat)
+
+# 4. Studio 3-Point Lighting
+bpy.ops.object.light_add(type='SUN', location=(10, 15, 10))
+sun = bpy.context.active_object
+sun.data.energy = 4.5
+
+bpy.ops.object.light_add(type='AREA', location=(-8, 5, -5))
+fill = bpy.context.active_object
+fill.data.energy = 150.0
+
+# 5. Camera Framing
+bpy.ops.object.camera_add(location=(0, -14, 8), rotation=(math.radians(65), 0, 0))
+bpy.context.scene.camera = bpy.context.active_object
+
+# 6. Export Draco-Compressed GLB
+bpy.ops.export_scene.gltf(
+    filepath="model.glb",
+    export_format='GLB',
+    export_draco_mesh_compression_enable=True,
+    export_draco_mesh_compression_level=5
+)
+print("Procedural 3D model exported successfully to model.glb")"""
+
+        return (
+            f"Here is your interactive 3D model of **{title}** with complete real-time WebGL PBR shaders, cinematic 3-point lighting, interactive controls, and a Blender Python procedural generation script.\n\n"
+            f"```html\n"
+            f"<!-- index.html -->\n"
+            f"<div id=\"webgl-container\">\n"
+            f"  <canvas id=\"webgl-canvas\"></canvas>\n"
+            f"  <div class=\"hud-controls\">\n"
+            f"    <span class=\"badge\">✦ {title.upper()}</span>\n"
+            f"    <div class=\"actions\">\n"
+            f"      <button type=\"button\" id=\"btn-wireframe\">Wireframe</button>\n"
+            f"      <button type=\"button\" id=\"btn-lighting\">Shader / Light</button>\n"
+            f"      <button type=\"button\" id=\"btn-reset\">Reset View</button>\n"
+            f"    </div>\n"
+            f"  </div>\n"
+            f"</div>\n"
+            f"```\n\n"
+            f"```css\n"
+            f"/* styles.css */\n"
+            f"* {{ box-sizing: border-box; }}\n"
+            f"html, body {{\n"
+            f"  margin: 0;\n"
+            f"  padding: 0;\n"
+            f"  width: 100vw;\n"
+            f"  height: 100vh;\n"
+            f"  overflow: hidden;\n"
+            f"  background: #080a10;\n"
+            f"  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;\n"
+            f"  color: #fff;\n"
+            f"}}\n"
+            f"#webgl-container {{\n"
+            f"  position: relative;\n"
+            f"  width: 100%;\n"
+            f"  height: 100%;\n"
+            f"}}\n"
+            f"#webgl-canvas {{\n"
+            f"  width: 100%;\n"
+            f"  height: 100%;\n"
+            f"  display: block;\n"
+            f"}}\n"
+            f".hud-controls {{\n"
+            f"  position: absolute;\n"
+            f"  top: 24px;\n"
+            f"  left: 50%;\n"
+            f"  transform: translateX(-50%);\n"
+            f"  display: flex;\n"
+            f"  align-items: center;\n"
+            f"  gap: 16px;\n"
+            f"  padding: 8px 18px;\n"
+            f"  background: rgba(15, 20, 32, 0.75);\n"
+            f"  border: 1px solid rgba(255, 255, 255, 0.15);\n"
+            f"  border-radius: 9999px;\n"
+            f"  backdrop-filter: blur(20px);\n"
+            f"  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\n"
+            f"  z-index: 10;\n"
+            f"}}\n"
+            f".hud-controls .badge {{\n"
+            f"  font-size: 0.75rem;\n"
+            f"  font-weight: 700;\n"
+            f"  letter-spacing: 0.08em;\n"
+            f"  color: #38bdf8;\n"
+            f"  white-space: nowrap;\n"
+            f"}}\n"
+            f".hud-controls .actions {{\n"
+            f"  display: flex;\n"
+            f"  gap: 8px;\n"
+            f"}}\n"
+            f".hud-controls button {{\n"
+            f"  background: rgba(255, 255, 255, 0.08);\n"
+            f"  border: 1px solid rgba(255, 255, 255, 0.12);\n"
+            f"  color: #f1f5f9;\n"
+            f"  padding: 6px 14px;\n"
+            f"  border-radius: 9999px;\n"
+            f"  font-size: 0.78rem;\n"
+            f"  font-weight: 600;\n"
+            f"  cursor: pointer;\n"
+            f"  transition: all 0.2s ease;\n"
+            f"}}\n"
+            f".hud-controls button:hover {{\n"
+            f"  background: rgba(56, 189, 248, 0.2);\n"
+            f"  border-color: #38bdf8;\n"
+            f"  color: #38bdf8;\n"
+            f"}}\n"
+            f"```\n\n"
+            f"```javascript\n"
+            f"{threejs_logic}\n"
+            f"```\n\n"
+            f"```python\n"
+            f"{blender_script}\n"
+            f"```\n\n"
+            f"**3D Graphics Architecture & Shader Engineering:**\n"
+            f"• **PBR Shaders & Materiality**: Built with `THREE.MeshStandardMaterial` and `THREE.MeshPhysicalMaterial` featuring microfacet roughness, Fresnel transmission, and specular clearcoat.\n"
+            f"• **Cinematic 3-Point Studio Lighting**: Warm key directional light with high-resolution soft shadows (`PCFSoftShadowMap`), cool ambient fill light, and specular rim back-lighting defining geometry silhouettes.\n"
+            f"• **Full Viewport Interactivity**: Equipped with real-time `THREE.OrbitControls` (360° mouse drag, touch rotate, pinch-to-zoom, and smooth damping).\n\n"
+            f"*(Click **Live Demo** to launch and interact with this 3D model in full screen)*"
         )
 
     def _heuristic_resolve(self, query: str, history: list[dict]) -> str:
@@ -2190,7 +2813,8 @@ class ProductionRAGService:
     ) -> str:
         """Answer general greetings, outside questions, or follow-ups conversationally like ChatGPT/Grok, incorporating web search facts and dialogue context."""
         project_state = self._detect_project_state(history, query)
-        is_coding = (mode == "code") or project_state["is_active_project"] or any(
+        is_3d_model = self._is_3d_model_request(query)
+        is_coding = (mode == "code") or is_3d_model or project_state["is_active_project"] or any(
             k in query.lower() for k in [
                 "code", "script", "program", "website", "html", "css", "javascript", "python",
                 "function", "class", "react", "c++", "java", "sql", "build a site", "landing page",
@@ -2210,7 +2834,7 @@ class ProductionRAGService:
                 "make a website", "create a website", "generate a website"
             ]
         )
-        if is_web_design:
+        if is_web_design or is_3d_model:
             is_coding = True
         if not is_coding:
             math_sol = self._solve_math_locally(query)
@@ -2230,7 +2854,9 @@ class ProductionRAGService:
         system_prompt = self._deep_research_system_prompt(is_grounded=False, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
 
         web_directive = ""
-        if is_web_design:
+        if is_3d_model and not is_web_design:
+            web_directive = self._build_3d_model_directive(query)
+        elif is_web_design:
             web_directive = self._build_web_directive(project_state, query)
 
         if web_context_text:
@@ -2298,7 +2924,10 @@ class ProductionRAGService:
                 await asyncio.sleep(0.5)
 
         # High-intelligence fallback using conversation context or web results
-        if web_results:
+        if is_3d_model:
+            return self._generate_3d_model_fallback(query)
+
+        if web_results and not is_coding and not is_3d_model:
             top_snippet = web_results[0]["snippet"]
             return f"{top_snippet}"
 

@@ -65,7 +65,10 @@
         toast('Astra is temporarily unavailable. Please try again.', true);
         throw new Error('Astra is temporarily unavailable. Please try again.');
       }
-      throw new Error(body.detail || body.error || `Request failed (${response.status})`);
+      const err = new Error(body.detail || body.error || `Request failed (${response.status})`);
+      err.status = response.status;
+      err.body = body;
+      throw err;
     }
     return body;
   };
@@ -2371,7 +2374,18 @@
 
       if (!data.conversations || !data.conversations.length) {
         list.innerHTML = '<p class="muted-box-msg">No conversations yet</p>';
+        currentConversationId = '';
+        localStorage.removeItem('aster_active_conv_id');
         return;
+      }
+
+      // Purge stale saved conversation ID if it no longer exists on server
+      const savedId = localStorage.getItem('aster_active_conv_id');
+      if (savedId && !data.conversations.some((c) => c.id === savedId)) {
+        localStorage.removeItem('aster_active_conv_id');
+        if (currentConversationId === savedId) {
+          currentConversationId = '';
+        }
       }
 
       list.innerHTML = data.conversations
@@ -2388,8 +2402,8 @@
         const stream = $('messages');
         const isStreamEmpty = !stream || stream.children.length === 0;
         if (isStreamEmpty) {
-          const savedId = localStorage.getItem('aster_active_conv_id');
-          const target = data.conversations.find((c) => c.id === savedId) || data.conversations[0];
+          const currentSaved = localStorage.getItem('aster_active_conv_id');
+          const target = data.conversations.find((c) => c.id === currentSaved) || data.conversations[0];
           if (target && target.id) {
             loadConversation(target.id);
           }
@@ -2468,6 +2482,10 @@
         stage.classList.toggle('has-code-view', hasCode);
       }
     } catch (err) {
+      if (currentConversationId === convId) {
+        currentConversationId = '';
+        localStorage.removeItem('aster_active_conv_id');
+      }
       toast(`Could not load conversation: ${err.message}`, true);
     }
   }
@@ -2550,21 +2568,48 @@
         ? (savedNormalConvId || currentConversationId || null)
         : (currentConversationId || null);
 
-      const data = await api('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          selected_doc_id: ($('documentSelect') && $('documentSelect').value) || null,
-          conversation_id: convIdToSend,
-          history: historyToSend,
-          incognito: isIncognito,
-          detailed: isDetailedMode,
-          mode: activeEngineMode,
-          image_data: curAttached ? curAttached.base64 : null,
-          image_url: curAttached ? curAttached.url : null,
-        }),
-      });
+      let data;
+      try {
+        data = await api('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message,
+            selected_doc_id: ($('documentSelect') && $('documentSelect').value) || null,
+            conversation_id: convIdToSend,
+            history: historyToSend,
+            incognito: isIncognito,
+            detailed: isDetailedMode,
+            mode: activeEngineMode,
+            image_data: curAttached ? curAttached.base64 : null,
+            image_url: curAttached ? curAttached.url : null,
+          }),
+        });
+      } catch (chatApiErr) {
+        // If error is 404 / Conversation not found and we sent a conversation_id, auto-recover seamlessly
+        if (convIdToSend && chatApiErr && (chatApiErr.status === 404 || (chatApiErr.message && chatApiErr.message.includes('Conversation not found')))) {
+          console.warn('Stale conversation ID encountered. Retrying with fresh session...');
+          currentConversationId = '';
+          localStorage.removeItem('aster_active_conv_id');
+          data = await api('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message,
+              selected_doc_id: ($('documentSelect') && $('documentSelect').value) || null,
+              conversation_id: null,
+              history: [],
+              incognito: isIncognito,
+              detailed: isDetailedMode,
+              mode: activeEngineMode,
+              image_data: curAttached ? curAttached.base64 : null,
+              image_url: curAttached ? curAttached.url : null,
+            }),
+          });
+        } else {
+          throw chatApiErr;
+        }
+      }
 
       pending.remove();
 
@@ -2617,6 +2662,10 @@
     } catch (err) {
       console.error('sendMessage error:', err);
       if (pending) pending.remove();
+      if (err && err.message && err.message.includes('Conversation not found')) {
+        currentConversationId = '';
+        localStorage.removeItem('aster_active_conv_id');
+      }
       const isLimit = err && (err.message.includes('Out of tokens') || err.message.includes('429'));
       if (isLimit) {
         updateTokenDisplay({

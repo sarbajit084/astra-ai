@@ -1189,9 +1189,17 @@ async def chat(
                 Conversation.user_id == user.id,
             )
         )
-        if not existing_conv:
-            raise HTTPException(404, "Conversation not found")
-        conv = existing_conv
+        if existing_conv:
+            conv = existing_conv
+        else:
+            # Check if this conversation exists but belongs to a different user (IDOR / BOLA attempt)
+            other_user_conv = db.scalar(
+                select(Conversation).where(Conversation.id == request.conversation_id)
+            )
+            if other_user_conv and other_user_conv.user_id != user.id:
+                raise HTTPException(404, "Conversation not found")
+            # If conversation does not exist in DB at all (stale / expired client ID), conv remains None
+            # and a fresh conversation is automatically initialized below.
 
     if not conv:
         conv = Conversation(

@@ -8,9 +8,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#111827">
     <title>Astra</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="alternate icon" type="image/png" href="/static/favicon-32x32.png">
-    <link rel="apple-touch-icon" href="/static/favicon-192x192.png">
+    <link rel="icon" type="image/svg+xml" href="static/favicon.svg">
+    <link rel="alternate icon" type="image/png" href="static/favicon-32x32.png">
+    <link rel="apple-touch-icon" href="static/favicon-192x192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
-    <link rel="stylesheet" href="/static/style.css?v=3060">
+    <link rel="stylesheet" href="static/style.css?v=3060">
 
   </head>
   <body>
@@ -182,15 +182,11 @@
           </div>
         </header>
 
-        <!-- Hidden status and admin portal buttons preserved for health & admin navigation -->
         <div class="top-nav-mini">
           <div id="serviceStatus" class="mini-status-dot ok" title="System Ready">
             <span class="dot"></span>
             <span id="statusText" style="display:none;">Ready</span>
           </div>
-          <a href="/admin" class="mini-admin-link" title="Admin Portal">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          </a>
         </div>
 
         <!-- Central Container -->
@@ -659,8 +655,8 @@
             <div class="settings-group-header">
               <span class="settings-group-icon">🛡️</span>
               <div class="settings-group-text">
-                <strong class="settings-group-title">Account & Data Management</strong>
-                <p class="settings-group-desc">Manage your data isolation or permanently delete your account.</p>
+                <strong class="settings-group-title">Privacy & Security Policies</strong>
+                <p class="settings-group-desc">Review your data privacy protections and service guidelines.</p>
               </div>
             </div>
             <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
@@ -669,9 +665,6 @@
               </a>
               <a href="/privacy" target="_blank" class="settings-btn secondary-glass-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
                 <span>🔒</span> Privacy Policy
-              </a>
-              <a href="/delete-account" class="settings-btn" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                <span>⚠️</span> Delete Account
               </a>
             </div>
           </div>
@@ -765,6 +758,7 @@
     <!-- Global Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/app.js?v=3060"></script>
+    <script src="config.js"></script>
+    <script src="static/app.js?v=3060"></script>
   </body>
 </html>

@@ -29,11 +29,14 @@ def env_list(name: str, default: str) -> list[str]:
     return [value.strip() for value in os.getenv(name, default).split(",") if value.strip()]
 
 
+import secrets
+
 @dataclass(frozen=True)
 class Settings:
     app_env: str = os.getenv("APP_ENV", "production")
     database_url: str = os.getenv("DATABASE_URL", "")
-    jwt_secret: str = os.getenv("JWT_SECRET", "production-secret-aster-enterprise-secure-2026-key-salt")
+    jwt_secret: str = os.getenv("JWT_SECRET", "")
+    jwt_access_token_ttl_seconds: int = int(os.getenv("JWT_ACCESS_TOKEN_TTL_SECONDS", "86400"))  # 24 hours
     cors_origins: list[str] = None  # type: ignore[assignment]
     
     # LLM Provider Configuration
@@ -102,12 +105,39 @@ class Settings:
     image_height: int = int(os.getenv("IMAGE_HEIGHT", "1024"))
 
     def __post_init__(self):
+        # Validate or securely generate JWT_SECRET
+        INSECURE_SECRETS = {
+            "production-secret-aster-enterprise-secure-2026-key-salt",
+            "your-production-super-secret-jwt-key-change-this-now",
+            "changeme",
+            "secret",
+            "",
+        }
+        current_secret = (self.jwt_secret or "").strip()
+        is_prod = self.app_env.lower() in ("production", "prod")
+        if current_secret in INSECURE_SECRETS or len(current_secret) < 32:
+            if is_prod:
+                raise RuntimeError(
+                    "CRITICAL SECURITY CONFIGURATION ERROR: "
+                    "JWT_SECRET must be explicitly set to a cryptographically strong key "
+                    "(minimum 32 characters) in production mode."
+                )
+            # Ephemeral random secret for development if not provided or insecure
+            ephemeral = secrets.token_urlsafe(48)
+            object.__setattr__(self, "jwt_secret", ephemeral)
+        else:
+            object.__setattr__(self, "jwt_secret", current_secret)
+
         cors_val = os.getenv("CORS_ORIGINS", "").strip()
         if not cors_val or cors_val == "*":
-            object.__setattr__(self, "cors_origins", ["*"])
+            # For development, allow local dev servers; never open wildcard in production
+            if is_prod:
+                object.__setattr__(self, "cors_origins", [])
+            else:
+                object.__setattr__(self, "cors_origins", ["http://localhost:8000", "http://127.0.0.1:8000"])
         else:
-            parsed = [v.strip() for v in cors_val.split(",") if v.strip()]
-            object.__setattr__(self, "cors_origins", parsed or ["*"])
+            parsed = [v.strip() for v in cors_val.split(",") if v.strip() and v.strip() != "*"]
+            object.__setattr__(self, "cors_origins", parsed)
         if not self.database_url:
             db_file = self.data_dir / "aster.db"
             object.__setattr__(self, "database_url", f"sqlite:///{db_file.as_posix()}")

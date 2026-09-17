@@ -81,7 +81,7 @@ class MultimodalVisionEngine:
     """Core multimodal vision interface for Astra RAG AI."""
 
     def __init__(self) -> None:
-        self.http = httpx.AsyncClient(timeout=httpx.Timeout(50.0, connect=10.0), verify=False)
+        self.http = httpx.AsyncClient(timeout=httpx.Timeout(50.0, connect=10.0), verify=True)
 
     async def close(self) -> None:
         await self.http.aclose()

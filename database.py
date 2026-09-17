@@ -43,6 +43,7 @@ class User(Base):
     google_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    token_version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True)
 
 
@@ -157,6 +158,7 @@ def initialize_database() -> None:
             "ALTER TABLE users ADD COLUMN google_id VARCHAR(128)",
             "ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0",
             "ALTER TABLE users ADD COLUMN locked_until DATETIME",
+            "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1",
             "ALTER TABLE conversations ADD COLUMN chat_type VARCHAR(20) DEFAULT 'normal'",
         ]:
             try:

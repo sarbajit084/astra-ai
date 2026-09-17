@@ -21,7 +21,7 @@ from database import User, get_db
 bearer = HTTPBearer(auto_error=False)
 
 SESSION_COOKIE = "astra_session"
-TOKEN_TTL = timedelta(days=3650)  # 10 years persistent session
+TOKEN_TTL = timedelta(seconds=settings.jwt_access_token_ttl_seconds)
 BCRYPT_ROUNDS = 12
 ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4)
 
@@ -127,14 +127,21 @@ def validate_password_strength(password: str) -> str | None:
     return None
 
 
-def create_access_token(user_id: str, role: str) -> str:
+def create_access_token(user_id: str, role: str, token_version: int = 1) -> str:
     payload = {
         "sub": user_id,
         "role": role,
+        "tv": token_version,
         "exp": datetime.now(timezone.utc) + TOKEN_TTL,
         "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+
+
+def revoke_user_sessions(user: User, db: Session) -> None:
+    """Invalidates all currently active JWTs for user by advancing token_version."""
+    user.token_version = (user.token_version or 1) + 1
+    db.commit()
 
 
 def set_session_cookie(response: Response, token: str) -> None:
@@ -162,7 +169,14 @@ def _decode_user(token: str | None, db: Session) -> User | None:
         user_id = payload.get("sub")
         if not user_id:
             return None
-        return db.get(User, user_id)
+        user = db.get(User, user_id)
+        if not user:
+            return None
+        # Verify token version to enforce server-side session revocation / logout invalidation
+        token_tv = payload.get("tv")
+        if token_tv is not None and getattr(user, "token_version", 1) != token_tv:
+            return None
+        return user
     except (jwt.PyJWTError, KeyError):
         return None
 
@@ -182,9 +196,9 @@ def _extract_token(
 
 
 def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
-    db: Annotated[Session, Depends(get_db)],
-    astra_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db),
+    astra_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> User:
     user = _decode_user(_extract_token(credentials, astra_session), db)
     if not user or user.role == "guest":
@@ -195,9 +209,9 @@ def get_current_user(
 def get_optional_user(
     request: Request,
     response: Response,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
-    db: Annotated[Session, Depends(get_db)],
-    astra_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db),
+    astra_session: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> User:
     """Return the signed-in user or create an isolated per-device local guest session.
 
@@ -211,7 +225,7 @@ def get_optional_user(
     user = _decode_user(extracted, db)
     if user:
         if user.role == "guest":
-            user_token = create_access_token(user.id, user.role)
+            user_token = create_access_token(user.id, user.role, getattr(user, "token_version", 1))
             response.headers["X-Guest-Token"] = user_token
             response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
             set_session_cookie(response, user_token)
@@ -221,7 +235,7 @@ def get_optional_user(
         dev_email = f"guest-{device_header}@device.local"
         existing = db.scalar(select(User).where(User.email == dev_email))
         if existing:
-            user_token = create_access_token(existing.id, existing.role)
+            user_token = create_access_token(existing.id, existing.role, getattr(existing, "token_version", 1))
             response.headers["X-Guest-Token"] = user_token
             response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
             set_session_cookie(response, user_token)
@@ -232,19 +246,14 @@ def get_optional_user(
         email=f"guest-{guest_id}@device.local",
         username="Guest",
         role="guest",
+        token_version=1,
     )
     db.add(user)
     db.commit()
     db.refresh(user)
 
-    guest_token = create_access_token(user.id, user.role)
+    guest_token = create_access_token(user.id, user.role, user.token_version)
     response.headers["X-Guest-Token"] = guest_token
     response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
     set_session_cookie(response, guest_token)
-    return user
-
-
-def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
-    if user.role != "admin":
-        raise HTTPException(403, "Administrator access is required")
     return user

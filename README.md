@@ -69,7 +69,7 @@ Or run with Uvicorn directly:
 ```bash
 uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 ```
-Open your browser at [http://127.0.0.1:8000](http://127.0.0.1:8000). The first registered user automatically receives administrative privileges.
+Open your browser at [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 ---
 

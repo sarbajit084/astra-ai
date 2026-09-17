@@ -25,18 +25,21 @@ from typing import Annotated
 import urllib.parse
 
 import httpx
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status, Cookie
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
+from collections import defaultdict
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from auth import (
+    bearer,
     check_is_locked,
     clear_failed_attempts,
     clear_session_cookie,
@@ -46,7 +49,7 @@ from auth import (
     hash_password,
     needs_rehash,
     record_failed_attempt,
-    require_admin,
+    revoke_user_sessions,
     set_session_cookie,
     validate_password_strength,
     verify_password,
@@ -63,7 +66,7 @@ logger = logging.getLogger("rag_api")
 STATIC_DIR = BUNDLE_DIR / "static"
 rag = ProductionRAGService()
 
-# Prometheus Metrics for 200k User Scale Monitoring
+# Prometheus Metrics for Scale Monitoring
 REQUEST_COUNT = Counter("aster_query_requests_total", "Total chat query requests", ["status", "model"])
 QUERY_LATENCY = Histogram(
     "aster_query_latency_seconds",
@@ -106,25 +109,66 @@ async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONRespons
     return JSONResponse(status_code=500, content={"detail": "Something went wrong. Please try again."})
 
 
-cors_origins = settings.cors_origins
-if cors_origins == ["*"] or not cors_origins or "*" in cors_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"^https?://.*",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Guest-Token", "Content-Disposition"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Guest-Token", "Content-Disposition"],
-    )
+# Strict Production CORS Configuration
+cors_origins = [o for o in (settings.cors_origins or []) if o and o != "*"]
+if not cors_origins:
+    if settings.app_env.lower() in ("production", "prod"):
+        cors_origins = []
+    else:
+        cors_origins = ["http://localhost:8000", "http://127.0.0.1:8000"]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "PUT", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["X-Guest-Token", "Content-Disposition"],
+)
+
+
+# Production-grade in-memory sliding window rate limiter
+class InMemoryRateLimiter:
+    def __init__(self) -> None:
+        self.requests: dict[str, list[float]] = defaultdict(list)
+
+    def is_allowed(self, key: str, max_requests: int, window_seconds: int = 60) -> bool:
+        now = time.time()
+        window_start = now - window_seconds
+        history = [t for t in self.requests[key] if t > window_start]
+        if len(history) >= max_requests:
+            self.requests[key] = history
+            return False
+        history.append(now)
+        self.requests[key] = history
+        return True
+
+
+rate_limiter = InMemoryRateLimiter()
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+    path = request.url.path
+
+    if path.startswith("/static/") or path in ("/", "/favicon.ico", "/terms", "/privacy", "/robots.txt"):
+        return await call_next(request)
+
+    if path.startswith("/api/auth/"):
+        if not rate_limiter.is_allowed(f"auth:{client_ip}", max_requests=25, window_seconds=60):
+            return JSONResponse(status_code=429, content={"detail": "Too many requests. Please slow down and try again."})
+    elif path.startswith("/api/chat"):
+        if not rate_limiter.is_allowed(f"chat:{client_ip}", max_requests=40, window_seconds=60):
+            return JSONResponse(status_code=429, content={"detail": "Too many requests. Please slow down and try again."})
+    elif path.startswith("/api/upload"):
+        if not rate_limiter.is_allowed(f"upload:{client_ip}", max_requests=15, window_seconds=60):
+            return JSONResponse(status_code=429, content={"detail": "Too many upload requests. Please wait a moment."})
+    elif path.startswith("/api/"):
+        if not rate_limiter.is_allowed(f"api:{client_ip}", max_requests=120, window_seconds=60):
+            return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded. Please try again later."})
+
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -138,16 +182,25 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
     if settings.app_env.lower() in ("production", "prod"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
-    if not request.url.path.startswith("/preview/"):
+    if request.url.path.startswith("/preview/"):
+        response.headers["Content-Security-Policy"] = (
+            "sandbox allow-scripts allow-forms allow-modals; "
+            "default-src 'self' data: blob: https:; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+            "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
+            "img-src 'self' data: blob: https: http:; "
+        )
+    else:
         response.headers["Content-Security-Policy"] = (
             "default-src 'self' data: blob:; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
             "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; "
             "img-src 'self' data: blob: https: http:; "
-            "connect-src 'self' *; "
-            "frame-src 'self' *; "
-            "frame-ancestors 'self' *;"
+            "connect-src 'self'; "
+            "frame-src 'self'; "
+            "frame-ancestors 'self';"
         )
     return response
 
@@ -212,7 +265,7 @@ class ChatRequest(BaseModel):
 def token_payload(user: User) -> dict:
     displayName = user.username or (user.email.split("@")[0] if user.email else "User")
     return {
-        "access_token": create_access_token(user.id, user.role),
+        "access_token": create_access_token(user.id, user.role, getattr(user, "token_version", 1)),
         "token_type": "bearer",
         "user": {
             "id": user.id,
@@ -262,8 +315,6 @@ def robots_txt() -> PlainTextResponse:
         "Allow: /terms\n"
         "Allow: /privacy\n"
         "Disallow: /api/\n"
-        "Disallow: /admin\n"
-        "Disallow: /delete-account\n"
         "Disallow: /dashboard\n"
         "Disallow: /chat\n"
         "Disallow: /conversations\n"
@@ -283,31 +334,18 @@ def privacy_page() -> FileResponse:
     return FileResponse(STATIC_DIR / "privacy.html")
 
 
-@app.get("/delete-account", response_class=FileResponse)
-def delete_account_page() -> FileResponse:
-    return FileResponse(STATIC_DIR / "delete_account.html")
-
-
-@app.get("/admin", response_class=FileResponse)
-def admin_page() -> FileResponse:
-    return FileResponse(STATIC_DIR / "admin.html")
-
-
 @app.get("/metrics")
-def metrics() -> Response:
-    """Prometheus telemetry for 200k simultaneous users monitoring."""
+def metrics(request: Request) -> Response:
+    """Internal metrics telemetry restricted to local loopback interface."""
+    client_ip = request.client.host if request.client else ""
+    if client_ip not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        raise HTTPException(status_code=404, detail="Not found")
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/api/health")
 def health() -> dict:
-    return {
-        "status": "healthy",
-        "version": "3.0.0",
-        "provider": settings.llm_provider,
-        "model": settings.active_model,
-        **rag.health(),
-    }
+    return {"status": "healthy"}
 
 
 # ==========================================
@@ -423,7 +461,7 @@ def get_calculation_challenge() -> dict:
 
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
-def register_user(payload: RegisterPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
+def register_user(payload: RegisterPayload, db: Session = Depends(get_db)) -> dict:
     # 1. Verify terms & conditions agreement
     if not payload.agreed_to_terms:
         raise HTTPException(
@@ -477,33 +515,34 @@ def register_user(payload: RegisterPayload, db: Annotated[Session, Depends(get_d
     if existing and existing.password_hash:
         raise HTTPException(status_code=400, detail="An account with this email or username already exists. Please log in.")
 
-    is_first_user = (db.scalar(select(func.count(User.id))) or 0) == 0
     if existing:
         user = existing
         user.email = email
         user.username = username
         user.phone = phone
         user.password_hash = hash_password(payload.password)
-        user.role = "admin" if is_first_user else "user"
+        user.role = "user"
+        user.token_version = (user.token_version or 1) + 1
     else:
         user = User(
             email=email,
             username=username,
             phone=phone,
             password_hash=hash_password(payload.password),
-            role="admin" if is_first_user else "user",
+            role="user",
+            token_version=1,
         )
         db.add(user)
 
     db.commit()
     db.refresh(user)
 
-    logger.info("user_registered_math_verified id=%s email=%s username=%s phone=%s", user.id, user.email, user.username, user.phone)
+    logger.info("user_registered id=%s", user.id)
     return token_response(user)
 
 
 @app.post("/api/auth/login")
-def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
+def login_user(request: Request, payload: LoginPayload, db: Session = Depends(get_db)) -> dict:
     ident = (payload.identifier or payload.email or payload.phone or "").strip()
     if not ident:
         raise HTTPException(status_code=400, detail="Please enter your phone number, email, or username.")
@@ -612,12 +651,12 @@ def login_user(request: Request, payload: LoginPayload, db: Annotated[Session, D
 
     clear_failed_attempts(rate_key)
 
-    logger.info("user_login_success id=%s email=%s username=%s phone=%s", user.id, user.email, user.username, user.phone)
+    logger.info("user_login_success id=%s", user.id)
     return token_response(user)
 
 
 @app.post("/api/auth/forgot-password")
-def forgot_password(payload: ForgotPasswordPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
+def forgot_password(payload: ForgotPasswordPayload, db: Session = Depends(get_db)) -> dict:
     if not verify_math_challenge(payload.challenge_token, payload.calculation_result):
         raise HTTPException(
             status_code=400,
@@ -654,27 +693,47 @@ def forgot_password(payload: ForgotPasswordPayload, db: Annotated[Session, Depen
             .order_by(User.created_at.desc())
         )
 
+    GENERIC_RESPONSE = "If an account matching the provided details exists, password reset instructions have been dispatched."
     if not user:
-        raise HTTPException(status_code=404, detail="No account found with the provided details.")
+        return {"success": True, "message": GENERIC_RESPONSE}
 
     reset_token = f"rst_{uuid.uuid4().hex}"
     user.password_reset_token = reset_token
     user.password_reset_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
     db.commit()
 
-    return {
-        "success": True,
-        "message": "Verification successful. Please enter your new password.",
-        "reset_token": reset_token,
-    }
+    if settings.smtp_host and settings.smtp_user and user.email:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            msg = MIMEText(f"Your password reset token is: {reset_token}\nThis token expires in 15 minutes.")
+            msg["Subject"] = "Password Reset Request - Astra"
+            msg["From"] = settings.smtp_from
+            msg["To"] = user.email
+            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10) as s:
+                if settings.smtp_use_tls:
+                    s.starttls()
+                if settings.smtp_password:
+                    s.login(settings.smtp_user, settings.smtp_password)
+                s.send_message(msg)
+        except Exception as e_smtp:
+            logger.warning("smtp_dispatch_failed error=%s", e_smtp)
+    elif settings.app_env.lower() in ("development", "dev"):
+        logger.info("[DEV ONLY] password_reset_token for user_id=%s: %s", user.id, reset_token)
+
+    response_payload = {"success": True, "message": GENERIC_RESPONSE}
+    # In non-production local development without mailer configured, provide dev_reset_token for testing
+    if settings.app_env.lower() in ("development", "dev") and not (settings.smtp_host or settings.fast2sms_api_key):
+        response_payload["dev_reset_token"] = reset_token
+
+    return response_payload
 
 
 @app.post("/api/auth/reset-password")
-def reset_password(payload: ResetPasswordPayload, db: Annotated[Session, Depends(get_db)]) -> dict:
+def reset_password(payload: ResetPasswordPayload, db: Session = Depends(get_db)) -> dict:
     if payload.new_password_confirm is not None and payload.new_password != payload.new_password_confirm:
         raise HTTPException(status_code=400, detail="Passwords do not match.")
 
-    # Validate password strength
     strength_err = validate_password_strength(payload.new_password)
     if strength_err:
         raise HTTPException(status_code=400, detail=strength_err)
@@ -688,13 +747,14 @@ def reset_password(payload: ResetPasswordPayload, db: Annotated[Session, Depends
     if not user:
         raise HTTPException(status_code=400, detail="Password reset link is invalid or has expired. Please request a new one.")
 
-    # Exact rejection requirement if new password matches existing password
     if user.password_hash and verify_password(payload.new_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Please enter a new password.")
 
     user.password_hash = hash_password(payload.new_password)
     user.password_reset_token = None
     user.password_reset_expires_at = None
+    # Invalidate all prior sessions on password reset
+    user.token_version = (user.token_version or 1) + 1
     db.commit()
 
     return {
@@ -703,16 +763,26 @@ def reset_password(payload: ResetPasswordPayload, db: Annotated[Session, Depends
     }
 
 
-
 @app.post("/api/auth/logout")
-def logout_user() -> JSONResponse:
+def logout_user(
+    db: Session = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    astra_session: str | None = Cookie(default=None, alias="astra_session"),
+) -> JSONResponse:
+    from auth import _decode_user, _extract_token
+    token = _extract_token(credentials, astra_session)
+    user = _decode_user(token, db)
+    if user:
+        revoke_user_sessions(user, db)
+        logger.info("user_logged_out_sessions_revoked user_id=%s", user.id)
+
     response = JSONResponse(content={"success": True, "message": "Logged out successfully."})
     clear_session_cookie(response)
     return response
 
 
 @app.get("/api/auth/me")
-def me(user: Annotated[User, Depends(get_current_user)]) -> dict:
+def me(user: User = Depends(get_current_user)) -> dict:
     displayName = user.username or user.email.split("@")[0]
     return {
         "id": user.id,
@@ -723,68 +793,11 @@ def me(user: Annotated[User, Depends(get_current_user)]) -> dict:
     }
 
 
-class DeleteAccountPayload(BaseModel):
-    confirm_text: str = Field(min_length=1, max_length=100)
-    password: str = Field(min_length=1, max_length=128)
-
-
-@app.post("/api/account/delete")
-def delete_account(
-    payload: DeleteAccountPayload,
-    user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[Session, Depends(get_db)],
-) -> JSONResponse:
-    if payload.confirm_text.strip() != "DELETE MY ACCOUNT":
-        raise HTTPException(
-            status_code=400,
-            detail='You must type "DELETE MY ACCOUNT" exactly to confirm deletion.'
-        )
-
-    if not user.password_hash or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(
-            status_code=401,
-            detail="Incorrect password. Account deletion cannot proceed."
-        )
-
-    user_id = user.id
-
-    # 1. Purge all user query events
-    db.execute(delete(QueryEvent).where(QueryEvent.user_id == user_id))
-
-    # 2. Purge user preferences
-    db.execute(delete(UserPreference).where(UserPreference.user_id == user_id))
-
-    # 3. Purge all user conversations
-    db.execute(delete(Conversation).where(Conversation.user_id == user_id))
-
-    # 4. Purge all user documents and vector embeddings
-    docs = db.scalars(select(Document).where(Document.owner_id == user_id)).all()
-    for doc in docs:
-        try:
-            rag.delete_document(doc.id, user_id)
-        except Exception:
-            pass
-        db.delete(doc)
-
-    # 5. Purge the user record
-    db.delete(user)
-    db.commit()
-
-    logger.info("account_permanently_deleted user_id=%s", user_id)
-
-    response = JSONResponse(content={
-        "success": True,
-        "message": "Your account and all associated data have been permanently deleted."
-    })
-    clear_session_cookie(response)
-    return response
-
-
 # ==========================================
 # Conversation History Navigation Endpoints
 # ==========================================
 @app.get("/api/conversations")
-def get_conversations(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def get_conversations(user: User = Depends(get_optional_user), db: Session = Depends(get_db)) -> dict:
     convs = db.scalars(
         select(Conversation).where(Conversation.user_id == user.id).order_by(Conversation.updated_at.desc())
     ).all()
@@ -815,7 +828,7 @@ def get_conversations(user: Annotated[User, Depends(get_optional_user)], db: Ann
 
 
 @app.post("/api/conversations")
-def create_conversation(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def create_conversation(user: User = Depends(get_optional_user), db: Session = Depends(get_db)) -> dict:
     conv = Conversation(user_id=user.id, title="New Conversation", messages=[])
     db.add(conv)
     db.commit()
@@ -824,7 +837,7 @@ def create_conversation(user: Annotated[User, Depends(get_optional_user)], db: A
 
 
 @app.get("/api/conversations/{conv_id}")
-def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def get_conversation_detail(conv_id: str, user: User = Depends(get_optional_user), db: Session = Depends(get_db)) -> dict:
     conv = db.scalar(select(Conversation).where(Conversation.id == conv_id, Conversation.user_id == user.id))
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -848,7 +861,7 @@ def get_conversation_detail(conv_id: str, user: Annotated[User, Depends(get_opti
 
 
 @app.delete("/api/conversations/{conv_id}")
-def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def delete_conversation(conv_id: str, user: User = Depends(get_optional_user), db: Session = Depends(get_db)) -> dict:
     conv = db.scalar(select(Conversation).where(Conversation.id == conv_id, Conversation.user_id == user.id))
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -858,30 +871,74 @@ def delete_conversation(conv_id: str, user: Annotated[User, Depends(get_optional
 
 
 @app.get("/api/documents")
-def documents(user: Annotated[User, Depends(get_optional_user)], db: Annotated[Session, Depends(get_db)]) -> dict:
+def documents(user: User = Depends(get_optional_user), db: Session = Depends(get_db)) -> dict:
     rows = db.scalars(
         select(Document).where(Document.owner_id == user.id).order_by(Document.created_at.desc())
     ).all()
     return {"documents": [row.public() for row in rows], "total_documents": len(rows)}
 
 
-@app.post("/api/upload")
-async def upload_document(
-    user: Annotated[User, Depends(get_optional_user)],
-    db: Annotated[Session, Depends(get_db)],
-    file: UploadFile = File(...),
-) -> dict:
-    filename = file.filename or "uploaded-file.txt"
-    extension = Path(filename).suffix.lower()
-    if extension not in settings.allowed_extensions:
-        raise HTTPException(400, f"Unsupported file type '{extension}'. Supported: {', '.join(settings.allowed_extensions)}")
-    content = await file.read()
+def validate_uploaded_file_safety(filename: str, content: bytes) -> None:
     if not content:
         raise HTTPException(400, "Uploaded file cannot be empty.")
     if len(content) > settings.max_upload_bytes:
-        raise HTTPException(400, "File size exceeds the 400 MB limit. Please upload a file smaller than or equal to 400 MB.")
+        raise HTTPException(400, "File size exceeds the allowed limit.")
 
-    document = Document(owner_id=user.id, name=Path(filename).name, status="processing")
+    raw_filename = Path(filename).name
+    # Disallow directory traversal sequences and control characters
+    if not raw_filename or ".." in raw_filename or "/" in raw_filename or "\\" in raw_filename:
+        raise HTTPException(400, "Invalid filename provided.")
+
+    extension = Path(raw_filename).suffix.lower()
+    if extension not in settings.allowed_extensions:
+        raise HTTPException(400, f"Unsupported file type '{extension}'. Supported: {', '.join(settings.allowed_extensions)}")
+
+    # Reject executable binary file headers immediately
+    if content.startswith(b"MZ") or content.startswith(b"\x7fELF") or content.startswith(b"\xca\xfe\xba\xbe") or content.startswith(b"\xfe\xed\xfa"):
+        raise HTTPException(400, "Executable binary files are strictly prohibited.")
+
+    # Validate file signatures (magic bytes)
+    if extension == ".pdf":
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(400, "Invalid PDF file: corrupted or mismatched file signature.")
+    elif extension == ".png":
+        if not content.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise HTTPException(400, "Invalid PNG file: corrupted or mismatched file signature.")
+    elif extension in (".jpg", ".jpeg"):
+        if not content.startswith(b"\xff\xd8\xff"):
+            raise HTTPException(400, "Invalid JPEG file: corrupted or mismatched file signature.")
+    elif extension == ".webp":
+        if not (content.startswith(b"RIFF") and b"WEBP" in content[:16]):
+            raise HTTPException(400, "Invalid WebP file: corrupted or mismatched file signature.")
+    elif extension in (".zip", ".docx", ".xlsx", ".pptx"):
+        if not (content.startswith(b"PK\x03\x04") or content.startswith(b"PK\x05\x06") or content.startswith(b"PK\x07\x08")):
+            raise HTTPException(400, f"Invalid archive/document file '{extension}': corrupted or mismatched file signature.")
+    elif extension in (".gif",):
+        if not (content.startswith(b"GIF87a") or content.startswith(b"GIF89a")):
+            raise HTTPException(400, "Invalid GIF file signature.")
+    elif extension in (".bmp",):
+        if not content.startswith(b"BM"):
+            raise HTTPException(400, "Invalid BMP file signature.")
+    else:
+        # Text/code/markdown/json files: check for binary null bytes
+        sample = content[:4096]
+        if b"\x00" in sample:
+            raise HTTPException(400, f"File '{extension}' contains prohibited binary control characters.")
+
+
+@app.post("/api/upload")
+async def upload_document(
+    user: User = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+    file: UploadFile = File(...),
+) -> dict:
+    filename = file.filename or "uploaded-file.txt"
+    content = await file.read()
+    validate_uploaded_file_safety(filename, content)
+
+    # Sanitize document name for safe display
+    safe_name = re.sub(r'[^\w\s.-]', '_', Path(filename).name)[:120]
+    document = Document(owner_id=user.id, name=safe_name, status="processing")
     db.add(document)
     db.commit()
     db.refresh(document)
@@ -897,14 +954,14 @@ async def upload_document(
         document.status = "failed"
         db.commit()
         logger.exception("document_ingestion_failed document_id=%s", document.id)
-        raise HTTPException(422, f"The document could not be processed: {exc}") from exc
+        raise HTTPException(422, "The document could not be processed. Please ensure it is a valid, uncorrupted document.") from exc
 
 
 @app.delete("/api/documents/{document_id}")
 def delete_document(
     document_id: str,
-    user: Annotated[User, Depends(get_optional_user)],
-    db: Annotated[Session, Depends(get_db)],
+    user: User = Depends(get_optional_user),
+    db: Session = Depends(get_db),
 ) -> dict:
     document = db.scalar(select(Document).where(Document.id == document_id, Document.owner_id == user.id))
     if not document:
@@ -918,7 +975,7 @@ def delete_document(
 @app.post("/api/chat/upload-image")
 async def upload_chat_image(
     request: Request,
-    user: Annotated[User, Depends(get_optional_user)],
+    user: User = Depends(get_optional_user),
 ) -> dict:
     """Upload an image from camera snapshot or file picker for multimodal chat."""
     content_type = request.headers.get("content-type", "")
@@ -980,8 +1037,8 @@ async def upload_chat_image(
 @app.post("/api/chat")
 async def chat(
     request: ChatRequest,
-    user: Annotated[User, Depends(get_optional_user)],
-    db: Annotated[Session, Depends(get_db)],
+    user: User = Depends(get_optional_user),
+    db: Session = Depends(get_db),
 ) -> dict:
     started = time.perf_counter()
     if request.selected_doc_id:
@@ -1014,14 +1071,18 @@ async def chat(
         except Exception as e_save_img:
             logger.warning("save_chat_image_failed error=%s", e_save_img)
 
-    # Load or initialize conversation session strictly scoped to user (prevent IDOR)
+    # Load or initialize conversation session strictly scoped to user (prevent IDOR and existence disclosure)
     conv = None
     if request.conversation_id:
-        existing_conv = db.get(Conversation, request.conversation_id)
-        if existing_conv:
-            if existing_conv.user_id != user.id:
-                raise HTTPException(403, "You do not have permission to access this conversation.")
-            conv = existing_conv
+        existing_conv = db.scalar(
+            select(Conversation).where(
+                Conversation.id == request.conversation_id,
+                Conversation.user_id == user.id,
+            )
+        )
+        if not existing_conv:
+            raise HTTPException(404, "Conversation not found")
+        conv = existing_conv
 
     if not conv:
         conv = Conversation(
@@ -1055,7 +1116,7 @@ async def chat(
     except Exception as exc:
         logger.exception("chat_failed user_id=%s", user.id)
         REQUEST_COUNT.labels(status="error", model="unknown").inc()
-        raise HTTPException(503, f"The answer service encountered an issue: {exc}") from exc
+        raise HTTPException(503, "The assistant service is temporarily unavailable. Please try again.") from exc
 
     # Accurate, positive monotonic latency computation
     total_ms = max(5.0, round((time.perf_counter() - started) * 1000, 1))
@@ -1245,106 +1306,25 @@ def render_web_preview(preview_id: str) -> HTMLResponse:
 def get_generated_image(filename: str) -> FileResponse:
     """Securely serve locally generated AI artwork."""
     safe_filename = Path(filename).name
-    image_path = settings.image_dir / safe_filename
+    # Strict regex validation: only valid image filenames allowed
+    if not re.match(r"^[a-zA-Z0-9_\-]+\.(?:jpg|jpeg|png|webp)$", safe_filename, re.I):
+        raise HTTPException(404, "Image not found")
+    image_path = (settings.image_dir / safe_filename).resolve()
+    if not str(image_path).startswith(str(settings.image_dir.resolve())):
+        raise HTTPException(404, "Image not found")
     if not image_path.is_file():
         raise HTTPException(404, "Image not found")
-    media_type = "image/png" if safe_filename.endswith(".png") else "image/jpeg"
+    media_type = (
+        "image/png" if safe_filename.lower().endswith(".png")
+        else ("image/webp" if safe_filename.lower().endswith(".webp") else "image/jpeg")
+    )
     return FileResponse(image_path, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
-
-
-@app.get("/api/admin/dashboard")
-def admin_dashboard(admin: Annotated[User, Depends(require_admin)], db: Annotated[Session, Depends(get_db)]) -> dict:
-    total_users = db.scalar(select(func.count(User.id))) or 0
-    total_documents = db.scalar(select(func.count(Document.id))) or 0
-    total_queries = db.scalar(select(func.count(QueryEvent.id))) or 0
-    avg_latency = db.scalar(select(func.avg(QueryEvent.latency_ms))) or 0.0
-
-    recent = db.scalars(
-        select(QueryEvent).order_by(QueryEvent.created_at.desc()).limit(30)
-    ).all()
-
-    return {
-        "totals": {
-            "users": total_users,
-            "documents": total_documents,
-            "queries": total_queries,
-            "average_latency_ms": max(1.0, round(float(avg_latency), 1)),
-        },
-        "recent_queries": [event.public() for event in recent],
-    }
-
-
-@app.get("/api/admin/usage")
-def admin_usage(admin: Annotated[User, Depends(require_admin)], db: Annotated[Session, Depends(get_db)]) -> dict:
-    """Usage patterns breakdown for administrative oversight."""
-    # Past 7 days query distribution
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    recent_events = db.scalars(
-        select(QueryEvent).where(QueryEvent.created_at >= seven_days_ago)
-    ).all()
-
-    # Hourly / daily breakdown
-    daily_counts: dict[str, int] = {}
-    model_counts: dict[str, int] = {}
-    latencies: list[float] = []
-
-    for ev in recent_events:
-        day_str = ev.created_at.strftime("%Y-%m-%d") if ev.created_at else "Unknown"
-        daily_counts[day_str] = daily_counts.get(day_str, 0) + 1
-        model_counts[ev.model] = model_counts.get(ev.model, 0) + 1
-        if ev.latency_ms:
-            latencies.append(ev.latency_ms)
-
-    latencies.sort()
-    p50 = latencies[len(latencies) // 2] if latencies else 0.0
-    p95 = latencies[int(len(latencies) * 0.95)] if latencies else 0.0
-
-    return {
-        "daily_counts": daily_counts,
-        "model_counts": model_counts,
-        "percentiles": {
-            "p50_ms": round(p50, 1),
-            "p95_ms": round(p95, 1),
-        },
-        "total_analyzed": len(recent_events),
-    }
-
-
-@app.get("/api/admin/queries")
-def admin_queries(
-    admin: Annotated[User, Depends(require_admin)],
-    db: Annotated[Session, Depends(get_db)],
-    limit: int = 100,
-    offset: int = 0,
-) -> dict:
-    """Provides admin full visibility into all user searches, questions, and responses."""
-    events = db.scalars(
-        select(QueryEvent).order_by(QueryEvent.created_at.desc()).offset(offset).limit(limit)
-    ).all()
-    total = db.scalar(select(func.count(QueryEvent.id))) or 0
-    return {
-        "total": total,
-        "queries": [
-            {
-                "id": ev.id,
-                "user_id": ev.user_id,
-                "query": ev.query,
-                "rewritten_query": ev.rewritten_query,
-                "answer": ev.answer,
-                "sources_count": ev.retrieval_count,
-                "latency_ms": round(ev.latency_ms, 1),
-                "model": ev.model,
-                "created_at": ev.created_at.isoformat() if ev.created_at else "",
-            }
-            for ev in events
-        ],
-    }
 
 
 @app.get("/healthcheck")
 @app.get("/health")
 def healthcheck() -> dict:
-    return {"status": "ok", "app": "astra-ai", "version": "3.0.0"}
+    return {"status": "ok"}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -129,6 +129,10 @@ class Settings:
             return "groq"
         if key.startswith("xai-"):
             return "xai"
+        if key.startswith("sk-or-"):
+            return "openrouter"
+        if key.startswith("sk-"):
+            return "openai"
         if self.groq_api_key:
             return "groq"
         return "xai"
@@ -137,6 +141,10 @@ class Settings:
     def llm_endpoint(self) -> str:
         if self.llm_provider == "groq":
             return "https://api.groq.com/openai/v1/chat/completions"
+        if self.llm_provider == "openrouter":
+            return "https://openrouter.ai/api/v1/chat/completions"
+        if self.llm_provider == "openai":
+            return "https://api.openai.com/v1/chat/completions"
         return "https://api.x.ai/v1/chat/completions"
 
     @property

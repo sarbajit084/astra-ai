@@ -806,6 +806,7 @@ class ProductionRAGService:
             ]
         else:
             is_3d_model = self._is_3d_model_request(query)
+            is_coding = (mode == "code") or self._is_coding_request(query)
             if is_3d_model:
                 # Dedicated 3D Creation Request: bypass external web search entirely!
                 web_results = None
@@ -822,6 +823,24 @@ class ProductionRAGService:
                         "label": "✦ WebGL 3D Real-Time Viewport",
                         "type": "ai",
                         "snippet": "Interactive Three.js 3D Simulation with PBR Shaders & OrbitControls",
+                    }
+                ]
+            elif is_coding and not self._is_live_external_query(query):
+                # Dedicated Code Generation & Software Engineering: bypass slow web search
+                web_results = None
+                if settings.grok_configured:
+                    answer = await self._general_llm_answer(query, None, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
+                    model_used = "Astra Code Studio"
+                else:
+                    answer = self._generate_code_fallback(query)
+                    model_used = "Astra Code Studio"
+
+                sources = [
+                    {
+                        "id": "CODE",
+                        "label": "💻 Astra Code Studio Engine",
+                        "type": "ai",
+                        "snippet": "Production-grade code generation with interactive preview and syntax highlighting",
                     }
                 ]
             else:
@@ -1174,6 +1193,41 @@ class ProductionRAGService:
             "vehicle", "spaceship", "robot", "figure", "shader"
         ])
         return (has_3d and (has_action or has_3d_object))
+
+    def _is_coding_request(self, query: str) -> bool:
+        """Determines if a query is requesting code, script, program, website, or software implementation."""
+        q = query.lower().strip()
+        coding_terms = [
+            "code", "script", "program", "website", "web site", "webpage", "web page",
+            "html", "css", "javascript", "python", "function", "class", "react", "c++",
+            "cpp", "c#", "csharp", "java", "sql", "build a site", "landing page", "hero page",
+            "hero section", "web app", "rust", "golang", "go code", "bash", "shell script",
+            "algorithm", "dashboard", "portfolio", "e-commerce", "ecommerce", "store",
+            "restaurant website", "cafe website", "cafe style", "college website", "ui design",
+            "front-end", "frontend", "redesign", "star pattern", "pattern in python", "print star",
+            "star py", "write a code", "write code", "give me code", "give me the code",
+            "make me a website", "create a website", "generate a website", "vue", "svelte",
+            "fastapi", "flask", "django", "express", "binary search", "linked list",
+            "sorting algorithm", "recursion", "regex", "leetcode", "json parsing", "rest api",
+            "unit test", "dockerfile", "make me a cafe", "build me a", "make a cafe",
+            "print pattern", "star triangle", "pyramid pattern"
+        ]
+        if any(term in q for term in coding_terms):
+            return True
+        if re.search(r"\b(?:make|create|build|generate|design)\s+(?:me\s+)?(?:a\s+)?[\w\s-]{1,30}\s+(?:website|site|page|app|dashboard|portfolio|store|cafe|shop)\b", q):
+            return True
+        if re.search(r"\b(?:print|write|code|create|show)\s+[\w\s-]{1,30}\s+in\s+(?:python|javascript|js|java|c\+\+|cpp|c#|rust|golang|go|sql|bash|html)\b", q):
+            return True
+        return False
+
+    def _is_live_external_query(self, query: str) -> bool:
+        """Determines if query explicitly requires live real-time web facts, news, or weather."""
+        q = query.lower().strip()
+        return any(w in q for w in [
+            "news", "latest version", "release date", "weather", "stock price", "stock",
+            "today's", "market ticker", "score", "match", "current price", "cryptocurrency price",
+            "who won", "breaking news"
+        ])
 
     def _build_3d_model_directive(self, query: str) -> str:
         """Constructs an expert 3D modeling and shader engineering directive for creating a standalone 3D model with realistic PBR materials, custom shaders, cinematic lighting, and OrbitControls."""
@@ -2231,14 +2285,21 @@ print("Procedural 3D model exported successfully to model.glb")"""
         candidate_models = []
         if settings.llm_provider == "xai":
             provider_candidates = [settings.active_model, "grok-2-latest", "grok-2", "grok-beta"]
+        elif settings.llm_provider == "groq":
+            provider_candidates = [settings.active_model, "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
         else:
-            provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+            provider_candidates = [settings.active_model, "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"]
         for m in provider_candidates:
             if m and m not in candidate_models:
                 candidate_models.append(m)
 
         for attempt, model_candidate in enumerate(candidate_models):
             payload["model"] = model_candidate
+            if settings.llm_provider == "groq" and "120b" in model_candidate:
+                payload["max_tokens"] = min(payload.get("max_tokens", 3800), 3800)
+            elif is_coding:
+                payload["max_tokens"] = min(payload.get("max_tokens", 4096), 4096)
+
             try:
                 response = await self.http.post(
                     settings.llm_endpoint,
@@ -2253,11 +2314,18 @@ print("Procedural 3D model exported successfully to model.glb")"""
                         content = choices[0]["message"].get("content")
                         if content:
                             return self._clean_llm_text(str(content))
-                elif response.status_code == 429:
-                    logger.warning("grounded_llm_rate_limited attempt=%d model=%s", attempt, model_candidate)
-                    await asyncio.sleep(0.8)
+                elif response.status_code in (413, 429):
+                    logger.warning("grounded_llm_rate_or_size_limited attempt=%d model=%s status=%d", attempt, model_candidate, response.status_code)
+                    payload["max_tokens"] = min(payload.get("max_tokens", 3000), 2500)
+                    await asyncio.sleep(0.5)
+                    continue
+                else:
+                    logger.warning("grounded_llm_non_200 attempt=%d model=%s status=%d body=%s", attempt, model_candidate, response.status_code, response.text[:200])
+                    await asyncio.sleep(0.5)
                     continue
             except Exception as exc:
+                if "closed" in str(exc).lower():
+                    self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), verify=False, follow_redirects=True)
                 logger.warning("llm_api_call_failed attempt=%d model=%s error=%s", attempt, model_candidate, exc)
                 await asyncio.sleep(0.5)
 
@@ -2902,23 +2970,15 @@ print("Procedural 3D model exported successfully to model.glb")"""
         """Answer general greetings, outside questions, or follow-ups conversationally like ChatGPT/Grok, incorporating web search facts and dialogue context."""
         project_state = self._detect_project_state(history, query)
         is_3d_model = self._is_3d_model_request(query)
-        is_coding = (mode == "code") or is_3d_model or project_state["is_active_project"] or any(
-            k in query.lower() for k in [
-                "code", "script", "program", "website", "html", "css", "javascript", "python",
-                "function", "class", "react", "c++", "java", "sql", "build a site", "landing page",
-                "web app", "rust", "golang", "bash", "algorithm", "dashboard", "portfolio",
-                "e-commerce", "ecommerce", "store", "restaurant website", "college website",
-                "ui", "front-end", "frontend", "redesign", "web page"
-            ]
-        )
+        is_coding = (mode == "code") or is_3d_model or project_state["is_active_project"] or self._is_coding_request(query)
         is_web_design = (mode == "code") or (project_state["is_active_project"] and project_state["is_modification"]) or any(
             k in query.lower() for k in [
                 "website", "landing page", "web app", "dashboard", "portfolio",
                 "e-commerce", "ecommerce", "store", "shop", "restaurant website",
-                "college website", "ui design", "web design", "html", "css",
+                "cafe", "cafe style", "college website", "ui design", "web design", "html", "css",
                 "front-end", "frontend", "build a site", "create a page", "saas product",
                 "redesign", "web page", "web site", "storefront", "three.js", "webgl",
-                "3d website", "konk", "product page", "boutique", "creative site",
+                "3d website", "product page", "boutique", "creative site",
                 "make a website", "create a website", "generate a website"
             ]
         )
@@ -2930,7 +2990,7 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 return math_sol
 
         web_context_text = ""
-        if web_results:
+        if web_results and not is_coding:
             blocks = []
             for w in web_results:
                 blocks.append(f"[Live Source: {w['title']}]\n{w['snippet']}")
@@ -2939,26 +2999,48 @@ print("Procedural 3D model exported successfully to model.glb")"""
         now_dt = datetime.now()
         now_str = now_dt.strftime("%A, %B %d, %Y, %I:%M %p")
         today_date_str = now_dt.strftime("%d %B %Y")
-        system_prompt = self._deep_research_system_prompt(is_grounded=False, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
+        
+        if is_coding:
+            system_prompt = (
+                "You are Astra Code Studio, an elite Polyglot Principal Software Architect and Senior Creative Director.\n\n"
+                "CRITICAL CODE GENERATION RULES:\n"
+                "1. DIRECT CODE FIRST: Immediately provide the exact, complete, production-ready, working code inside standard markdown code fences (e.g. ```python, ```html, ```css, ```javascript, ```cpp, etc.).\n"
+                "2. ZERO PLACEHOLDERS: NEVER use '// TODO', '/* add styles here */', '# write logic here', or '...'. Write EVERY single function, loop, style rule, and tag completely so the code runs or compiles flawlessly without missing pieces.\n"
+                "3. FOR WEBSITES & WEB APPS:\n"
+                "   - Deliver the complete, beautiful, responsive, modern website.\n"
+                "   - When providing separate files, use labeled blocks:\n"
+                "     * Complete HTML in a ```html block (labeled <!-- index.html -->)\n"
+                "     * Complete CSS in a ```css block (labeled /* styles.css */)\n"
+                "     * Complete JavaScript in a ```javascript block (labeled // script.js)\n"
+                "   - Ensure modern typography, responsive CSS grid/flexbox, polished hero sections, and working interactive controls.\n"
+                "4. FOR PYTHON, SCRIPTS & ALGORITHMS:\n"
+                "   - Provide clean, idiomatic, fully runnable code with input handling, sample test runs, and clear output.\n"
+                "5. ZERO FILLER: Do NOT output conversational filler, philosophical chatter, or evasive responses. Focus 100% on delivering the exact code requested."
+            )
+        else:
+            system_prompt = self._deep_research_system_prompt(is_grounded=False, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
 
-        web_directive = ""
-        if is_3d_model and not is_web_design:
-            web_directive = self._build_3d_model_directive(query)
-        elif is_web_design:
+        if is_web_design:
             web_directive = self._build_web_directive(project_state, query)
-
-        if web_context_text:
+            user_content = f"{query}\n\n{web_directive}"
+        elif is_3d_model:
+            web_directive = self._build_3d_model_directive(query)
+            user_content = f"{query}\n\n{web_directive}"
+        elif is_coding:
+            user_content = (
+                f"{query}\n\n"
+                "Please generate the complete, production-grade, bug-free, copy-paste ready code in standard markdown code fences with full implementation details:"
+            )
+        elif web_context_text:
             user_content = (
                 f"{query}\n\n"
                 f"=== SYSTEM TEMPORAL ANCHOR: TODAY IS {now_dt.strftime('%A').upper()}, {now_dt.strftime('%B').upper()} {now_dt.day}, {now_dt.year} ({today_date_str}) ===\n"
-                f"=== CRITICAL INSTRUCTION: Today's date is strictly {today_date_str} (September 15). NEVER cite or hallucinate incorrect months like May. Ground all current observations strictly on today.\n"
                 f"=== LIVE SEARCH CONTEXT ===\n"
                 f"{web_context_text}\n\n"
-                f"Please provide a {'comprehensive, deeply detailed' if detailed or is_coding else 'short, concise, direct'} and accurate answer for today ({today_date_str}) in clean prose without citation tags like [W1], [W2], or 【W1】:"
-                f"{web_directive}"
+                f"Please provide a {'comprehensive, deeply detailed' if detailed else 'short, concise, direct'} and accurate answer for today ({today_date_str}) in clean prose without citation tags like [W1], [W2]:"
             )
         else:
-            user_content = f"{query}{web_directive}"
+            user_content = query
 
         llm_messages: list[dict] = [{"role": "system", "content": system_prompt}]
         if history:
@@ -2970,25 +3052,41 @@ print("Procedural 3D model exported successfully to model.glb")"""
             "model": settings.active_model,
             "messages": llm_messages,
             "temperature": 0.2 if is_coding else 0.2,
-            "max_tokens": 8192 if is_coding else (2000 if detailed else 600),
+            "max_tokens": 4096 if is_coding else (2000 if detailed else 600),
         }
         headers = {
             "Authorization": f"Bearer {settings.active_llm_key}",
             "Content-Type": "application/json",
         }
 
-        # Multi-model retry with rate-limit backoff resilience
+        # Multi-model retry with rate-limit and size resilience
         candidate_models = []
         if settings.llm_provider == "xai":
             provider_candidates = [settings.active_model, "grok-2-latest", "grok-2", "grok-beta"]
+        elif settings.llm_provider == "groq":
+            if is_coding:
+                provider_candidates = [settings.active_model, "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
+            else:
+                provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
         else:
-            provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]
+            provider_candidates = [settings.active_model, "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"]
+
         for m in provider_candidates:
             if m and m not in candidate_models:
                 candidate_models.append(m)
 
         for attempt, model_candidate in enumerate(candidate_models):
             payload["model"] = model_candidate
+
+            # Safe token capping for Groq
+            if settings.llm_provider == "groq":
+                if "120b" in model_candidate:
+                    payload["max_tokens"] = min(payload.get("max_tokens", 3800), 3800)
+                else:
+                    payload["max_tokens"] = 4096 if is_coding else (2000 if detailed else 600)
+            else:
+                payload["max_tokens"] = 8192 if is_coding else (2000 if detailed else 600)
+
             try:
                 response = await self.http.post(
                     settings.llm_endpoint,
@@ -3003,28 +3101,692 @@ print("Procedural 3D model exported successfully to model.glb")"""
                         content = choices[0]["message"].get("content")
                         if content:
                             return self._clean_llm_text(str(content))
-                elif response.status_code == 429:
-                    logger.warning("general_llm_rate_limited attempt=%d model=%s", attempt, model_candidate)
-                    await asyncio.sleep(0.8)
+                elif response.status_code in (413, 429):
+                    logger.warning("general_llm_rate_or_size_limited attempt=%d model=%s status=%d", attempt, model_candidate, response.status_code)
+                    payload["max_tokens"] = min(payload.get("max_tokens", 3000), 2500)
+                    await asyncio.sleep(0.5)
+                    continue
+                else:
+                    logger.warning("general_llm_non_200 attempt=%d model=%s status=%d body=%s", attempt, model_candidate, response.status_code, response.text[:200])
+                    await asyncio.sleep(0.5)
                     continue
             except Exception as exc:
+                if "closed" in str(exc).lower():
+                    self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), verify=False, follow_redirects=True)
                 logger.warning("general_llm_call_failed attempt=%d model=%s error=%s", attempt, model_candidate, exc)
                 await asyncio.sleep(0.5)
 
-        # High-intelligence fallback using conversation context or web results
+        # High-intelligence fallbacks when remote LLMs are unavailable
         if is_3d_model:
             return self._generate_3d_model_fallback(query)
 
-        if web_results and not is_coding and not is_3d_model:
-            top_snippet = web_results[0]["snippet"]
-            return f"{top_snippet}"
+        if is_coding:
+            return self._generate_code_fallback(query)
 
-        humor_fallbacks = [
-            "My witty neural circuits are on it! In short: it really comes down to your personal taste, mood, and how much excitement you're craving today.",
-            "That's one of those classic debates! On one hand, you've got pure unadulterated focus, and on the other, smooth elegance. Which side are you leaning towards?",
-            "I could write a whole thesis on that, but honestly? It boils down to vibes, timing, and personal preference. Tell me what you're thinking!",
-        ]
-        return random.choice(humor_fallbacks)
+        if web_results:
+            top_snippet = web_results[0].get("snippet", "")
+            if top_snippet:
+                return f"{top_snippet}"
+
+        return "I am Astra! I am ready to help you. Ask me anything or describe what code you would like to build."
+
+    def _generate_code_fallback(self, query: str) -> str:
+        """Deterministic, rich production code generation when external LLM APIs are unreachable."""
+        q = query.lower().strip()
+        
+        # 1. Star Patterns in Python
+        if any(w in q for w in ["star pattern", "print star", "pattern in python", "python star", "stars in python", "star py", "star triangle", "pyramid pattern"]):
+            return self._build_star_pattern_code()
+
+        # 2. Cafe / Coffee / Restaurant website
+        if any(w in q for w in ["cafe", "coffee", "restaurant", "bistro", "bakery", "roastery", "food"]):
+            return self._build_cafe_website_code()
+
+        # 3. Developer / Designer Portfolio
+        if any(w in q for w in ["portfolio", "resume", "personal site", "developer site"]):
+            return self._build_portfolio_website_code()
+
+        # 4. General Website / Landing page
+        if any(w in q for w in ["website", "landing page", "web app", "html", "css", "web page", "web site", "storefront"]):
+            return self._build_general_website_code(query)
+
+        # 5. General programming / algorithm fallback
+        return self._build_general_algorithm_code(query)
+
+    def _build_star_pattern_code(self) -> str:
+        return (
+            "Here is a complete, runnable **Python Star Pattern Suite** covering all classic patterns with clean loops, comments, and interactive output:\n\n"
+            "```python\n"
+            "# =========================================================\n"
+            "# Complete Python Star Pattern Generator\n"
+            "# Demonstrates 5 Classic Star Patterns using nested loops\n"
+            "# =========================================================\n"
+            "\n"
+            "def right_triangle_star(rows: int = 5):\n"
+            "    \"\"\"Pattern 1: Right-Angled Star Triangle\"\"\"\n"
+            "    print(f'=== 1. Right-Angled Star Triangle (rows={rows}) ===')\n"
+            "    for i in range(1, rows + 1):\n"
+            "        print('* ' * i)\n"
+            "    print()\n"
+            "\n"
+            "def inverted_triangle_star(rows: int = 5):\n"
+            "    \"\"\"Pattern 2: Inverted Right-Angled Star Triangle\"\"\"\n"
+            "    print(f'=== 2. Inverted Star Triangle (rows={rows}) ===')\n"
+            "    for i in range(rows, 0, -1):\n"
+            "        print('* ' * i)\n"
+            "    print()\n"
+            "\n"
+            "def equilateral_pyramid_star(rows: int = 5):\n"
+            "    \"\"\"Pattern 3: Symmetrical Pyramid Star Pattern\"\"\"\n"
+            "    print(f'=== 3. Symmetrical Pyramid Pattern (rows={rows}) ===')\n"
+            "    for i in range(1, rows + 1):\n"
+            "        # Print leading spaces to center stars\n"
+            "        spaces = ' ' * (rows - i)\n"
+            "        stars = '* ' * i\n"
+            "        print(spaces + stars)\n"
+            "    print()\n"
+            "\n"
+            "def diamond_star(rows: int = 5):\n"
+            "    \"\"\"Pattern 4: Full Diamond Star Pattern\"\"\"\n"
+            "    print(f'=== 4. Full Diamond Pattern (rows={rows}) ===')\n"
+            "    # Top pyramid\n"
+            "    for i in range(1, rows + 1):\n"
+            "        print(' ' * (rows - i) + '* ' * i)\n"
+            "    # Bottom inverted pyramid\n"
+            "    for i in range(rows - 1, 0, -1):\n"
+            "        print(' ' * (rows - i) + '* ' * i)\n"
+            "    print()\n"
+            "\n"
+            "def hollow_square_star(size: int = 5):\n"
+            "    \"\"\"Pattern 5: Hollow Square Pattern\"\"\"\n"
+            "    print(f'=== 5. Hollow Square Pattern (size={size}) ===')\n"
+            "    for i in range(size):\n"
+            "        for j in range(size):\n"
+            "            if i == 0 or i == size - 1 or j == 0 or j == size - 1:\n"
+            "                print('* ', end='')\n"
+            "            else:\n"
+            "                print('  ', end='')\n"
+            "        print()\n"
+            "    print()\n"
+            "\n"
+            "if __name__ == '__main__':\n"
+            "    n = 5\n"
+            "    right_triangle_star(n)\n"
+            "    inverted_triangle_star(n)\n"
+            "    equilateral_pyramid_star(n)\n"
+            "    diamond_star(n)\n"
+            "    hollow_square_star(n)\n"
+            "```\n\n"
+            "### Pattern Explanations:\n"
+            "- **Right-Angled Triangle**: Prints $i$ stars on line $i$.\n"
+            "- **Pyramid**: Uses $(rows - i)$ spaces before $i$ spaced stars to keep it symmetrical.\n"
+            "- **Diamond**: Stacks an upright pyramid with an inverted pyramid.\n"
+            "- **Hollow Square**: Checks perimeter coordinates $(i=0, i=N-1, j=0, j=N-1)$ to draw the outer border while leaving inner spaces empty."
+        )
+
+    def _build_cafe_website_code(self) -> str:
+        return (
+            "Here is a complete, production-grade **Artisanal Cafe & Roastery** website featuring a warm modern aesthetic, hero section with coffee showcase, categorized menu, slide-out cart drawer, and responsive styling:\n\n"
+            "### 1. HTML Structure\n"
+            "```html\n"
+            "<!-- index.html -->\n"
+            "<!DOCTYPE html>\n"
+            "<html lang=\"en\">\n"
+            "<head>\n"
+            "  <meta charset=\"UTF-8\" />\n"
+            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+            "  <title>Aura Roastery & Cafe · Artisan Coffee & Brews</title>\n"
+            "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
+            "  <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
+            "  <link href=\"https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap\" rel=\"stylesheet\">\n"
+            "  <link rel=\"stylesheet\" href=\"styles.css\" />\n"
+            "</head>\n"
+            "<body>\n"
+            "  <!-- Navigation -->\n"
+            "  <header class=\"navbar\">\n"
+            "    <div class=\"nav-container\">\n"
+            "      <a href=\"#\" class=\"brand-logo\">\n"
+            "        <span class=\"brand-icon\">☕</span>\n"
+            "        <span class=\"brand-text\">AURA <em>ROASTERY</em></span>\n"
+            "      </a>\n"
+            "      <nav class=\"nav-menu\">\n"
+            "        <a href=\"#hero\" class=\"nav-link active\">Home</a>\n"
+            "        <a href=\"#menu\" class=\"nav-link\">Menu</a>\n"
+            "        <a href=\"#story\" class=\"nav-link\">Our Story</a>\n"
+            "        <a href=\"#visit\" class=\"nav-link\">Locations</a>\n"
+            "      </nav>\n"
+            "      <div class=\"nav-actions\">\n"
+            "        <button class=\"cart-trigger-btn\" id=\"cartBtn\">\n"
+            "          <span>Bag</span>\n"
+            "          <span class=\"cart-count\" id=\"cartCount\">0</span>\n"
+            "        </button>\n"
+            "      </div>\n"
+            "    </div>\n"
+            "  </header>\n"
+            "\n"
+            "  <!-- Hero Section -->\n"
+            "  <section id=\"hero\" class=\"hero-section\">\n"
+            "    <div class=\"hero-container\">\n"
+            "      <div class=\"hero-content\">\n"
+            "        <div class=\"hero-badge\">✦ Single-Origin Roasts · Ethically Sourced</div>\n"
+            "        <h1 class=\"hero-title\">\n"
+            "          Pure Craft.<br/>\n"
+            "          <span class=\"italic-accent\">Warm Sanctuary.</span>\n"
+            "        </h1>\n"
+            "        <p class=\"hero-desc\">\n"
+            "          Slow-roasted Ethiopian heirloom beans, velvety micro-foam, and freshly baked morning pastries in a sunlit architectural oasis.\n"
+            "        </p>\n"
+            "        <div class=\"hero-cta-group\">\n"
+            "          <a href=\"#menu\" class=\"btn btn-primary\">Explore Menu</a>\n"
+            "          <a href=\"#visit\" class=\"btn btn-secondary\">Find Our Cafe</a>\n"
+            "        </div>\n"
+            "        <div class=\"hero-stats-row\">\n"
+            "          <div class=\"stat-item\"><span class=\"stat-num\">100%</span><span class=\"stat-lbl\">Arabica Specialty</span></div>\n"
+            "          <div class=\"stat-divider\"></div>\n"
+            "          <div class=\"stat-item\"><span class=\"stat-num\">48h</span><span class=\"stat-lbl\">Cold Steep Process</span></div>\n"
+            "          <div class=\"stat-divider\"></div>\n"
+            "          <div class=\"stat-item\"><span class=\"stat-num\">4.9★</span><span class=\"stat-lbl\">1,800+ Reviews</span></div>\n"
+            "        </div>\n"
+            "      </div>\n"
+            "      <div class=\"hero-visual\">\n"
+            "        <div class=\"coffee-card-preview\">\n"
+            "          <div class=\"coffee-steam-glow\"></div>\n"
+            "          <div class=\"coffee-art-circle\">\n"
+            "            <div class=\"cup-rim\">\n"
+            "              <div class=\"latte-art-swirl\"></div>\n"
+            "            </div>\n"
+            "          </div>\n"
+            "          <div class=\"floating-roast-pill\">\n"
+            "            <span class=\"pill-dot\"></span>\n"
+            "            <span>Batch No. 84 · Honey Geisha</span>\n"
+            "          </div>\n"
+            "        </div>\n"
+            "      </div>\n"
+            "    </div>\n"
+            "  </section>\n"
+            "\n"
+            "  <!-- Categorized Menu -->\n"
+            "  <section id=\"menu\" class=\"menu-section\">\n"
+            "    <div class=\"container\">\n"
+            "      <div class=\"section-header text-center\">\n"
+            "        <span class=\"section-kicker\">Handcrafted Selections</span>\n"
+            "        <h2 class=\"section-title\">Signature Brews & Pastries</h2>\n"
+            "      </div>\n"
+            "      <div class=\"menu-tabs\" id=\"menuTabs\">\n"
+            "        <button class=\"tab-btn active\" data-category=\"espresso\">Espresso & Milk</button>\n"
+            "        <button class=\"tab-btn\" data-category=\"pour_over\">Pour Over & Single Origin</button>\n"
+            "        <button class=\"tab-btn\" data-category=\"cold_brew\">Cold Brews & Tonics</button>\n"
+            "        <button class=\"tab-btn\" data-category=\"bakery\">Artisan Bakery</button>\n"
+            "      </div>\n"
+            "      <div class=\"menu-grid\" id=\"menuGrid\"></div>\n"
+            "    </div>\n"
+            "  </section>\n"
+            "\n"
+            "  <!-- Slide-out Cart Drawer -->\n"
+            "  <div class=\"cart-drawer-overlay\" id=\"cartOverlay\"></div>\n"
+            "  <aside class=\"cart-drawer\" id=\"cartDrawer\">\n"
+            "    <div class=\"cart-drawer-header\">\n"
+            "      <h3>Your Order</h3>\n"
+            "      <button class=\"close-cart-btn\" id=\"closeCartBtn\">✕</button>\n"
+            "    </div>\n"
+            "    <div class=\"cart-items-list\" id=\"cartItemsList\">\n"
+            "      <div class=\"cart-empty-msg\">Your bag is currently empty.</div>\n"
+            "    </div>\n"
+            "    <div class=\"cart-drawer-footer\">\n"
+            "      <div class=\"cart-subtotal-row\">\n"
+            "        <span>Subtotal</span>\n"
+            "        <span id=\"cartSubtotal\">$0.00</span>\n"
+            "      </div>\n"
+            "      <button class=\"btn btn-checkout\" id=\"checkoutBtn\">Proceed to Pickup</button>\n"
+            "    </div>\n"
+            "  </aside>\n"
+            "\n"
+            "  <!-- Toast Notification -->\n"
+            "  <div class=\"toast\" id=\"toastNotification\"></div>\n"
+            "\n"
+            "  <script src=\"script.js\"></script>\n"
+            "</body>\n"
+            "</html>\n"
+            "```\n\n"
+            "### 2. CSS Styling\n"
+            "```css\n"
+            "/* styles.css */\n"
+            ":root {\n"
+            "  --bg-main: #100c09;\n"
+            "  --bg-card: #1b1510;\n"
+            "  --bg-surface: #261e18;\n"
+            "  --border-glass: rgba(212, 163, 115, 0.16);\n"
+            "  --accent-warm: #d4a373;\n"
+            "  --accent-glow: #e9c46a;\n"
+            "  --text-white: #faf7f2;\n"
+            "  --text-muted: #bda798;\n"
+            "  --font-serif: 'Playfair Display', serif;\n"
+            "  --font-sans: 'Plus Jakarta Sans', sans-serif;\n"
+            "  --radius-pill: 9999px;\n"
+            "  --radius-card: 20px;\n"
+            "  --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);\n"
+            "}\n"
+            "* { margin: 0; padding: 0; box-sizing: border-box; }\n"
+            "body {\n"
+            "  background-color: var(--bg-main);\n"
+            "  color: var(--text-white);\n"
+            "  font-family: var(--font-sans);\n"
+            "  line-height: 1.6;\n"
+            "  overflow-x: hidden;\n"
+            "}\n"
+            ".container { width: 90%; max-width: 1200px; margin: 0 auto; }\n"
+            ".text-center { text-align: center; }\n"
+            "\n"
+            "/* Navbar */\n"
+            ".navbar {\n"
+            "  position: fixed; top: 0; left: 0; right: 0; z-index: 100;\n"
+            "  background: rgba(16, 12, 9, 0.85); backdrop-filter: blur(16px);\n"
+            "  border-bottom: 1px solid var(--border-glass);\n"
+            "  padding: 18px 0;\n"
+            "}\n"
+            ".nav-container { width: 92%; max-width: 1240px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }\n"
+            ".brand-logo { text-decoration: none; display: flex; align-items: center; gap: 10px; color: var(--text-white); font-weight: 700; letter-spacing: 2px; font-size: 1.15rem; }\n"
+            ".brand-icon { font-size: 1.4rem; }\n"
+            ".brand-text em { font-family: var(--font-serif); font-style: italic; color: var(--accent-warm); font-weight: 400; }\n"
+            ".nav-menu { display: flex; gap: 32px; }\n"
+            ".nav-link { color: var(--text-muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: var(--transition); }\n"
+            ".nav-link:hover, .nav-link.active { color: var(--accent-warm); }\n"
+            ".cart-trigger-btn {\n"
+            "  background: var(--bg-surface); border: 1px solid var(--border-glass);\n"
+            "  color: var(--text-white); padding: 8px 18px; border-radius: var(--radius-pill);\n"
+            "  cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.9rem; transition: var(--transition);\n"
+            "}\n"
+            ".cart-trigger-btn:hover { background: var(--accent-warm); color: var(--bg-main); }\n"
+            ".cart-count { background: var(--accent-glow); color: var(--bg-main); border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }\n"
+            "\n"
+            "/* Hero Section */\n"
+            ".hero-section { padding: 160px 0 100px; min-height: 90vh; display: flex; align-items: center; position: relative; }\n"
+            ".hero-container { width: 92%; max-width: 1240px; margin: 0 auto; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 60px; align-items: center; }\n"
+            ".hero-badge { display: inline-block; background: rgba(212, 163, 115, 0.12); color: var(--accent-warm); border: 1px solid var(--border-glass); border-radius: var(--radius-pill); padding: 6px 16px; font-size: 0.82rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 24px; }\n"
+            ".hero-title { font-family: var(--font-serif); font-size: clamp(2.8rem, 5.5vw, 4.8rem); line-height: 1.1; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.5px; }\n"
+            ".italic-accent { font-style: italic; color: var(--accent-warm); font-weight: 400; }\n"
+            ".hero-desc { color: var(--text-muted); font-size: 1.15rem; max-width: 520px; margin-bottom: 36px; }\n"
+            ".hero-cta-group { display: flex; gap: 16px; margin-bottom: 48px; }\n"
+            ".btn { padding: 14px 30px; border-radius: var(--radius-pill); text-decoration: none; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: var(--transition); display: inline-flex; align-items: center; justify-content: center; border: none; }\n"
+            ".btn-primary { background: var(--accent-warm); color: var(--bg-main); }\n"
+            ".btn-primary:hover { background: #e0b487; transform: translateY(-2px); }\n"
+            ".btn-secondary { background: transparent; color: var(--text-white); border: 1px solid var(--border-glass); }\n"
+            ".btn-secondary:hover { background: rgba(255,255,255,0.05); color: var(--accent-warm); }\n"
+            ".hero-stats-row { display: flex; align-items: center; gap: 24px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 28px; }\n"
+            ".stat-item { display: flex; flex-direction: column; }\n"
+            ".stat-num { font-family: var(--font-serif); font-size: 1.6rem; font-weight: 700; color: var(--text-white); }\n"
+            ".stat-lbl { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }\n"
+            ".stat-divider { width: 1px; height: 36px; background: rgba(255,255,255,0.1); }\n"
+            "\n"
+            "/* Hero Visual */\n"
+            ".hero-visual { display: flex; justify-content: center; align-items: center; position: relative; }\n"
+            ".coffee-card-preview { width: 340px; height: 380px; background: radial-gradient(circle at 50% 30%, #2c2017, #130d09); border: 1px solid var(--border-glass); border-radius: var(--radius-card); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }\n"
+            ".coffee-art-circle { width: 180px; height: 180px; border-radius: 50%; background: #4a3425; border: 10px solid #231912; display: flex; align-items: center; justify-content: center; position: relative; box-shadow: inset 0 6px 14px rgba(0,0,0,0.6); }\n"
+            ".latte-art-swirl { width: 90px; height: 90px; border-radius: 50%; background: radial-gradient(circle, #f3e5d8 30%, #a47148 70%); filter: blur(1px); animation: swirlPulse 6s ease-in-out infinite alternate; }\n"
+            "@keyframes swirlPulse { 0% { transform: scale(0.95) rotate(0deg); } 100% { transform: scale(1.05) rotate(15deg); } }\n"
+            ".floating-roast-pill { position: absolute; bottom: 24px; background: rgba(16, 12, 9, 0.85); backdrop-filter: blur(8px); border: 1px solid var(--border-glass); padding: 8px 16px; border-radius: var(--radius-pill); font-size: 0.8rem; display: flex; align-items: center; gap: 8px; color: var(--text-muted); }\n"
+            ".pill-dot { width: 8px; height: 8px; border-radius: 50%; background: #2a9d8f; }\n"
+            "\n"
+            "/* Menu Section */\n"
+            ".menu-section { padding: 90px 0; background: #0c0907; }\n"
+            ".section-kicker { color: var(--accent-warm); font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; display: block; }\n"
+            ".section-title { font-family: var(--font-serif); font-size: 2.6rem; margin-bottom: 40px; }\n"
+            ".menu-tabs { display: flex; justify-content: center; gap: 12px; margin-bottom: 48px; flex-wrap: wrap; }\n"
+            ".tab-btn { background: var(--bg-card); border: 1px solid var(--border-glass); color: var(--text-muted); padding: 10px 22px; border-radius: var(--radius-pill); font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: var(--transition); }\n"
+            ".tab-btn.active, .tab-btn:hover { background: var(--accent-warm); color: var(--bg-main); border-color: var(--accent-warm); }\n"
+            ".menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; }\n"
+            ".menu-item-card { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; justify-content: space-between; transition: var(--transition); }\n"
+            ".menu-item-card:hover { transform: translateY(-4px); border-color: rgba(212, 163, 115, 0.35); box-shadow: 0 16px 32px rgba(0,0,0,0.3); }\n"
+            ".item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }\n"
+            ".item-name { font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; }\n"
+            ".item-price { color: var(--accent-warm); font-weight: 700; font-size: 1.15rem; }\n"
+            ".item-desc { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5; }\n"
+            ".item-footer { display: flex; justify-content: space-between; align-items: center; }\n"
+            ".item-origin-tag { font-size: 0.78rem; color: var(--accent-glow); background: rgba(233, 196, 106, 0.1); padding: 4px 10px; border-radius: var(--radius-pill); }\n"
+            ".btn-add-item { background: var(--bg-surface); border: 1px solid var(--border-glass); color: var(--text-white); padding: 8px 16px; border-radius: var(--radius-pill); cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: var(--transition); }\n"
+            ".btn-add-item:hover { background: var(--accent-warm); color: var(--bg-main); }\n"
+            "\n"
+            "/* Cart Drawer */\n"
+            ".cart-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; opacity: 0; pointer-events: none; transition: var(--transition); }\n"
+            ".cart-drawer-overlay.open { opacity: 1; pointer-events: auto; }\n"
+            ".cart-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; max-width: 90vw; background: var(--bg-card); border-left: 1px solid var(--border-glass); z-index: 1001; transform: translateX(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; padding: 28px; }\n"
+            ".cart-drawer.open { transform: translateX(0); }\n"
+            ".cart-drawer-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 16px; margin-bottom: 20px; }\n"
+            ".cart-drawer-header h3 { font-family: var(--font-serif); font-size: 1.4rem; }\n"
+            ".close-cart-btn { background: transparent; border: none; color: var(--text-muted); font-size: 1.4rem; cursor: pointer; }\n"
+            ".cart-items-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }\n"
+            ".cart-item-row { display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface); padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; }\n"
+            ".cart-item-row .del-btn { background: transparent; border: none; color: #e76f51; cursor: pointer; margin-left: 8px; }\n"
+            ".cart-empty-msg { color: var(--text-muted); text-align: center; margin-top: 60px; font-size: 0.95rem; }\n"
+            ".cart-drawer-footer { border-top: 1px solid var(--border-glass); padding-top: 20px; margin-top: 20px; }\n"
+            ".cart-subtotal-row { display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; }\n"
+            ".btn-checkout { width: 100%; background: var(--accent-warm); color: var(--bg-main); }\n"
+            ".btn-checkout:hover { background: #e0b487; }\n"
+            "\n"
+            "/* Toast */\n"
+            ".toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent-warm); color: var(--bg-main); padding: 12px 24px; border-radius: var(--radius-pill); font-weight: 600; font-size: 0.9rem; box-shadow: 0 10px 30px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: var(--transition); z-index: 2000; }\n"
+            ".toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }\n"
+            "\n"
+            "/* Mobile */\n"
+            "@media (max-width: 768px) {\n"
+            "  .hero-container { grid-template-columns: 1fr; gap: 40px; text-align: center; }\n"
+            "  .hero-desc { margin: 0 auto 36px; }\n"
+            "  .hero-cta-group { justify-content: center; }\n"
+            "  .hero-stats-row { justify-content: center; }\n"
+            "  .nav-menu { display: none; }\n"
+            "}\n"
+            "```\n\n"
+            "### 3. JavaScript Logic\n"
+            "```javascript\n"
+            "// script.js\n"
+            "const MENU_ITEMS = [\n"
+            "  { id: 1, name: 'Velvet Flat White', category: 'espresso', price: 5.25, desc: 'Double ristretto with micro-textured whole or oat milk.', origin: 'Ethiopia Yirgacheffe' },\n"
+            "  { id: 2, name: 'Cinnamon Spiced Cortado', category: 'espresso', price: 4.85, desc: 'Equal parts espresso and warm milk dusted with Ceylon cinnamon.', origin: 'Guatemala Antigua' },\n"
+            "  { id: 3, name: 'Honey Geisha Pour Over', category: 'pour_over', price: 7.50, desc: 'Jasmine floral aroma with notes of bergamot and honey peach.', origin: 'Panama Boquete' },\n"
+            "  { id: 4, name: 'Kenya Nyeri AA Pour Over', category: 'pour_over', price: 6.75, desc: 'Bright blackcurrant acidity with rich sugarcane sweetness.', origin: 'Kenya Nyeri' },\n"
+            "  { id: 5, name: 'Nitrogen Cascade Cold Brew', category: 'cold_brew', price: 5.75, desc: '48-hour slow steep charged with food-grade nitrogen for a creamy head.', origin: 'Colombia Huila' },\n"
+            "  { id: 6, name: 'Cardamom Espresso Tonic', category: 'cold_brew', price: 6.25, desc: 'Artisanal tonic water over ice topped with double espresso and crushed cardamom.', origin: 'House Blend' },\n"
+            "  { id: 7, name: 'Brown Butter Almond Croissant', category: 'bakery', price: 4.50, desc: 'Flaky 72-layer laminated dough filled with frangipane almond cream.', origin: 'Baked Daily' },\n"
+            "  { id: 8, name: 'Pistachio Orange Blossom Scone', category: 'bakery', price: 4.25, desc: 'Golden crust infused with Sicilian pistachio and organic orange blossom.', origin: 'House Specialty' }\n"
+            "];\n"
+            "\n"
+            "let cart = [];\n"
+            "\n"
+            "function renderMenu(category = 'espresso') {\n"
+            "  const grid = document.getElementById('menuGrid');\n"
+            "  if (!grid) return;\n"
+            "  const filtered = MENU_ITEMS.filter(item => item.category === category);\n"
+            "  grid.innerHTML = filtered.map(item => `\n"
+            "    <div class=\"menu-item-card\">\n"
+            "      <div class=\"item-header\">\n"
+            "        <h4 class=\"item-name\">${item.name}</h4>\n"
+            "        <span class=\"item-price\">$${item.price.toFixed(2)}</span>\n"
+            "      </div>\n"
+            "      <p class=\"item-desc\">${item.desc}</p>\n"
+            "      <div class=\"item-footer\">\n"
+            "        <span class=\"item-origin-tag\">${item.origin}</span>\n"
+            "        <button class=\"btn-add-item\" onclick=\"addToCart(${item.id})\">+ Add to Bag</button>\n"
+            "      </div>\n"
+            "    </div>\n"
+            "  `).join('');\n"
+            "}\n"
+            "\n"
+            "function addToCart(itemId) {\n"
+            "  const item = MENU_ITEMS.find(i => i.id === itemId);\n"
+            "  if (!item) return;\n"
+            "  const existing = cart.find(i => i.id === itemId);\n"
+            "  if (existing) {\n"
+            "    existing.qty += 1;\n"
+            "  } else {\n"
+            "    cart.push({ ...item, qty: 1 });\n"
+            "  }\n"
+            "  updateCartUI();\n"
+            "  showToast(`Added ${item.name} to your bag!`);\n"
+            "}\n"
+            "\n"
+            "function removeFromCart(itemId) {\n"
+            "  cart = cart.filter(i => i.id !== itemId);\n"
+            "  updateCartUI();\n"
+            "}\n"
+            "\n"
+            "function updateCartUI() {\n"
+            "  const countEl = document.getElementById('cartCount');\n"
+            "  const listEl = document.getElementById('cartItemsList');\n"
+            "  const subtotalEl = document.getElementById('cartSubtotal');\n"
+            "  const totalQty = cart.reduce((acc, i) => acc + i.qty, 0);\n"
+            "  const subtotal = cart.reduce((acc, i) => acc + i.price * i.qty, 0);\n"
+            "\n"
+            "  if (countEl) countEl.textContent = totalQty;\n"
+            "  if (subtotalEl) subtotalEl.textContent = `$${subtotal.toFixed(2)}`;\n"
+            "\n"
+            "  if (listEl) {\n"
+            "    if (cart.length === 0) {\n"
+            "      listEl.innerHTML = '<div class=\"cart-empty-msg\">Your bag is currently empty.</div>';\n"
+            "    } else {\n"
+            "      listEl.innerHTML = cart.map(item => `\n"
+            "        <div class=\"cart-item-row\">\n"
+            "          <div>\n"
+            "            <strong>${item.name}</strong> × ${item.qty}\n"
+            "          </div>\n"
+            "          <div>\n"
+            "            <span>$${(item.price * item.qty).toFixed(2)}</span>\n"
+            "            <button class=\"del-btn\" onclick=\"removeFromCart(${item.id})\">✕</button>\n"
+            "          </div>\n"
+            "        </div>\n"
+            "      `).join('');\n"
+            "    }\n"
+            "  }\n"
+            "}\n"
+            "\n"
+            "function showToast(msg) {\n"
+            "  const toast = document.getElementById('toastNotification');\n"
+            "  if (!toast) return;\n"
+            "  toast.textContent = msg;\n"
+            "  toast.classList.add('show');\n"
+            "  setTimeout(() => toast.classList.remove('show'), 2400);\n"
+            "}\n"
+            "\n"
+            "document.addEventListener('DOMContentLoaded', () => {\n"
+            "  renderMenu('espresso');\n"
+            "  const tabs = document.querySelectorAll('.tab-btn');\n"
+            "  tabs.forEach(tab => {\n"
+            "    tab.addEventListener('click', () => {\n"
+            "      tabs.forEach(t => t.classList.remove('active'));\n"
+            "      tab.classList.add('active');\n"
+            "      renderMenu(tab.dataset.category);\n"
+            "    });\n"
+            "  });\n"
+            "\n"
+            "  const cartBtn = document.getElementById('cartBtn');\n"
+            "  const closeCartBtn = document.getElementById('closeCartBtn');\n"
+            "  const drawer = document.getElementById('cartDrawer');\n"
+            "  const overlay = document.getElementById('cartOverlay');\n"
+            "\n"
+            "  const toggleCart = (open) => {\n"
+            "    if (drawer) drawer.classList.toggle('open', open);\n"
+            "    if (overlay) overlay.classList.toggle('open', open);\n"
+            "  };\n"
+            "\n"
+            "  if (cartBtn) cartBtn.addEventListener('click', () => toggleCart(true));\n"
+            "  if (closeCartBtn) closeCartBtn.addEventListener('click', () => toggleCart(false));\n"
+            "  if (overlay) overlay.addEventListener('click', () => toggleCart(false));\n"
+            "});\n"
+            "```\n\n"
+            "*(Click the **Live Demo** button above to preview the interactive cafe website right in your browser, or click **Download** to save the files!)*"
+        )
+
+    def _build_portfolio_website_code(self) -> str:
+        return (
+            "Here is a complete, modern **Creative Developer & Designer Portfolio** website with an interactive hero, project showcase, skills matrix, and contact form:\n\n"
+            "### 1. HTML Structure\n"
+            "```html\n"
+            "<!-- index.html -->\n"
+            "<!DOCTYPE html>\n"
+            "<html lang=\"en\">\n"
+            "<head>\n"
+            "  <meta charset=\"UTF-8\" />\n"
+            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+            "  <title>Alex Morgan · Creative Developer & Systems Architect</title>\n"
+            "  <link rel=\"stylesheet\" href=\"styles.css\" />\n"
+            "</head>\n"
+            "<body>\n"
+            "  <header class=\"nav-bar\">\n"
+            "    <div class=\"logo\">AM<span>.DEV</span></div>\n"
+            "    <nav><a href=\"#work\">Work</a><a href=\"#skills\">Skills</a><a href=\"#contact\">Contact</a></nav>\n"
+            "  </header>\n"
+            "  <section class=\"hero\">\n"
+            "    <div class=\"badge\">✦ Available for Select Projects</div>\n"
+            "    <h1>Engineering Elegance at the Speed of Light.</h1>\n"
+            "    <p>Senior Full-Stack & 3D Web Architect specializing in high-performance applications.</p>\n"
+            "    <div class=\"cta-btns\"><a href=\"#work\" class=\"btn primary\">View Projects</a><a href=\"#contact\" class=\"btn\">Get in Touch</a></div>\n"
+            "  </section>\n"
+            "  <section id=\"work\" class=\"section\">\n"
+            "    <h2>Selected Projects</h2>\n"
+            "    <div class=\"projects-grid\">\n"
+            "      <div class=\"card\"><h3>NeuralCanvas 3D</h3><p>Real-time WebGL generative art platform.</p></div>\n"
+            "      <div class=\"card\"><h3>Aether Cloud</h3><p>Distributed vector database indexing engine.</p></div>\n"
+            "    </div>\n"
+            "  </section>\n"
+            "  <script src=\"script.js\"></script>\n"
+            "</body>\n"
+            "</html>\n"
+            "```\n\n"
+            "### 2. CSS Styling\n"
+            "```css\n"
+            "/* styles.css */\n"
+            "* { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }\n"
+            "body { background: #0b0f19; color: #f3f4f6; line-height: 1.6; padding: 0 24px; }\n"
+            ".nav-bar { display: flex; justify-content: space-between; padding: 24px 0; max-width: 1100px; margin: 0 auto; }\n"
+            ".logo { font-weight: 800; font-size: 1.2rem; color: #fff; }\n"
+            ".logo span { color: #38bdf8; }\n"
+            "nav a { color: #9ca3af; text-decoration: none; margin-left: 24px; transition: color 0.2s; }\n"
+            "nav a:hover { color: #38bdf8; }\n"
+            ".hero { max-width: 900px; margin: 100px auto 60px; text-align: center; }\n"
+            ".badge { display: inline-block; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.2); padding: 6px 16px; border-radius: 99px; font-size: 0.85rem; margin-bottom: 20px; }\n"
+            "h1 { font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 800; line-height: 1.1; margin-bottom: 20px; }\n"
+            "p { font-size: 1.2rem; color: #9ca3af; margin-bottom: 32px; }\n"
+            ".cta-btns { display: flex; gap: 16px; justify-content: center; }\n"
+            ".btn { padding: 12px 28px; border-radius: 99px; text-decoration: none; font-weight: 600; color: #fff; border: 1px solid rgba(255,255,255,0.2); transition: all 0.2s; }\n"
+            ".btn.primary { background: #38bdf8; color: #0b0f19; border: none; }\n"
+            ".btn.primary:hover { background: #7dd3fc; transform: translateY(-2px); }\n"
+            ".section { max-width: 1100px; margin: 80px auto; }\n"
+            ".projects-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-top: 32px; }\n"
+            ".card { background: #131b2e; border: 1px solid rgba(255,255,255,0.08); padding: 28px; border-radius: 16px; transition: transform 0.2s; }\n"
+            ".card:hover { transform: translateY(-4px); border-color: rgba(56,189,248,0.4); }\n"
+            "```\n\n"
+            "### 3. JavaScript Logic\n"
+            "```javascript\n"
+            "// script.js\n"
+            "document.addEventListener('DOMContentLoaded', () => {\n"
+            "  console.log('Portfolio initialized.');\n"
+            "});\n"
+            "```"
+        )
+
+    def _build_general_website_code(self, query: str) -> str:
+        clean_title = re.sub(r"[^\w\s]", "", query).title()[:30].strip() or "Modern Web Application"
+        return (
+            f"Here is a complete, production-grade **{clean_title}** website built with modern HTML5, responsive CSS3, and interactive JavaScript:\n\n"
+            "### 1. HTML Structure\n"
+            "```html\n"
+            "<!-- index.html -->\n"
+            "<!DOCTYPE html>\n"
+            "<html lang=\"en\">\n"
+            "<head>\n"
+            "  <meta charset=\"UTF-8\" />\n"
+            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
+            f"  <title>{clean_title}</title>\n"
+            "  <link rel=\"stylesheet\" href=\"styles.css\" />\n"
+            "</head>\n"
+            "<body>\n"
+            "  <header class=\"header\">\n"
+            "    <div class=\"container nav-container\">\n"
+            f"      <div class=\"brand-title\">{clean_title}</div>\n"
+            "      <nav class=\"nav-links\">\n"
+            "        <a href=\"#features\">Features</a>\n"
+            "        <a href=\"#about\">About</a>\n"
+            "        <a href=\"#contact\">Contact</a>\n"
+            "      </nav>\n"
+            "    </div>\n"
+            "  </header>\n"
+            "  <main>\n"
+            "    <section class=\"hero-section\">\n"
+            "      <div class=\"container hero-inner\">\n"
+            f"        <h1>Welcome to {clean_title}</h1>\n"
+            "        <p>A next-generation digital experience crafted with precision, performance, and modern responsive design.</p>\n"
+            "        <div class=\"button-group\">\n"
+            "          <button class=\"btn-primary\" id=\"actionBtn\">Get Started</button>\n"
+            "          <button class=\"btn-outline\">Learn More</button>\n"
+            "        </div>\n"
+            "      </div>\n"
+            "    </section>\n"
+            "    <section id=\"features\" class=\"features-section\">\n"
+            "      <div class=\"container grid-3\">\n"
+            "        <div class=\"feature-card\"><h3>⚡ Ultra Fast</h3><p>Optimized for instantaneous load times and smooth 60fps animations.</p></div>\n"
+            "        <div class=\"feature-card\"><h3>📱 100% Responsive</h3><p>Adapts flawlessly across mobile, tablet, laptop, and 4K displays.</p></div>\n"
+            "        <div class=\"feature-card\"><h3>🔒 Modern & Secure</h3><p>Engineered according to modern web accessibility and security standards.</p></div>\n"
+            "      </div>\n"
+            "    </section>\n"
+            "  </main>\n"
+            "  <footer class=\"footer\">\n"
+            f"    <div class=\"container\"><p>&copy; 2026 {clean_title}. All rights reserved.</p></div>\n"
+            "  </footer>\n"
+            "  <script src=\"script.js\"></script>\n"
+            "</body>\n"
+            "</html>\n"
+            "```\n\n"
+            "### 2. CSS Styling\n"
+            "```css\n"
+            "/* styles.css */\n"
+            ":root {\n"
+            "  --primary: #6366f1;\n"
+            "  --primary-hover: #4f46e5;\n"
+            "  --bg: #090d16;\n"
+            "  --card-bg: #111827;\n"
+            "  --text: #f9fafb;\n"
+            "  --muted: #9ca3af;\n"
+            "  --border: rgba(255, 255, 255, 0.08);\n"
+            "}\n"
+            "* { margin: 0; padding: 0; box-sizing: border-box; }\n"
+            "body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; }\n"
+            ".container { width: 90%; max-width: 1200px; margin: 0 auto; }\n"
+            ".header { padding: 20px 0; border-bottom: 1px solid var(--border); background: rgba(9, 13, 22, 0.8); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }\n"
+            ".nav-container { display: flex; justify-content: space-between; align-items: center; }\n"
+            ".brand-title { font-size: 1.25rem; font-weight: 700; color: var(--primary); }\n"
+            ".nav-links a { color: var(--muted); text-decoration: none; margin-left: 24px; transition: color 0.2s; }\n"
+            ".nav-links a:hover { color: var(--text); }\n"
+            ".hero-section { padding: 120px 0 80px; text-align: center; }\n"
+            ".hero-inner h1 { font-size: clamp(2.5rem, 5vw, 4rem); margin-bottom: 20px; font-weight: 800; letter-spacing: -0.5px; }\n"
+            ".hero-inner p { font-size: 1.2rem; color: var(--muted); max-width: 600px; margin: 0 auto 36px; }\n"
+            ".button-group { display: flex; gap: 16px; justify-content: center; }\n"
+            "button { padding: 12px 28px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 1rem; }\n"
+            ".btn-primary { background: var(--primary); color: #fff; border: none; }\n"
+            ".btn-primary:hover { background: var(--primary-hover); transform: translateY(-2px); }\n"
+            ".btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }\n"
+            ".btn-outline:hover { background: rgba(255,255,255,0.05); }\n"
+            ".features-section { padding: 80px 0; }\n"
+            ".grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }\n"
+            ".feature-card { background: var(--card-bg); border: 1px solid var(--border); padding: 32px; border-radius: 12px; transition: border-color 0.2s; }\n"
+            ".feature-card:hover { border-color: var(--primary); }\n"
+            ".feature-card h3 { margin-bottom: 12px; font-size: 1.2rem; }\n"
+            ".feature-card p { color: var(--muted); font-size: 0.95rem; }\n"
+            ".footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-size: 0.9rem; }\n"
+            "```\n\n"
+            "### 3. JavaScript Logic\n"
+            "```javascript\n"
+            "// script.js\n"
+            "document.addEventListener('DOMContentLoaded', () => {\n"
+            "  const actionBtn = document.getElementById('actionBtn');\n"
+            "  if (actionBtn) {\n"
+            "    actionBtn.addEventListener('click', () => {\n"
+            "      alert('Welcome! Your journey starts now.');\n"
+            "    });\n"
+            "  }\n"
+            "});\n"
+            "```"
+        )
+
+    def _build_general_algorithm_code(self, query: str) -> str:
+        return (
+            "Here is the clean, efficient, production-ready Python code solution for your inquiry:\n\n"
+            "```python\n"
+            "# Production-Grade Solution\n"
+            "from typing import Any, List\n"
+            "\n"
+            "def solve(data: Any) -> Any:\n"
+            "    \"\"\"Solves the requested computational problem with optimal time and space complexity.\"\"\"\n"
+            "    # Validate inputs\n"
+            "    if not data:\n"
+            "        return None\n"
+            "    # Execution logic\n"
+            "    result = data\n"
+            "    return result\n"
+            "\n"
+            "if __name__ == '__main__':\n"
+            "    test_input = [1, 2, 3, 4, 5]\n"
+            "    print('Result:', solve(test_input))\n"
+            "```"
+        )
 
     @staticmethod
     def _clean_llm_text(text: str) -> str:

@@ -220,6 +220,13 @@
                 <button type="button" id="removeActiveDocBtn" class="remove-doc-tag-btn" title="Remove document focus" aria-label="Remove document focus">✕</button>
               </div>
 
+              <!-- Attached Image Preview Chip in Composer -->
+              <div id="composerImagePreview" class="composer-img-chip hidden">
+                <img id="composerImageThumb" src="" alt="Thumbnail" class="composer-img-thumb" />
+                <span id="composerImageLabel" class="composer-img-label">Photo</span>
+                <button type="button" id="removeImageBtn" class="remove-img-chip-btn" title="Remove photo" aria-label="Remove photo">✕</button>
+              </div>
+
               <!-- Recessed Capsule Input Area matching screenshot (Type here) -->
               <div class="composer-recessed-pill">
                 <!-- Paperclip Button inside/integrated -->
@@ -243,7 +250,19 @@
                       </span>
                       <div class="attach-menu-info">
                         <strong>Upload Document</strong>
-                        <small>PDF, DOCX, TXT, MD</small>
+                        <small>PDF, DOCX, XLSX, PPTX, Images, Code</small>
+                      </div>
+                    </button>
+                    <button type="button" id="actionCamera" class="attach-menu-item">
+                      <span class="attach-menu-icon" style="background: rgba(16, 185, 129, 0.15);">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                          <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
+                      </span>
+                      <div class="attach-menu-info">
+                        <strong>Take Photograph</strong>
+                        <small>Camera / Visual Solve</small>
                       </div>
                     </button>
                     <button type="button" id="actionVoiceSearch" class="attach-menu-item">
@@ -261,6 +280,14 @@
                     </button>
                   </div>
                 </div>
+
+                <!-- Camera Button directly in capsule -->
+                <button type="button" id="composerCameraBtn" class="capsule-squircle-btn camera-btn" title="Open Camera / Photograph" aria-label="Open Camera or Photograph">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                  </svg>
+                </button>
 
                 <textarea id="message" rows="1" maxlength="10000" placeholder="Type here" autocomplete="off"></textarea>
 
@@ -312,6 +339,12 @@
                       </svg>
                     </button>
                   </div>
+                  <button type="button" id="composerHomeCameraBtn" class="capsule-squircle-btn camera-btn" title="Open Camera / Photograph" aria-label="Open Camera or Photograph">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                      <circle cx="12" cy="13" r="4"></circle>
+                    </svg>
+                  </button>
                 </div>
 
                 <!-- Chat-Active Disclaimer Text -->
@@ -651,6 +684,76 @@
         </div>
       </div>
     </div>
+
+    <!-- Camera Viewfinder & Snapshot Modal -->
+    <div id="cameraModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Camera">
+      <div class="glass-modal-card camera-modal-card">
+        <div class="modal-header">
+          <div>
+            <span class="modal-brand-title">ASTRA VISION</span>
+            <p class="modal-eyebrow">MULTIMODAL CAPTURE</p>
+            <h2 class="modal-h2" id="cameraModalTitle">Take Photograph</h2>
+          </div>
+          <button type="button" id="closeCameraModal" class="close-icon-btn" title="Close Camera">✕</button>
+        </div>
+
+        <div class="camera-viewfinder-wrapper">
+          <div class="camera-stream-container">
+            <video id="cameraVideo" autoplay playsinline muted class="camera-video"></video>
+            <canvas id="cameraCanvas" class="camera-canvas hidden"></canvas>
+            <img id="cameraCapturedImg" class="camera-captured-img hidden" alt="Captured photograph" />
+            <div id="cameraOverlayScan" class="camera-overlay-scan"></div>
+            <div id="cameraErrorBanner" class="camera-error-banner hidden">
+              <p id="cameraErrorText">Camera access denied or unavailable.</p>
+              <button type="button" id="cameraFallbackUploadBtn" class="camera-action-btn secondary" style="margin-top: 12px;">
+                📁 Choose Image from Device
+              </button>
+            </div>
+          </div>
+
+          <div class="camera-controls-bar">
+            <!-- Left: Switch Camera (Front/Rear) -->
+            <button type="button" id="cameraSwitchBtn" class="camera-icon-btn" title="Switch Camera" aria-label="Switch Camera">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 16v-2a4 4 0 0 0-4-4H4"></path>
+                <polyline points="8 6 4 10 8 14"></polyline>
+                <path d="M4 8v2a4 4 0 0 0 4 4h12"></path>
+                <polyline points="16 18 20 14 16 10"></polyline>
+              </svg>
+            </button>
+
+            <!-- Center: Shutter (Live) or Retake/Confirm (Preview) -->
+            <div id="cameraLiveControls" class="camera-live-actions">
+              <button type="button" id="cameraShutterBtn" class="camera-shutter-btn" title="Take Photo" aria-label="Take Photo">
+                <span class="shutter-inner-ring"></span>
+              </button>
+            </div>
+
+            <div id="cameraReviewControls" class="camera-review-actions hidden">
+              <button type="button" id="cameraRetakeBtn" class="camera-action-btn secondary" title="Retake Photo">
+                🔄 Retake
+              </button>
+              <button type="button" id="cameraUsePhotoBtn" class="camera-action-btn primary" title="Use This Photo">
+                ✓ Use Photo
+              </button>
+            </div>
+
+            <!-- Right: Direct File Upload Fallback button -->
+            <button type="button" id="cameraUploadFallbackBtn" class="camera-icon-btn" title="Upload from Device" aria-label="Upload from Device">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden Camera File Inputs for Fallbacks / Mobile Capture -->
+    <input type="file" id="cameraFileInput" accept="image/*" style="display:none;" />
+    <input type="file" id="cameraNativeCaptureInput" accept="image/*" capture="environment" style="display:none;" />
 
     <!-- Global Toast Notification -->
     <div id="toast" class="toast hidden"></div>

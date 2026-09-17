@@ -22,6 +22,8 @@ from qdrant_client import QdrantClient, models
 
 from config import settings
 from math_solver import MathSolver
+from vision_engine import vision_engine, load_image_as_base64
+from image_editor import image_editor, is_image_edit_request
 
 logger = logging.getLogger("rag")
 COLLECTION = "document_chunks_v2"
@@ -284,7 +286,7 @@ class ProductionRAGService:
         self.collection_ready = True
 
     async def ingest_async(self, document_id: str, owner_id: str, filename: str, content: bytes) -> dict:
-        text_by_page = self._extract_text(filename, content)
+        text_by_page = await self._extract_text_async(filename, content)
         chunks: list[dict] = []
         for page_num, page_text in text_by_page:
             for index, chunk_text in enumerate(self._semantic_chunks(page_text)):
@@ -347,6 +349,8 @@ class ProductionRAGService:
         incognito: bool = False,
         detailed: bool = False,
         mode: str = "general",
+        image_data: str | None = None,
+        image_url: str | None = None,
     ) -> dict:
         total_start = time.perf_counter()
 
@@ -356,10 +360,115 @@ class ProductionRAGService:
             for turn in history[-8:]:
                 r = turn.get("role")
                 t = turn.get("text") or turn.get("content") or ""
-                if r in ("user", "assistant") and t.strip():
-                    clean_history.append({"role": r, "content": t.strip()})
+                img = turn.get("image_url") or turn.get("image_data")
+                if r in ("user", "assistant") and (t.strip() or img):
+                    entry = {"role": r, "content": t.strip()}
+                    if img:
+                        entry["image_url"] = img
+                    clean_history.append(entry)
 
-        # Phase 0: Instant Local Mathematics / Integration / Calculus Solver (skip if asking for code)
+        # Phase 0.0: Conversational Multimodal Image Resolution
+        active_image = image_data or image_url
+        if not active_image and history:
+            # Check if current user query refers to a previously uploaded image
+            lower_q = query.lower()
+            referent_terms = [
+                "it", "this", "that", "image", "picture", "photo", "tree", "person",
+                "object", "remove", "erase", "delete", "inpaint", "solve", "what is",
+                "what's this", "error", "screenshot", "diagram", "chart", "figure"
+            ]
+            has_referent = any(w in lower_q for w in referent_terms) or len(lower_q.split()) <= 4
+            if has_referent:
+                for turn in reversed(history):
+                    prev_img = turn.get("image_url") or turn.get("image_data")
+                    if prev_img:
+                        active_image = prev_img
+                        break
+
+        # Phase 0.1: Multimodal Vision & Image Editing Pipeline
+        if active_image:
+            # A) Image Editing / Object Removal Intent Detection
+            is_edit, target_object = is_image_edit_request(query)
+            if is_edit:
+                try:
+                    edit_res = await image_editor.remove_object(
+                        image_input=active_image,
+                        target_object=target_object or "object",
+                        user_id=owner_id,
+                        history=clean_history,
+                    )
+                    total_ms = max(5.0, round((time.perf_counter() - total_start) * 1000, 1))
+                    reply = (
+                        f"![Edited Image]({edit_res['edited_image_url']})\n\n"
+                        f"**Image Editing Complete**\n"
+                        f"- **Requested Target**: {edit_res['target_object']}\n"
+                        f"- **Detection**: {edit_res.get('found_description', 'Target region localized')}\n"
+                        f"- **Process**: The requested object was cleanly removed and the background was reconstructed using content-aware inpainting.\n\n"
+                        f"*(Original image preserved in conversation history)*"
+                    )
+                    return {
+                        "answer": reply,
+                        "is_chemistry": False,
+                        "sources": [
+                            {
+                                "id": "EDIT",
+                                "label": "🖼️ Astra Image Editing Studio",
+                                "type": "ai",
+                                "snippet": f"Object Removal: {edit_res['target_object']}",
+                            }
+                        ],
+                        "model_used": "Astra Inpainting Studio",
+                        "has_context": True,
+                        "rewritten_query": query,
+                        "image_url": edit_res["edited_image_url"],
+                        "timings_ms": {
+                            "rewrite": 1.0,
+                            "retrieval": 0.0,
+                            "rerank": 0.0,
+                            "generation": total_ms,
+                            "total": total_ms,
+                        },
+                    }
+                except Exception as e_edit:
+                    logger.exception("image_editing_failed error=%s", e_edit)
+
+            # B) Multimodal Visual Perception, Math Solving, Plant ID, & Screenshot Diagnostics
+            try:
+                vis_res = await vision_engine.analyze_image(
+                    image_input=active_image,
+                    query=query,
+                    history=clean_history,
+                )
+                total_ms = max(5.0, round((time.perf_counter() - total_start) * 1000, 1))
+                cleaned_answer = clean_agent_response(vis_res["answer"])
+                is_chem = is_chemistry_query(query, cleaned_answer)
+                return {
+                    "answer": cleaned_answer,
+                    "is_chemistry": is_chem,
+                    "sources": [
+                        {
+                            "id": "VISION",
+                            "label": f"👁️ Astra Multimodal Vision Engine ({vis_res['model']})",
+                            "type": "ai",
+                            "snippet": "High-Precision Pixel Analysis, OCR & Scientific Reasoning",
+                        }
+                    ],
+                    "model_used": vis_res["model"],
+                    "has_context": True,
+                    "rewritten_query": query,
+                    "image_url": active_image if (isinstance(active_image, str) and active_image.startswith("/api/images/")) else None,
+                    "timings_ms": {
+                        "rewrite": 1.0,
+                        "retrieval": 0.0,
+                        "rerank": 0.0,
+                        "generation": total_ms,
+                        "total": total_ms,
+                    },
+                }
+            except Exception as e_vis:
+                logger.exception("multimodal_vision_failed error=%s", e_vis)
+
+        # Phase 0.2: Instant Local Mathematics / Integration / Calculus Solver (skip if asking for code)
         is_code_request = (mode == "code") or any(k in query.lower() for k in ["code", "script", "program", "python", "solve using code", "write a function", "website", "html"])
         math_sol = None if is_code_request else (MathSolver.solve(query, mode=mode, detailed=detailed) or self._solve_math_locally(query))
         if math_sol:
@@ -1921,95 +2030,72 @@ print("Procedural 3D model exported successfully to model.glb")"""
             "  4. Handle edge cases, validate inputs, include all required imports, libraries, and types.\n"
             "  5. Deliver clean, elegant, optimized code with brief, illuminating explanations.\n\n"
             "================================================================================\n"
-            "PREMIUM 3D WEBSITE DESIGN INTELLIGENCE & SENIOR CREATIVE DIRECTOR PROTOCOL:\n"
             "================================================================================\n"
-            "When a user asks you to create, design, or build a website, web app, landing page, dashboard, portfolio, e-commerce store, restaurant website, college website, SaaS product, or any UI/web project with HTML, CSS, and JavaScript, you operate as an elite multidisciplinary team: SENIOR PRODUCT DESIGNER + PRINCIPAL FRONTEND ENGINEER + CREATIVE DIRECTOR (Awwwards / FWA winning caliber).\n\n"
-            "1. MANDATORY 3D WEBGL / THREE.JS HERO EXPERIENCE (AWWWARDS 'KONK OUT' BENCHMARK):\n"
-            "   - EVERY website, landing page, e-commerce store, or digital showcase you build MUST feature a breathtaking, interactive 3D WebGL hero powered by Three.js (matching the monumental 'KONK OUT' / Studio Jinto reference design).\n"
-            "   - RUNTIME ENVIRONMENT NOTE: Three.js (r128), OrbitControls, and GSAP (3.12.5) are PRE-INJECTED into the preview runtime. In // script.js, `window.THREE` and `window.gsap` are immediately available!\n"
-            "   - HERO HTML ARCHITECTURE:\n"
-            "     * The hero section must contain `<canvas id=\"webgl-canvas\"></canvas>` covering the hero background (`position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: auto;`).\n"
-            "     * Hero content overlay (`position: relative; z-index: 2; pointer-events: none;`) framing the 3D scene with Monumental Split Brutalist Typography:\n"
-            "       - Top-Left: First giant hero word (e.g. 'KONK', 'AURA', 'LUMEN', 'PRISM', 'VESSEL', or brand name) in `font-size: clamp(4.5rem, 14vw, 13rem); font-weight: 800; line-height: 0.85; letter-spacing: -0.04em; color: #f2eee3;`.\n"
-            "       - Bottom-Right: Second giant hero word (e.g. 'OUT', 'STUDIO', 'CRAFT', 'EDITION', 'LABS') in the same monumental scale.\n"
-            "       - Flanking columns: Brand pill badge `( BRAND )`, sub-category badge `STUDIO STOREFRONT`, micro-copy manifesto, and feature list.\n"
-            "       - Dual floating pill buttons (`pointer-events: auto;`): Solid ivory/bone 'SHOP NOW' or primary CTA + frosted glass outline 'EXPLORE 3D' or 'CUSTOMIZE'.\n"
-            "   - COMPLETE THREE.JS IMPLEMENTATION BLUEPRINT (In // script.js):\n"
-            "     * Canvas & Renderer Setup:\n"
-            "       ```javascript\n"
-            "       const canvas = document.getElementById('webgl-canvas');\n"
-            "       const scene = new THREE.Scene();\n"
-            "       const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);\n"
-            "       camera.position.set(0, 0, 7);\n"
-            "       const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });\n"
-            "       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));\n"
-            "       renderer.setSize(window.innerWidth, window.innerHeight);\n"
-            "       renderer.toneMapping = THREE.ACESFilmicToneMapping;\n"
-            "       renderer.toneMappingExposure = 1.2;\n"
-            "       ```\n"
-            "     * High-Fidelity Composite 3D Product Geometry (`THREE.Group`):\n"
-            "       Build a stunning, realistic 3D object tailored to the website's theme using composite Three.js geometries:\n"
-            "       - Luxury Vessel / Bottle (Ceramics, Fragrance, Home, Retail): Cylinder body (`CylinderGeometry(1.2, 1.4, 2.2, 64)`) with smooth beveled caps, contrasting glossy neck collar, and sculptural cone/stopper cap (`ConeGeometry(1.15, 1.1, 48)` inverted).\n"
-            "       - Tech / AI / SaaS: Beveled hyper-cube, glass octahedron/icosahedron, glowing inner energy core, with concentric metallic orbital rings (`TorusGeometry`).\n"
-            "       - Fashion / Design: Sculptural chair, timepiece, or architectural prism.\n"
-            "       - Materials: Use `THREE.MeshPhysicalMaterial` with realistic physical properties:\n"
-            "         `const bodyMat = new THREE.MeshPhysicalMaterial({ color: 0xeeece5, roughness: 0.55, metalness: 0.08, clearcoat: 0.25, clearcoatRoughness: 0.3 });`\n"
-            "         `const accentMat = new THREE.MeshPhysicalMaterial({ color: 0x14281d, roughness: 0.18, metalness: 0.45, clearcoat: 0.9 });`\n"
-            "       - Set dynamic initial tilt: `productGroup.rotation.set(0.35, -0.6, 0.2);`\n"
-            "     * 3-Point Studio Lighting Setup:\n"
-            "       - Warm Key Light: `const keyLight = new THREE.DirectionalLight(0xfffaed, 2.4); keyLight.position.set(5, 8, 5); scene.add(keyLight);`\n"
-            "       - Cool Fill Light: `const fillLight = new THREE.DirectionalLight(0x8eb4e6, 1.2); fillLight.position.set(-6, -2, -4); scene.add(fillLight);`\n"
-            "       - Edge Rim Light: `const rimLight = new THREE.DirectionalLight(0xffffff, 3.2); rimLight.position.set(0, 6, -6); scene.add(rimLight);` (catches sharp edge specular highlights!)\n"
-            "       - Ambient Light: `const ambLight = new THREE.AmbientLight(0xfff8ee, 0.8); scene.add(ambLight);`\n"
-            "     * Ambient Floating Dust / Star Particles (`THREE.Points`):\n"
-            "       Add 400 floating micro-particles (`BufferGeometry` with `Float32Array` positions, `PointsMaterial({ color: 0xd6cfc2, size: 0.035, transparent: true, opacity: 0.6 })`) gently orbiting in the background.\n"
-            "     * Rich Real-Time Interactivity:\n"
-            "       1. Smooth Levitation: `productGroup.position.y = Math.sin(elapsed * 1.4) * 0.12;`\n"
-            "       2. Mouse Parallax Tilt: Smooth lerp rotation toward cursor position.\n"
-            "       3. Full 360° Drag-to-Rotate: Track `mousedown`, `mousemove`, `mouseup` AND `touchstart`, `touchmove`, `touchend` so the user can freely spin and inspect the 3D model from all angles!\n"
-            "       4. Interactive 3D Color/Material Switcher: Provide clickable color swatches (e.g. Chalk White `#eeece5`, Forest Emerald `#14281d`, Basalt Noir `#1a1a1a`, Warm Ochre `#c27a38`) that update `bodyMat.color.setHex(...)` smoothly when clicked!\n"
-            "       5. Responsive Resize: Window resize listener updating camera aspect ratio and renderer size.\n\n"
-            "2. STRICT BAN ON GENERIC AI-SLOP DESIGN:\n"
-            "   - NEVER generate flat, boring, black-and-orange or plain generic sites.\n"
-            "   - NEVER generate generic Tailwind-style card grids, purple-to-blue linear gradients by default, or random blurry background blobs (filter: blur(80px)).\n"
-            "   - NEVER write generic AI copy ('Transform your workflow with cutting-edge AI', 'Next-Gen Solution', 'Feature 1', 'Lorem Ipsum'). Write authentic, seductive, industry-specific copy.\n"
-            "   - PRIORITIZE: Visual Drama & Depth > Flat Text | 3D Physical Immersion > 2D Cards | Curated Awwwards Polish > Generic Boilerplates.\n\n"
-            "3. DEEP ATMOSPHERIC COLOR & BACKGROUND SYSTEM:\n"
-            "   - Hero background MUST use a deep warm atmospheric radial vignette:\n"
-            "     `background: radial-gradient(ellipse at 50% 45%, #2a2622 0%, #171513 55%, #0d0c0a 100%); color: #f2eee3;`\n"
-            "   - The Three.js canvas renders with `alpha: true`, blending seamlessly over this warm radial glow.\n"
-            "   - Accents: warm bone `#f2eee3`, soft champagne `#e8dec8`, obsidian `#0d0c0a`, muted slate `rgba(255,255,255,0.4)`.\n\n"
-            "4. SUBSTANTIAL MULTI-SECTION EDITORIAL EXPERIENCE BELOW THE HERO (6 to 9 sections):\n"
-            "   Do not stop at the hero! Build a complete, comprehensive, multi-section masterpiece:\n"
-            "   - Section 1: Monumental 3D WebGL Hero (with split typography, floating 3D object, particles, dual pill CTAs).\n"
-            "   - Section 2: Interactive 3D Material & Color Customizer Studio (swatches that change 3D model color in real-time).\n"
-            "   - Section 3: Brand Philosophy & Architectural Craftsmanship Story (editorial split columns, macro photography).\n"
-            "   - Section 4: Curated Collection Showcase (interactive cards with hover micro-interactions, pricing, 'Add to Cart').\n"
-            "   - Section 5: Technical Specifications & Provenance Matrix (dimensions, sustainable materials, artisan tolerances).\n"
-            "   - Section 6: Verified Critic & Collector Reviews (editorial quotes with publication badges and star ratings).\n"
-            "   - Section 7: Interactive Slide-out Cart Drawer (with live item list, quantity counters, subtotal, and checkout CTA).\n"
-            "   - Section 8: Monumental Editorial Footer (massive brandmark watermark, newsletter input, editorial navigation).\n\n"
-            "5. WEBSITE-SPECIFIC SEMANTIC REASONING:\n"
-            "   Adapt the 3D model and editorial layout to the user's specific request:\n"
-            "   * RESTAURANT & HOSPITALITY: 3D sculptural wine bottle or decanter hero; sticky 'Reserve Table' CTA; categorized interactive menu; atmospheric cellar gallery; working reservation form.\n"
-            "   * SAAS & TECH PRODUCT: 3D interactive holographic core or futuristic hardware artifact; live interactive mockup tabs; architecture & integration cards; pricing tiers with billing toggle.\n"
-            "   * FILMMAKER / CREATIVE STUDIO: 3D anamorphic prism or vintage camera lens hero; cinematic widescreen selected works grid; camera & lens tech specs; festival laurels; project booking drawer.\n"
-            "   * E-COMMERCE & RETAIL: 3D interactive hero product with 360° inspection and color switcher; slide-out cart drawer; curated product grid; verified buyer reviews.\n"
-            "   * LUXURY BRAND & EDITORIAL: 3D sculptural monument or flacon; editorial serif & grotesque typography; artisan story; bespoke concierge appointment CTA.\n\n"
-            "6. CONTRAST-AWARE SVG ICONS & TYPOGRAPHY:\n"
-            "   - In `<head>`, always link Google Fonts: `Plus Jakarta Sans`, `Inter`, `Syne`, `Outfit`, `Playfair Display`.\n"
-            "   - Use `currentColor` for SVG strokes and fills (`stroke=\"currentColor\" fill=\"none\"`).\n"
-            "   - Ensure all touch targets are at least 44×44px.\n\n"
-            "7. MOBILE-FIRST RESPONSIVE PERFECTION:\n"
-            "   - Fully responsive across Desktop, Laptop, Tablet, and Mobile.\n"
-            "   - Working mobile hamburger menu that smoothly toggles a drawer overlay.\n"
-            "   - Set `overflow-x: hidden;` on body and root to eliminate horizontal scrolling.\n\n"
-            "8. EXACT ASTRA CODE STUDIO STRUCTURE:\n"
-            "   - Deliver the complete, production-grade project in 3 cleanly separated markdown code blocks with ZERO placeholders:\n"
-            "     1. Complete semantic HTML in a ```html code block (labeled <!-- index.html -->) including `<head>`, Google Fonts, meta tags, and full body structure.\n"
-            "     2. Complete CSS in a ```css code block (labeled /* styles.css */) with CSS variables, fluid typography, layout, animations, and responsive media queries.\n"
-            "     3. Complete JavaScript in a ```javascript code block (labeled // script.js) with the complete Three.js scene, mouse parallax, drag-to-rotate, 3D color switcher, cart drawer, and micro-interactions.\n"
-            "   - Astra automatically groups these files into an interactive code studio with an instant standalone Live Demo button!\n\n"
+            "INTENT-AWARE CODE GENERATION & SENIOR CREATIVE DIRECTOR PROTOCOL:\n"
+            "================================================================================\n"
+            "When a user asks you to create, build, or generate code, a website, 3D experience, game, simulation, or application with HTML, CSS, and JavaScript, you operate as an elite multidisciplinary team: PRINCIPAL SOFTWARE ARCHITECT + SENIOR PRODUCT DESIGNER + CREATIVE DIRECTOR.\n\n"
+            "1. INTENT & DOMAIN CLASSIFICATION (WHAT IS THE USER ASKING FOR?):\n"
+            "   Before generating code, determine the user's actual intent and domain. NEVER force a generic website template on every request!\n\n"
+            "   ● DOMAIN 1: 3D SOLAR SYSTEM & SPACE EXPERIENCES (\"Generate a solar system\", \"Make a 3D solar system\", \"Planetary simulation\"):\n"
+            "     - Build a complete, production-grade interactive Three.js Solar System simulation across HTML, CSS, and JavaScript!\n"
+            "     - MUST INCLUDE:\n"
+            "       * Central Sun: Glowing emissive sphere with PointLight radiating warmth across the system.\n"
+            "       * All 8 Planets in correct astronomical order from Sun:\n"
+            "         1. Mercury (rocky gray/cratered, small, rapid orbit)\n"
+            "         2. Venus (yellowish-white, thick atmosphere, slow retrograde spin)\n"
+            "         3. Earth (vibrant blue oceans, continents, atmospheric clouds) + orbiting Moon\n"
+            "         4. Mars (iron-oxide rust red, polar caps)\n"
+            "         5. Jupiter (massive gas giant with atmospheric storm bands & Great Red Spot)\n"
+            "         6. Saturn (golden hue + iconic double-sided planetary rings with Cassini division gap)\n"
+            "         7. Uranus (cyan/pale ice blue with faint tilt)\n"
+            "         8. Neptune (deep azure/cobalt blue gas giant)\n"
+            "       * Visually Readable Scale: Use a readable logarithmic scaling for radii and distances so all inner and outer planets are clearly visible and inspectable.\n"
+            "       * Keplerian Orbital Motion: Inner planets orbit significantly faster than outer planets according to $T^2 \\propto a^3$.\n"
+            "       * Planet Axial Rotation: Each planet smoothly rotates on its own axis.\n"
+            "       * Orbital Trajectory Paths: Visible circular or elliptical orbit lines (`THREE.LineLoop` or `RingGeometry`).\n"
+            "       * Deep Space Starfield: 600+ floating background stars (`THREE.Points`).\n"
+            "       * Full Camera Controls: OrbitControls allowing seamless rotation, panning, and mouse-wheel / pinch zooming.\n"
+            "       * Interactive Planet Focus: Clicking on any planet in 3D or clicking its name in the UI smoothly tweens camera position to orbit that specific planet closely!\n"
+            "       * Space HUD: Planet Info Card (displays selected planet name, diameter, distance from Sun, orbital period, day length, temperature, and fun facts), Simulation Speed Slider (0.5x, 1x, 5x, 10x, pause), and Toggle Orbit Lines button.\n\n"
+            "   ● DOMAIN 2: DEVELOPER / DESIGNER / CREATIVE PORTFOLIO (\"Make a portfolio\", \"Developer portfolio\"):\n"
+            "     - Build a world-class, personal portfolio website:\n"
+            "       * Interactive Hero with interactive 3D geometry or generative canvas animation, punchy headline, and status badge (\"Available for work\").\n"
+            "       * Curated Projects Showcase with filterable tags, live demo buttons, and tech stack pills.\n"
+            "       * Interactive Skills & Architecture Matrix.\n"
+            "       * Experience / Career Timeline and Client Testimonials.\n"
+            "       * Working Contact Form with validation and social links.\n\n"
+            "   ● DOMAIN 3: INTERACTIVE GAME / RACING / ARCADE (\"Make a racing game\", \"Make a game\"):\n"
+            "     - Build a fully playable, interactive game architecture:\n"
+            "       * Canvas / Three.js game loop running on `requestAnimationFrame`.\n"
+            "       * Keyboard controls (Arrow keys / WASD) + touch controls for mobile.\n"
+            "       * Player vehicle / character with responsive physics and steering.\n"
+            "       * Procedural obstacle generation, speed particles, road/terrain curvature.\n"
+            "       * Collision detection, score counter, speedometer, lap timer, lives/health.\n"
+            "       * Game Over screen with High Score and 'Play Again' restart loop.\n\n"
+            "   ● DOMAIN 4: 3D PRODUCT VIEWER & CONFIGURATOR (\"Make a 3D product viewer\", \"Product showcase\"):\n"
+            "     - Build a commercial 3D product viewer:\n"
+            "       * 360° product inspection with smooth OrbitControls.\n"
+            "       * Real-time material/color swatches changing `MeshPhysicalMaterial` properties.\n"
+            "       * Feature annotation hotspots with interactive callout cards.\n"
+            "       * Exploded view toggle or technical dimensions drawer.\n\n"
+            "   ● DOMAIN 5: PHYSICS SIMULATION & SANDBOX (\"Make a physics simulation\", \"Gravity sandbox\"):\n"
+            "     - Build an interactive simulation:\n"
+            "       * Real-time Euler or Verlet integration physics engine.\n"
+            "       * Interactive sliders for Gravity, Mass, Velocity, Restitution/Elasticity, and Damping.\n"
+            "       * Click to spawn bodies, drag to flick objects, and reset button.\n\n"
+            "   ● DOMAIN 6: SAAS / E-COMMERCE / RESTAURANT / BRAND WEBSITES:\n"
+            "     - Tailor the 3D hero model, layout, and copy authentically to the specific business domain.\n\n"
+            "2. PROFESSIONAL TYPOGRAPHY, SPACING & ZERO-AI-SLOP QUALITY:\n"
+            "   - Typography: Use Google Fonts linked in `<head>` (`Plus Jakarta Sans`, `Inter`, `Syne`, `Outfit`). Set fluid font scaling with `clamp()` and balanced line heights.\n"
+            "   - Spacing: Systematic container spacing (16px, 24px, 32px, 48px, 64px, 96px).\n"
+            "   - ZERO PLACEHOLDERS: Write every function, loop, event handler, and CSS rule completely. Never write `// TODO` or `/* styles here */`.\n\n"
+            "3. RUNTIME ENVIRONMENT NOTE:\n"
+            "   - Three.js (r128), OrbitControls, and GSAP (3.12.5) are PRE-INJECTED into the preview runtime. In // script.js, `window.THREE` and `window.gsap` are immediately available!\n\n"
+            "4. EXACT ASTRA CODE STUDIO STRUCTURE:\n"
+            "   - Deliver the complete project in 3 cleanly separated markdown code blocks:\n"
+            "     1. Complete HTML in a ```html code block (labeled <!-- index.html -->) including `<head>`, Google Fonts, meta tags, and semantic body.\n"
+            "     2. Complete CSS in a ```css code block (labeled /* styles.css */) with CSS variables, reset, typography, and responsive media queries.\n"
+            "     3. Complete JavaScript in a ```javascript code block (labeled // script.js) with the full Three.js scene, event listeners, and interactive features.\n\n"
             "ADVANCED MATHEMATICAL PROBLEM SOLVING & RIGOROUS REASONING:\n"
             "- You are an exceptional mathematician and analytical scientist proficient across Algebra, Single and Multivariable Calculus, Differential Equations, Linear Algebra, Real Analysis, Probability, Statistics, Geometry, Trigonometry, Number Theory, Discrete Mathematics, and Engineering Mathematics.\n"
             "- For any mathematical problem:\n"
@@ -2031,9 +2117,11 @@ print("Procedural 3D model exported successfully to model.glb")"""
     _deep_research_system_prompt = _system_prompt
 
     async def _retrieve_async(self, query: str, owner_id: str, document_id: str | None) -> list[dict]:
+        if not owner_id or not str(owner_id).strip():
+            return []
         self._ensure_collection()
         conditions: list[models.FieldCondition] = [
-            models.FieldCondition(key="owner_id", match=models.MatchValue(value=owner_id))
+            models.FieldCondition(key="owner_id", match=models.MatchValue(value=str(owner_id).strip()))
         ]
         if document_id:
             conditions.append(models.FieldCondition(key="document_id", match=models.MatchValue(value=document_id)))
@@ -3521,11 +3609,14 @@ print("Procedural 3D model exported successfully to model.glb")"""
             lines.append(f"• **[{s['id']} | {s['doc_name']} p.{s['page_num']}]:** {s['snippet'].strip()}")
         return "\n".join(lines)
 
-    def _extract_text(self, filename: str, content: bytes) -> list[tuple[int, str]]:
+    async def _extract_text_async(self, filename: str, content: bytes) -> list[tuple[int, str]]:
+        """Comprehensive document extraction pipeline supporting Documents, Spreadsheets, Presentations,
+        Images (OCR + visual description), Source Code, and Zip archives."""
         extension = Path(filename).suffix.lower()
+
+        # 1. PDF Documents
         if extension == ".pdf":
             pages: list[tuple[int, str]] = []
-            # 1. Primary: PyMuPDF (fitz) - immune to null-byte stream errors
             try:
                 import fitz
                 doc = fitz.open(stream=content, filetype="pdf")
@@ -3537,7 +3628,6 @@ print("Procedural 3D model exported successfully to model.glb")"""
             except Exception as e1:
                 logger.warning("pymupdf_extract_failed file=%s error=%s", filename, e1)
 
-            # 2. Secondary fallback: pypdf with non-strict parsing
             if not pages:
                 try:
                     reader = PdfReader(io.BytesIO(content), strict=False)
@@ -3551,7 +3641,6 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 except Exception as e2:
                     logger.warning("pypdf_extract_failed file=%s error=%s", filename, e2)
 
-            # 3. Tertiary fallback: regex ASCII/UTF-8 stream extraction
             if not pages:
                 try:
                     raw_str = content.decode("utf-8", errors="ignore")
@@ -3564,76 +3653,219 @@ print("Procedural 3D model exported successfully to model.glb")"""
 
             if not pages:
                 pages = [(1, "Document indexed.")]
-            return pages
+            return [(p, t.strip()) for p, t in pages if t.strip()]
+
+        # 2. Word Documents (.docx, .doc)
         elif extension == ".docx":
             from docx import Document as WordDocument
             doc = WordDocument(io.BytesIO(content))
-            pages = [(1, "\n".join(p.text for p in doc.paragraphs if p.text.strip()))]
+            elements = []
+            for p in doc.paragraphs:
+                if p.text.strip():
+                    elements.append(p.text.strip())
+            for t_idx, table in enumerate(doc.tables):
+                t_rows = []
+                for r in table.rows:
+                    cells = [c.text.strip() for c in r.cells if c.text.strip()]
+                    if cells:
+                        t_rows.append(" | ".join(cells))
+                if t_rows:
+                    elements.append(f"[Table {t_idx+1}]:\n" + "\n".join(t_rows))
+            text = "\n\n".join(elements) if elements else "Word document indexed."
+            return [(1, text)]
+
+        elif extension == ".doc":
+            raw_str = content.decode("latin-1", errors="ignore")
+            matches = re.findall(r"[A-Za-z0-9\s.,;:'\"!?\(\)\[\]\-]{4,}", raw_str)
+            clean = " ".join(matches).strip() or "Legacy Word document indexed."
+            return [(1, clean)]
+
+        # 3. Rich Text Format (.rtf)
+        elif extension == ".rtf":
+            raw_str = content.decode("latin-1", errors="replace")
+            clean_rtf = re.sub(r"\{\*?\\[^{}]+?\}", "", raw_str)
+            clean_rtf = re.sub(r"\\[a-zA-Z0-9]+[ \t]?", "", clean_rtf)
+            clean_rtf = clean_rtf.replace("{", "").replace("}", "").strip()
+            return [(1, clean_rtf or "RTF document indexed.")]
+
+        # 4. Spreadsheets (.xlsx, .xls, .ods, .csv, .tsv)
+        elif extension in (".xlsx", ".xls"):
+            sheet_pages: list[tuple[int, str]] = []
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+                for s_idx, sname in enumerate(wb.sheetnames):
+                    ws = wb[sname]
+                    rows_out = []
+                    headers = []
+                    for r_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                        row_vals = [str(v).strip() if v is not None else "" for v in row]
+                        if not any(row_vals):
+                            continue
+                        if r_idx == 0:
+                            headers = row_vals
+                            rows_out.append(f"Sheet '{sname}' Columns: " + " | ".join([h for h in headers if h]))
+                        else:
+                            cells = []
+                            for c_idx, val in enumerate(row_vals):
+                                if not val:
+                                    continue
+                                h_name = headers[c_idx] if c_idx < len(headers) and headers[c_idx] else f"Col_{c_idx+1}"
+                                cells.append(f"{h_name}: {val}")
+                            if cells:
+                                rows_out.append(f"[Row {r_idx+1}]: " + ", ".join(cells))
+                    if rows_out:
+                        sheet_pages.append((s_idx + 1, f"=== Spreadsheet Sheet: {sname} ===\n" + "\n".join(rows_out)))
+            except Exception as e_xlsx:
+                logger.warning("openpyxl_failed_trying_pandas error=%s", e_xlsx)
+                try:
+                    import pandas as pd
+                    xl = pd.ExcelFile(io.BytesIO(content))
+                    for s_idx, sname in enumerate(xl.sheet_names):
+                        df = xl.parse(sname)
+                        sheet_pages.append((s_idx + 1, f"=== Sheet: {sname} ===\n" + df.to_string(index=False)))
+                except Exception as e_pd:
+                    logger.warning("pandas_excel_failed error=%s", e_pd)
+
+            if not sheet_pages:
+                sheet_pages = [(1, f"Spreadsheet {filename} indexed.")]
+            return sheet_pages
+
+        elif extension == ".ods":
+            try:
+                import pandas as pd
+                df = pd.read_excel(io.BytesIO(content), engine="odf")
+                return [(1, f"=== ODS Spreadsheet: {filename} ===\n" + df.to_string(index=False))]
+            except Exception:
+                raw_str = content.decode("utf-8", errors="ignore")
+                matches = re.findall(r"[A-Za-z0-9\s.,;:]{4,}", raw_str)
+                return [(1, " ".join(matches) or "ODS spreadsheet indexed.")]
+
+        elif extension in (".csv", ".tsv"):
+            import csv
+            text_str = content.decode("utf-8", errors="replace")
+            delimiter = "\t" if extension == ".tsv" or ("\t" in text_str[:400] and "," not in text_str[:400]) else ","
+            reader = csv.reader(io.StringIO(text_str), delimiter=delimiter)
+            rows_out = []
+            headers = []
+            for r_idx, row in enumerate(reader):
+                if not any(row):
+                    continue
+                if r_idx == 0:
+                    headers = [c.strip() for c in row]
+                    rows_out.append("Columns: " + " | ".join(headers))
+                else:
+                    cells = [f"{headers[c_idx] if c_idx < len(headers) and headers[c_idx] else f'Col_{c_idx+1}'}: {val.strip()}" for c_idx, val in enumerate(row) if val.strip()]
+                    if cells:
+                        rows_out.append(f"[Row {r_idx+1}]: " + ", ".join(cells))
+            return [(1, "\n".join(rows_out) or "CSV data indexed.")]
+
+        # 5. Presentations (.pptx, .ppt, .odp)
+        elif extension == ".pptx":
+            from pptx import Presentation
+            prs = Presentation(io.BytesIO(content))
+            slides_out: list[tuple[int, str]] = []
+            for s_idx, slide in enumerate(prs.slides):
+                slide_items = []
+                title = ""
+                if slide.shapes.title and slide.shapes.title.text.strip():
+                    title = slide.shapes.title.text.strip()
+                    slide_items.append(f"Title: {title}")
+                for sh in slide.shapes:
+                    if sh.has_text_frame and sh.text.strip() and sh.text.strip() != title:
+                        slide_items.append(sh.text.strip())
+                if slide.has_notes_slide and slide.notes_slide.notes_text_frame and slide.notes_slide.notes_text_frame.text.strip():
+                    notes = slide.notes_slide.notes_text_frame.text.strip()
+                    slide_items.append(f"Speaker Notes: {notes}")
+                if slide_items:
+                    slides_out.append((s_idx + 1, f"[Slide {s_idx + 1}]\n" + "\n".join(slide_items)))
+            return slides_out or [(1, f"Presentation {filename} indexed.")]
+
+        elif extension in (".ppt", ".odp"):
+            raw_str = content.decode("utf-8", errors="ignore")
+            matches = re.findall(r"[A-Za-z0-9\s.,;:!?]{4,}", raw_str)
+            return [(1, " ".join(matches) or f"Presentation {filename} indexed.")]
+
+        # 6. Images with Vision OCR & Visual Analysis (.png, .jpg, .jpeg, .webp, .gif, .bmp, .tiff)
+        elif extension in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff"):
+            try:
+                ocr_description = await vision_engine.extract_ocr_and_visual_description(content, filename)
+                return [(1, f"[Visual Knowledge & OCR - {filename}]\n{ocr_description}")]
+            except Exception as e_img:
+                logger.warning("image_vision_ocr_failed file=%s error=%s", filename, e_img)
+                return [(1, f"[Image File: {filename}] (Image indexed for reference)")]
+
+        # 7. Zip Archives
         elif extension == ".zip":
             import os
             import zipfile
             pages: list[tuple[int, str]] = []
             MAX_ZIP_FILES = 200
-            MAX_ZIP_UNCOMPRESSED_BYTES = 500 * 1024 * 1024  # 500 MB
-            ALLOWED_TEXT_EXTS = {
-                ".txt", ".md", ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css",
-                ".json", ".csv", ".xml", ".yaml", ".yml", ".c", ".cpp", ".h", ".hpp",
-                ".java", ".rs", ".go", ".php", ".rb", ".sh", ".sql", ".pdf", ".docx"
-            }
+            MAX_ZIP_UNCOMPRESSED_BYTES = 500 * 1024 * 1024
+            ALLOWED_SUB_EXTS = settings.allowed_extensions - {".zip"}
+
             try:
                 with zipfile.ZipFile(io.BytesIO(content)) as zf:
                     infolist = zf.infolist()
                     if len(infolist) > MAX_ZIP_FILES:
-                        raise ValueError(f"Zip archive contains {len(infolist)} files, exceeding the maximum limit of {MAX_ZIP_FILES} files.")
-                    
+                        raise ValueError(f"Zip archive contains {len(infolist)} files, exceeding limit of {MAX_ZIP_FILES}.")
+
                     total_uncompressed = 0
                     for info in infolist:
-                        # Path traversal protection
                         norm_name = os.path.normpath(info.filename)
                         if norm_name.startswith("..") or os.path.isabs(norm_name) or ".." in norm_name.split(os.sep):
-                            logger.warning("skipping_suspicious_zip_path path=%s", info.filename)
                             continue
-                        
-                        # Skip directories
                         if info.is_dir() or info.filename.endswith("/"):
                             continue
 
-                        # Check uncompressed size / zip bomb protection
                         total_uncompressed += info.file_size
                         if total_uncompressed > MAX_ZIP_UNCOMPRESSED_BYTES:
-                            raise ValueError("Zip archive uncompressed size exceeds maximum allowed limit of 500 MB.")
-                        
-                        # Check file extension
+                            raise ValueError("Zip archive exceeds maximum uncompressed limit of 500 MB.")
+
                         sub_ext = Path(info.filename).suffix.lower()
-                        if sub_ext not in ALLOWED_TEXT_EXTS:
+                        if sub_ext not in ALLOWED_SUB_EXTS:
                             continue
 
-                        # Read entry securely
                         sub_content = zf.read(info)
-                        if sub_ext == ".pdf":
-                            sub_pages = self._extract_text(info.filename, sub_content)
-                            for p_num, p_text in sub_pages:
-                                pages.append((len(pages) + 1, f"[{info.filename} - Page {p_num}]\n{p_text}"))
-                        elif sub_ext == ".docx":
-                            sub_pages = self._extract_text(info.filename, sub_content)
-                            for p_num, p_text in sub_pages:
-                                pages.append((len(pages) + 1, f"[{info.filename}]\n{p_text}"))
-                        else:
-                            try:
-                                sub_text = sub_content.decode("utf-8")
-                            except UnicodeDecodeError:
-                                sub_text = sub_content.decode("latin-1", errors="replace")
-                            if sub_text.strip():
-                                pages.append((len(pages) + 1, f"[{info.filename}]\n{sub_text}"))
-            except Exception as e:
-                logger.error("zip_extraction_error file=%s error=%s", filename, e)
-                raise ValueError(f"Failed to extract zip archive safely: {e}")
-            
-            if not pages:
-                pages = [(1, "Empty or non-text zip archive indexed.")]
+                        sub_pages = await self._extract_text_async(info.filename, sub_content)
+                        for p_num, p_text in sub_pages:
+                            pages.append((len(pages) + 1, f"[{info.filename} - Section {p_num}]\n{p_text}"))
+            except Exception as e_zip:
+                logger.error("zip_extract_error file=%s error=%s", filename, e_zip)
+                raise ValueError(f"Failed to extract zip archive safely: {e_zip}")
+
+            return [(p, t.strip()) for p, t in pages if t.strip()] or [(1, "Zip archive indexed.")]
+
+        # 8. Source Code & Text/Data Formats
         else:
-            pages = [(1, content.decode("utf-8", errors="replace"))]
-        return [(p, t.strip()) for p, t in pages if t.strip()]
+            try:
+                text_content = content.decode("utf-8")
+            except UnicodeDecodeError:
+                text_content = content.decode("latin-1", errors="replace")
+
+            clean_text = text_content.strip()
+            # If code file, format in language block
+            code_exts = {
+                ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".cpp", ".h", ".hpp", ".c", ".cs",
+                ".go", ".rs", ".php", ".rb", ".sql", ".html", ".css", ".scss", ".sh", ".bash"
+            }
+            if extension in code_exts:
+                clean_text = f"```{extension.lstrip('.')}\n// Source: {filename}\n{clean_text}\n```"
+
+            return [(1, clean_text or f"File {filename} indexed.")]
+
+    def _extract_text(self, filename: str, content: bytes) -> list[tuple[int, str]]:
+        """Synchronous wrapper for text extraction."""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Run in thread if inside event loop
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    return pool.submit(asyncio.run, self._extract_text_async(filename, content)).result()
+            return loop.run_until_complete(self._extract_text_async(filename, content))
+        except Exception:
+            return asyncio.run(self._extract_text_async(filename, content))
 
     def _semantic_chunks(self, text: str, target_chars: int = 1100, overlap_chars: int = 150) -> list[str]:
         clean_text = text.strip()

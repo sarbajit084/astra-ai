@@ -8,6 +8,7 @@
     if (storedUser) user = JSON.parse(storedUser);
   } catch (_) {}
   let authMode = 'login';
+  let attachedImage = null; // { base64: string, url: string, name: string }
 
   // Device-bound guest token management for unauthenticated / anonymous users
   let guestToken = localStorage.getItem('astra_guest_token') || '';
@@ -1574,38 +1575,362 @@
           scene.add(molGroup);
 
         } else if (type.includes('solar') || type.includes('planet')) {
-          const solarGroup = new THREE.Group();
-          const sun = new THREE.Mesh(new THREE.SphereGeometry(2.8, 32, 32), new THREE.MeshBasicMaterial({ color: 0xfbbf24 }));
-          solarGroup.add(sun);
-          solarGroup.add(new THREE.PointLight(0xffedd5, 2.5, 80));
+          camera.position.set(0, 32, 58);
+          if (controls) {
+            controls.target.set(0, 0, 0);
+            controls.maxDistance = 250;
+            controls.autoRotate = false;
+          }
 
-          const planetData = [
-            { r: 5.5, size: 0.5, color: 0x94a3b8, speed: 0.04 },
-            { r: 8.0, size: 0.7, color: 0xf59e0b, speed: 0.025 },
-            { r: 11.5, size: 0.85, color: 0x38bdf8, speed: 0.018 },
-            { r: 15.0, size: 0.65, color: 0xef4444, speed: 0.014 },
-            { r: 20.0, size: 1.6, color: 0xd97706, speed: 0.008 },
+          const solarGroup = new THREE.Group();
+
+          // 1. Sun & Corona Glow
+          const sunGeom = new THREE.SphereGeometry(3.2, 32, 32);
+          const sunMat = new THREE.MeshBasicMaterial({ color: 0xffb703 });
+          const sun = new THREE.Mesh(sunGeom, sunMat);
+          solarGroup.add(sun);
+
+          // Corona outer soft glow
+          const coronaGeom = new THREE.SphereGeometry(3.6, 32, 32);
+          const coronaMat = new THREE.MeshBasicMaterial({ color: 0xfd8500, transparent: true, opacity: 0.28, side: THREE.BackSide });
+          solarGroup.add(new THREE.Mesh(coronaGeom, coronaMat));
+
+          const sunLight = new THREE.PointLight(0xfffaed, 3.0, 180, 0.5);
+          solarGroup.add(sunLight);
+
+          // Scientific Data for All 8 Planets
+          const planetDefs = [
+            {
+              name: 'Mercury',
+              r: 6.2,
+              size: 0.38,
+              color: 0xa1a1aa,
+              keplerSpeed: 0.045,
+              rotSpeed: 0.01,
+              dist: '57.9M km (0.39 AU)',
+              period: '88 Earth Days',
+              diameter: '4,879 km',
+              facts: 'Smallest planet with extreme temperature swings from -180°C to 430°C.',
+            },
+            {
+              name: 'Venus',
+              r: 9.0,
+              size: 0.68,
+              color: 0xfde047,
+              keplerSpeed: 0.032,
+              rotSpeed: -0.004,
+              dist: '108.2M km (0.72 AU)',
+              period: '225 Earth Days',
+              diameter: '12,104 km',
+              facts: 'Hottest planet in the solar system (465°C) with a toxic, crushing CO2 atmosphere.',
+            },
+            {
+              name: 'Earth',
+              r: 12.8,
+              size: 0.74,
+              color: 0x38bdf8,
+              keplerSpeed: 0.024,
+              rotSpeed: 0.02,
+              hasMoon: true,
+              dist: '149.6M km (1.0 AU)',
+              period: '365.25 Days',
+              diameter: '12,742 km',
+              facts: 'Our home planet; only known world with liquid water oceans and thriving life.',
+            },
+            {
+              name: 'Mars',
+              r: 16.5,
+              size: 0.52,
+              color: 0xef4444,
+              keplerSpeed: 0.018,
+              rotSpeed: 0.019,
+              dist: '227.9M km (1.52 AU)',
+              period: '687 Earth Days',
+              diameter: '6,779 km',
+              facts: 'The Red Planet; home to Olympus Mons, a volcano three times taller than Mt. Everest.',
+            },
+            {
+              name: 'Jupiter',
+              r: 22.0,
+              size: 1.85,
+              color: 0xf59e0b,
+              keplerSpeed: 0.011,
+              rotSpeed: 0.04,
+              dist: '778.5M km (5.2 AU)',
+              period: '11.86 Earth Years',
+              diameter: '139,820 km',
+              facts: 'Largest planet; holds more than double the mass of all other planets combined.',
+            },
+            {
+              name: 'Saturn',
+              r: 29.5,
+              size: 1.55,
+              color: 0xfcd34d,
+              keplerSpeed: 0.008,
+              rotSpeed: 0.038,
+              hasRings: true,
+              dist: '1.43B km (9.5 AU)',
+              period: '29.45 Earth Years',
+              diameter: '116,460 km',
+              facts: 'Famed for its dazzling rings made of billions of chunks of ice, rock, and dust.',
+            },
+            {
+              name: 'Uranus',
+              r: 36.5,
+              size: 1.10,
+              color: 0x67e8f9,
+              keplerSpeed: 0.0055,
+              rotSpeed: 0.024,
+              dist: '2.87B km (19.2 AU)',
+              period: '84.0 Earth Years',
+              diameter: '50,724 km',
+              facts: 'An icy giant world that rotates on its side with a 98-degree axial tilt.',
+            },
+            {
+              name: 'Neptune',
+              r: 43.5,
+              size: 1.05,
+              color: 0x3b82f6,
+              keplerSpeed: 0.004,
+              rotSpeed: 0.022,
+              dist: '4.50B km (30.1 AU)',
+              period: '164.8 Earth Years',
+              diameter: '49,244 km',
+              facts: 'The most distant planet, swept by supersonic winds over 2,000 km/h.',
+            },
           ];
 
           const planetMeshes = [];
-          planetData.forEach((p) => {
-            const ringGeom = new THREE.RingGeometry(p.r - 0.06, p.r + 0.06, 64);
-            const orbitLine = new THREE.Mesh(ringGeom, new THREE.MeshBasicMaterial({ color: 0x334155, side: THREE.DoubleSide }));
+          let timeSpeed = 1.0;
+          let focusedBody = null;
+
+          // Build Orbit Rings & Planet Meshes
+          planetDefs.forEach((p) => {
+            // Orbital Path Ring
+            const ringGeom = new THREE.RingGeometry(p.r - 0.08, p.r + 0.08, 96);
+            const orbitMat = new THREE.MeshBasicMaterial({ color: 0x334155, side: THREE.DoubleSide, transparent: true, opacity: 0.45 });
+            const orbitLine = new THREE.Mesh(ringGeom, orbitMat);
             orbitLine.rotation.x = Math.PI / 2;
             solarGroup.add(orbitLine);
 
-            const pMesh = new THREE.Mesh(new THREE.SphereGeometry(p.size, 20, 20), new THREE.MeshStandardMaterial({ color: p.color, roughness: 0.4 }));
+            // Planet Body
+            const pGeom = new THREE.SphereGeometry(p.size, 24, 24);
+            const pMat = new THREE.MeshStandardMaterial({
+              color: p.color,
+              roughness: 0.5,
+              metalness: 0.1,
+            });
+            const pMesh = new THREE.Mesh(pGeom, pMat);
+            pMesh.castShadow = true;
+            pMesh.receiveShadow = true;
+            pMesh.userData = { planet: p };
             solarGroup.add(pMesh);
-            planetMeshes.push({ mesh: pMesh, r: p.r, speed: p.speed, angle: Math.random() * Math.PI * 2 });
+
+            let moonMesh = null;
+            let moonAngle = 0;
+            if (p.hasMoon) {
+              const mGeom = new THREE.SphereGeometry(0.18, 16, 16);
+              const mMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.7 });
+              moonMesh = new THREE.Mesh(mGeom, mMat);
+              solarGroup.add(moonMesh);
+            }
+
+            let saturnRings = null;
+            if (p.hasRings) {
+              const rGeom = new THREE.RingGeometry(p.size * 1.35, p.size * 2.3, 64);
+              const rMat = new THREE.MeshStandardMaterial({
+                color: 0xead59e,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.85,
+                roughness: 0.6,
+              });
+              saturnRings = new THREE.Mesh(rGeom, rMat);
+              saturnRings.rotation.x = Math.PI / 2 + 0.45;
+              solarGroup.add(saturnRings);
+            }
+
+            planetMeshes.push({
+              mesh: pMesh,
+              def: p,
+              r: p.r,
+              speed: p.keplerSpeed,
+              rotSpeed: p.rotSpeed,
+              angle: Math.random() * Math.PI * 2,
+              moonMesh,
+              moonAngle,
+              saturnRings,
+            });
           });
 
-          customUpdate = () => {
-            planetMeshes.forEach((item) => {
-              item.angle += item.speed;
-              item.mesh.position.set(Math.cos(item.angle) * item.r, 0, Math.sin(item.angle) * item.r);
-            });
-          };
           scene.add(solarGroup);
+
+          // Build Interactive HUD Elements inside viewport
+          if (viewport) {
+            viewport.style.position = 'relative';
+
+            // 1. Planet Selection Bar (Top)
+            const topBar = document.createElement('div');
+            topBar.className = 'solar-planets-bar';
+
+            const sunChip = document.createElement('button');
+            sunChip.type = 'button';
+            sunChip.className = 'solar-planet-chip active';
+            sunChip.innerHTML = '☀️ Sun';
+            topBar.appendChild(sunChip);
+
+            const chips = [sunChip];
+
+            planetDefs.forEach((p, idx) => {
+              const chip = document.createElement('button');
+              chip.type = 'button';
+              chip.className = 'solar-planet-chip';
+              chip.textContent = p.name;
+              chip.onclick = (e) => {
+                e.stopPropagation();
+                chips.forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                focusOnPlanet(planetMeshes[idx]);
+              };
+              topBar.appendChild(chip);
+              chips.push(chip);
+            });
+
+            sunChip.onclick = (e) => {
+              e.stopPropagation();
+              chips.forEach(c => c.classList.remove('active'));
+              sunChip.classList.add('active');
+              focusOnSun();
+            };
+
+            viewport.appendChild(topBar);
+
+            // 2. Scientific Fact HUD Card (Bottom Left)
+            const hudCard = document.createElement('div');
+            hudCard.className = 'solar-hud-card';
+            viewport.appendChild(hudCard);
+
+            const updateHud = (title, dist, period, dia, facts) => {
+              hudCard.innerHTML = `
+                <div class="solar-hud-title">
+                  <span>${escapeHtml(title)}</span>
+                  <span style="font-size: 0.72rem; color: #94a3b8; font-weight: 500;">Planetary Data</span>
+                </div>
+                <div class="solar-hud-stat"><span>Distance from Sun:</span><strong>${escapeHtml(dist)}</strong></div>
+                <div class="solar-hud-stat"><span>Orbital Period:</span><strong>${escapeHtml(period)}</strong></div>
+                <div class="solar-hud-stat"><span>Diameter:</span><strong>${escapeHtml(dia)}</strong></div>
+                <div class="solar-hud-desc">${escapeHtml(facts)}</div>
+              `;
+            };
+
+            // Default HUD state: Sun & Solar System overview
+            updateHud(
+              '☀️ The Solar System',
+              '0 km (Center)',
+              '~230M Years (Milky Way)',
+              '1,392,700 km',
+              'Gravitationally bound system of 8 planets, over 200 moons, and billions of asteroids and comets.'
+            );
+
+            // 3. Speed Controls (Bottom Right)
+            const speedBar = document.createElement('div');
+            speedBar.className = 'solar-speed-controls';
+            const speeds = [
+              { label: '1x', val: 1.0 },
+              { label: '5x', val: 5.0 },
+              { label: '20x', val: 20.0 },
+              { label: '⏸', val: 0.0 },
+            ];
+            speeds.forEach((s, sIdx) => {
+              const sBtn = document.createElement('button');
+              sBtn.type = 'button';
+              sBtn.className = 'solar-speed-btn' + (sIdx === 0 ? ' active' : '');
+              sBtn.textContent = s.label;
+              sBtn.onclick = (e) => {
+                e.stopPropagation();
+                speedBar.querySelectorAll('.solar-speed-btn').forEach(b => b.classList.remove('active'));
+                sBtn.classList.add('active');
+                timeSpeed = s.val;
+              };
+              speedBar.appendChild(sBtn);
+            });
+            viewport.appendChild(speedBar);
+
+            function focusOnPlanet(item) {
+              focusedBody = item;
+              updateHud(item.def.name, item.def.dist, item.def.period, item.def.diameter, item.def.facts);
+            }
+
+            function focusOnSun() {
+              focusedBody = null;
+              if (controls) {
+                controls.target.set(0, 0, 0);
+              }
+              camera.position.set(0, 32, 58);
+              updateHud(
+                '☀️ The Solar System',
+                '0 km (Center)',
+                '~230M Years (Milky Way)',
+                '1,392,700 km',
+                'Gravitationally bound system of 8 planets, over 200 moons, and billions of asteroids and comets.'
+              );
+            }
+
+            // Raycaster for clicking directly on 3D planets
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            canvas.addEventListener('click', (e) => {
+              const rect = canvas.getBoundingClientRect();
+              mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+              mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+              raycaster.setFromCamera(mouse, camera);
+              const intersects = raycaster.intersectObjects(planetMeshes.map(m => m.mesh));
+              if (intersects.length > 0) {
+                const hit = intersects[0].object;
+                const found = planetMeshes.find(m => m.mesh === hit);
+                if (found) {
+                  const idx = planetMeshes.indexOf(found);
+                  chips.forEach(c => c.classList.remove('active'));
+                  if (chips[idx + 1]) chips[idx + 1].classList.add('active');
+                  focusOnPlanet(found);
+                }
+              }
+            });
+          }
+
+          // Keplerian Physics & Animation Loop
+          customUpdate = () => {
+            sun.rotation.y += 0.002;
+            planetMeshes.forEach((item) => {
+              if (timeSpeed > 0) {
+                item.angle += item.speed * timeSpeed;
+                item.mesh.rotation.y += item.rotSpeed * timeSpeed;
+              }
+              const px = Math.cos(item.angle) * item.r;
+              const pz = Math.sin(item.angle) * item.r;
+              item.mesh.position.set(px, 0, pz);
+
+              // Moon orbit around Earth
+              if (item.moonMesh) {
+                if (timeSpeed > 0) item.moonAngle += 0.08 * timeSpeed;
+                item.moonMesh.position.set(
+                  px + Math.cos(item.moonAngle) * 1.5,
+                  Math.sin(item.moonAngle) * 0.35,
+                  pz + Math.sin(item.moonAngle) * 1.5
+                );
+              }
+
+              // Saturn Rings position tracking
+              if (item.saturnRings) {
+                item.saturnRings.position.set(px, 0, pz);
+              }
+            });
+
+            // Smoothly track focused planet
+            if (focusedBody && controls) {
+              controls.target.lerp(focusedBody.mesh.position, 0.08);
+            }
+          };
 
         } else if (type.includes('atom') || type.includes('orbital')) {
           const atomGroup = new THREE.Group();
@@ -1835,7 +2160,7 @@
   }
 
   // Add message: Formats user message as lavender bubble and assistant message with A* avatar & Cormorant font
-  function addMessage(role, text, meta = '', sources = [], stayAtTop = false, isChemistry = false, researchTrace = null, isTemporary = false) {
+  function addMessage(role, text, meta = '', sources = [], stayAtTop = false, isChemistry = false, researchTrace = null, isTemporary = false, imageUrl = null) {
     const welcome = $('welcome');
     if (welcome) {
       welcome.classList.add('hidden');
@@ -1860,7 +2185,15 @@
     }
 
     if (role === 'user') {
-      row.innerHTML = `<div class="user-bubble">${escapeHtml(text)}</div>`;
+      let imgHtml = '';
+      if (imageUrl) {
+        imgHtml = `
+          <div class="user-msg-image-wrapper">
+            <img src="${escapeHtml(imageUrl)}" alt="User attached photograph" class="user-msg-image" onclick="window.open(this.src, '_blank')" />
+          </div>`;
+      }
+      const textHtml = text ? `<div>${escapeHtml(text)}</div>` : '';
+      row.innerHTML = `<div class="user-bubble">${imgHtml}${textHtml}</div>`;
     } else {
       const formattedText = formatMessageText(text);
       const latencyHtml = meta ? `<span class="meta-responded">Responded in ${escapeHtml(meta)}</span>` : '';
@@ -2034,7 +2367,7 @@
           .map((m) => ({ role: m.role, content: m.text }));
         for (const m of conv.messages) {
           const isChem = false;
-          addMessage(m.role, m.text, m.latency || '', m.sources || [], false, isChem, m.research_trace, m.temporary);
+          addMessage(m.role, m.text, m.latency || '', m.sources || [], false, isChem, m.research_trace, m.temporary, m.image_url);
         }
       } else {
         activeChatHistory = [];
@@ -2066,8 +2399,17 @@
     }
 
     const box = $('message');
-    const message = box ? box.value.trim() : '';
-    if (!message) return;
+    let message = box ? box.value.trim() : '';
+    const curAttached = attachedImage;
+
+    if (!message && curAttached) {
+      message = 'Analyze this image and explain what is shown or solve any questions in it.';
+    }
+    if (!message && !curAttached) return;
+
+    if (curAttached) {
+      clearComposerAttachedImage();
+    }
 
     isSending = true;
     const sendBtn = $('sendButton');
@@ -2095,7 +2437,7 @@
       msgStream.style.display = 'flex';
     }
 
-    addMessage('user', message, '', [], false, false, null, isIncognito);
+    addMessage('user', message, '', [], false, false, null, isIncognito, curAttached ? (curAttached.url || curAttached.base64) : null);
 
     const pending = addMessage('assistant', 'Astra is thinking…', '', [], false, false, null, isIncognito);
     const bubble = pending.querySelector('.assistant-content') || pending;
@@ -2126,6 +2468,8 @@
           incognito: isIncognito,
           detailed: isDetailedMode,
           mode: activeEngineMode,
+          image_data: curAttached ? curAttached.base64 : null,
+          image_url: curAttached ? curAttached.url : null,
         }),
       });
 
@@ -3097,6 +3441,298 @@
         startVoiceRecognition();
       };
     }
+
+    // Dropdown Option 3: Camera / Take Photograph
+    if ($('actionCamera')) {
+      $('actionCamera').onclick = () => {
+        $('attachDropdown').classList.add('hidden');
+        if ($('composerAttachBtn')) $('composerAttachBtn').classList.remove('active');
+        openCameraModal();
+      };
+    }
+  }
+
+  // ==========================================
+  // Camera & Image Attachment System
+  // ==========================================
+  let cameraMediaStream = null;
+  let currentFacingMode = 'environment'; // 'environment' for rear, 'user' for front/selfie
+  let capturedSnapshotData = null;
+
+  function setComposerAttachedImage(dataUrl, name) {
+    const filename = name || 'Photograph.jpg';
+    attachedImage = {
+      base64: dataUrl,
+      url: null,
+      name: filename,
+    };
+
+    const chip = $('composerImagePreview');
+    const thumb = $('composerImageThumb');
+    const label = $('composerImageLabel');
+
+    if (thumb) thumb.src = dataUrl;
+    if (label) label.textContent = filename;
+    if (chip) chip.classList.remove('hidden');
+
+    // Asynchronously upload to server to get persistent static URL
+    api('/api/chat/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_data: dataUrl, filename }),
+    }).then((res) => {
+      if (res && res.image_url && attachedImage) {
+        attachedImage.url = res.image_url;
+      }
+    }).catch((err) => {
+      console.warn('Image upload background persistence error:', err);
+    });
+
+    const box = $('message');
+    if (box) box.focus();
+  }
+
+  function clearComposerAttachedImage() {
+    attachedImage = null;
+    const chip = $('composerImagePreview');
+    const thumb = $('composerImageThumb');
+    if (chip) chip.classList.add('hidden');
+    if (thumb) thumb.src = '';
+  }
+
+  if ($('removeImageBtn')) {
+    $('removeImageBtn').onclick = (e) => {
+      e.stopPropagation();
+      clearComposerAttachedImage();
+    };
+  }
+
+  async function startCameraStream() {
+    const video = $('cameraVideo');
+    const errBanner = $('cameraErrorBanner');
+    const errText = $('cameraErrorText');
+    const scanOverlay = $('cameraOverlayScan');
+
+    if (errBanner) errBanner.classList.add('hidden');
+    if (scanOverlay) scanOverlay.classList.remove('hidden');
+
+    // Stop any existing tracks
+    if (cameraMediaStream) {
+      cameraMediaStream.getTracks().forEach((t) => {
+        try { t.stop(); } catch (_) {}
+      });
+      cameraMediaStream = null;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (errBanner) {
+        errBanner.classList.remove('hidden');
+        if (errText) errText.textContent = 'Camera API is not supported in this browser. Please upload an image directly.';
+      }
+      return;
+    }
+
+    try {
+      const constraints = {
+        video: {
+          facingMode: currentFacingMode,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      };
+
+      cameraMediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (video) {
+        video.srcObject = cameraMediaStream;
+        await video.play();
+      }
+    } catch (err) {
+      console.warn('Camera getUserMedia error:', err);
+      // Fallback: try without specific facingMode if first attempt failed
+      try {
+        cameraMediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        if (video) {
+          video.srcObject = cameraMediaStream;
+          await video.play();
+          return;
+        }
+      } catch (fallbackErr) {
+        console.warn('Camera fallback error:', fallbackErr);
+      }
+
+      if (errBanner) {
+        errBanner.classList.remove('hidden');
+        if (errText) {
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            errText.textContent = 'Camera permission was denied. Please allow camera access in your browser or app settings, or choose an image file below.';
+          } else if (err.name === 'NotFoundError') {
+            errText.textContent = 'No camera device was detected on this system. You can upload an image file from your device.';
+          } else {
+            errText.textContent = `Could not access camera (${err.name || 'Error'}). Please upload an image from your device.`;
+          }
+        }
+      }
+    }
+  }
+
+  function openCameraModal() {
+    const modal = $('cameraModal');
+    if (!modal) return;
+
+    // Reset to live camera state
+    const video = $('cameraVideo');
+    const canvas = $('cameraCanvas');
+    const capturedImg = $('cameraCapturedImg');
+    const liveControls = $('cameraLiveControls');
+    const reviewControls = $('cameraReviewControls');
+    const errBanner = $('cameraErrorBanner');
+
+    if (video) video.classList.remove('hidden');
+    if (canvas) canvas.classList.add('hidden');
+    if (capturedImg) {
+      capturedImg.classList.add('hidden');
+      capturedImg.src = '';
+    }
+    if (liveControls) liveControls.classList.remove('hidden');
+    if (reviewControls) reviewControls.classList.add('hidden');
+    if (errBanner) errBanner.classList.add('hidden');
+
+    capturedSnapshotData = null;
+    modal.classList.remove('hidden');
+    startCameraStream();
+  }
+
+  function closeCameraModal() {
+    const modal = $('cameraModal');
+    if (modal) modal.classList.add('hidden');
+
+    if (cameraMediaStream) {
+      cameraMediaStream.getTracks().forEach((t) => {
+        try { t.stop(); } catch (_) {}
+      });
+      cameraMediaStream = null;
+    }
+
+    const video = $('cameraVideo');
+    if (video) video.srcObject = null;
+    capturedSnapshotData = null;
+  }
+
+  function switchCameraFacing() {
+    currentFacingMode = (currentFacingMode === 'user' ? 'environment' : 'user');
+    startCameraStream();
+  }
+
+  function takeCameraSnapshot() {
+    const video = $('cameraVideo');
+    const canvas = $('cameraCanvas');
+    const capturedImg = $('cameraCapturedImg');
+    const liveControls = $('cameraLiveControls');
+    const reviewControls = $('cameraReviewControls');
+
+    if (!video || !canvas || !capturedImg) return;
+
+    const width = video.videoWidth || 640;
+    const height = video.videoHeight || 480;
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, width, height);
+
+    capturedSnapshotData = canvas.toDataURL('image/jpeg', 0.92);
+    capturedImg.src = capturedSnapshotData;
+
+    video.classList.add('hidden');
+    capturedImg.classList.remove('hidden');
+    if (liveControls) liveControls.classList.add('hidden');
+    if (reviewControls) reviewControls.classList.remove('hidden');
+  }
+
+  function retakeCameraSnapshot() {
+    const video = $('cameraVideo');
+    const capturedImg = $('cameraCapturedImg');
+    const liveControls = $('cameraLiveControls');
+    const reviewControls = $('cameraReviewControls');
+
+    capturedSnapshotData = null;
+    if (capturedImg) {
+      capturedImg.classList.add('hidden');
+      capturedImg.src = '';
+    }
+    if (video) video.classList.remove('hidden');
+    if (liveControls) liveControls.classList.remove('hidden');
+    if (reviewControls) reviewControls.classList.add('hidden');
+  }
+
+  function confirmCameraSnapshot() {
+    if (!capturedSnapshotData) return;
+    setComposerAttachedImage(capturedSnapshotData, `Photo_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.jpg`);
+    closeCameraModal();
+    toast('✓ Photo attached to composer');
+  }
+
+  function handleCameraFileInput(files) {
+    if (!files || !files.length) return;
+    const file = files[0];
+    if (!file.type.startsWith('image/')) {
+      toast('Please select a valid image file.', true);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      setComposerAttachedImage(dataUrl, file.name);
+      closeCameraModal();
+      toast(`✓ ${file.name} attached to composer`);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Camera Buttons Event Listeners
+  if ($('composerCameraBtn')) {
+    $('composerCameraBtn').onclick = openCameraModal;
+  }
+  if ($('composerHomeCameraBtn')) {
+    $('composerHomeCameraBtn').onclick = openCameraModal;
+  }
+  if ($('closeCameraModal')) {
+    $('closeCameraModal').onclick = closeCameraModal;
+  }
+  if ($('cameraSwitchBtn')) {
+    $('cameraSwitchBtn').onclick = switchCameraFacing;
+  }
+  if ($('cameraShutterBtn')) {
+    $('cameraShutterBtn').onclick = takeCameraSnapshot;
+  }
+  if ($('cameraRetakeBtn')) {
+    $('cameraRetakeBtn').onclick = retakeCameraSnapshot;
+  }
+  if ($('cameraUsePhotoBtn')) {
+    $('cameraUsePhotoBtn').onclick = confirmCameraSnapshot;
+  }
+  if ($('cameraUploadFallbackBtn')) {
+    $('cameraUploadFallbackBtn').onclick = () => {
+      if ($('cameraFileInput')) $('cameraFileInput').click();
+    };
+  }
+  if ($('cameraFallbackUploadBtn')) {
+    $('cameraFallbackUploadBtn').onclick = () => {
+      if ($('cameraFileInput')) $('cameraFileInput').click();
+    };
+  }
+  if ($('cameraFileInput')) {
+    $('cameraFileInput').onchange = (e) => {
+      handleCameraFileInput(e.target.files);
+      e.target.value = '';
+    };
+  }
+  if ($('cameraNativeCaptureInput')) {
+    $('cameraNativeCaptureInput').onchange = (e) => {
+      handleCameraFileInput(e.target.files);
+      e.target.value = '';
+    };
   }
 
   if ($('cancelVoiceBtn')) {

@@ -71,13 +71,30 @@ class Settings:
     db_max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "40"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     max_upload_bytes: int = int(os.getenv("MAX_UPLOAD_BYTES", str(400 * 1024 * 1024)))
-    allowed_extensions: frozenset[str] = frozenset({".pdf", ".txt", ".md", ".csv", ".json", ".py", ".html", ".docx", ".zip"})
-
+    allowed_extensions: frozenset[str] = frozenset({
+        # Documents
+        ".pdf", ".doc", ".docx", ".txt", ".rtf", ".md", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml",
+        # Spreadsheets
+        ".xls", ".xlsx", ".ods",
+        # Presentations
+        ".ppt", ".pptx", ".odp",
+        # Images (OCR & vision indexing)
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff",
+        # Code / Source files
+        ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".cpp", ".h", ".hpp", ".c", ".cs",
+        ".go", ".rs", ".php", ".rb", ".sql", ".html", ".css", ".scss", ".sh", ".toml", ".ini", ".log",
+        # Archives
+        ".zip",
+    })
 
     # Persona & Professional/Formal Settings
     research_mode: bool = os.getenv("RESEARCH_MODE", "false").lower() in ("true", "1", "yes")
     humor_level: str = os.getenv("HUMOR_LEVEL", "off")
     humor_temperature: float = float(os.getenv("HUMOR_TEMPERATURE", "0.2"))
+
+    # Multimodal Vision Configuration
+    vision_model: str = os.getenv("VISION_MODEL", "qwen/qwen3.8-27b")
+    inpainting_provider: str = os.getenv("INPAINTING_PROVIDER", "auto")
 
     # Image Generation Configuration
     image_model: str = os.getenv("IMAGE_MODEL", "flux")

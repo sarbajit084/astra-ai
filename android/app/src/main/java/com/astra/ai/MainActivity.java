@@ -140,6 +140,19 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    runOnUiThread(() -> {
+                        try {
+                            request.grant(request.getResources());
+                        } catch (Exception e) {
+                            // ignore
+                        }
+                    });
+                }
+            }
+
+            @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback,
                                              FileChooserParams fileChooserParams) {
                 if (fileUploadCallback != null) {
@@ -150,12 +163,8 @@ public class MainActivity extends Activity {
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("*/*");
-                intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
-                        "application/pdf", "text/plain", "text/markdown", "text/csv",
-                        "application/json", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                });
 
-                startActivityForResult(Intent.createChooser(intent, "Choose Document for Astra"), FILE_CHOOSER_REQUEST_CODE);
+                startActivityForResult(Intent.createChooser(intent, "Choose File or Photo for Astra"), FILE_CHOOSER_REQUEST_CODE);
                 return true;
             }
         });

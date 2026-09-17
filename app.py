@@ -9,6 +9,7 @@ Stateless architecture:
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import logging
@@ -133,7 +134,7 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(self), camera=()"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(self), camera=(self)"
     response.headers["Access-Control-Expose-Headers"] = "X-Guest-Token"
     if settings.app_env.lower() in ("production", "prod"):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
@@ -198,6 +199,8 @@ class PreferencesPayload(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=10000)
+    image_data: str | None = None
+    image_url: str | None = None
     selected_doc_id: str | None = None
     conversation_id: str | None = None
     history: list[dict] | None = Field(default_factory=list)
@@ -912,6 +915,68 @@ def delete_document(
     return {"success": True}
 
 
+@app.post("/api/chat/upload-image")
+async def upload_chat_image(
+    request: Request,
+    user: Annotated[User, Depends(get_optional_user)],
+) -> dict:
+    """Upload an image from camera snapshot or file picker for multimodal chat."""
+    content_type = request.headers.get("content-type", "")
+    raw_bytes = b""
+    orig_filename = "photo.jpg"
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if not uploaded_file:
+            raise HTTPException(400, "No file field found in form data.")
+        raw_bytes = await uploaded_file.read()
+        orig_filename = getattr(uploaded_file, "filename", "upload.jpg")
+    else:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(400, "Invalid JSON payload.")
+        image_data = body.get("image_data", "")
+        orig_filename = body.get("filename", "camera.jpg")
+        if not image_data:
+            raise HTTPException(400, "Missing image_data.")
+        if "," in image_data:
+            image_data = image_data.split(",", 1)[1]
+        try:
+            raw_bytes = base64.b64decode(image_data)
+        except Exception:
+            raise HTTPException(400, "Invalid base64 image data.")
+
+    if not raw_bytes:
+        raise HTTPException(400, "Empty image uploaded.")
+    if len(raw_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(400, "Image exceeds 25 MB limit.")
+
+    try:
+        from PIL import Image
+        import io
+        im = Image.open(io.BytesIO(raw_bytes))
+        im.verify()
+    except Exception:
+        raise HTTPException(400, "Invalid image format.")
+
+    filename = f"chat_{user.id[:8]}_{uuid.uuid4().hex[:12]}.jpg"
+    local_path = settings.image_dir / filename
+    im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+    if max(im.size) > 1600:
+        im.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+    im.save(local_path, format="JPEG", quality=90)
+
+    image_url = f"/api/images/{filename}"
+    return {
+        "success": True,
+        "url": image_url,
+        "image_url": image_url,
+        "filename": filename,
+    }
+
+
 @app.post("/api/chat")
 async def chat(
     request: ChatRequest,
@@ -930,6 +995,24 @@ async def chat(
 
     # Normalize mode — only accept known modes; anything else falls back to 'general'
     effective_mode = request.mode if request.mode in ("general", "code") else "general"
+
+    # Persist base64 image data to local image file if present
+    image_url_to_save = request.image_url
+    if request.image_data and not image_url_to_save:
+        try:
+            from PIL import Image
+            import io
+            import base64
+            clean_b64 = re.sub(r"^data:image/[^;]+;base64,", "", request.image_data)
+            raw_b = base64.b64decode(clean_b64)
+            im = Image.open(io.BytesIO(raw_b)).convert("RGB")
+            if max(im.size) > 1600:
+                im.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+            saved_fn = f"chat_{user.id[:8]}_{uuid.uuid4().hex[:12]}.jpg"
+            im.save(settings.image_dir / saved_fn, format="JPEG", quality=90)
+            image_url_to_save = f"/api/images/{saved_fn}"
+        except Exception as e_save_img:
+            logger.warning("save_chat_image_failed error=%s", e_save_img)
 
     # Load or initialize conversation session strictly scoped to user (prevent IDOR)
     conv = None
@@ -966,6 +1049,8 @@ async def chat(
             history=conversation_history,
             detailed=request.detailed,
             mode=effective_mode,
+            image_data=request.image_data,
+            image_url=image_url_to_save,
         )
     except Exception as exc:
         logger.exception("chat_failed user_id=%s", user.id)
@@ -999,18 +1084,24 @@ async def chat(
     # Detect chemistry problem intent
     is_chem = bool(answer.get("is_chemistry", False) or is_chemistry_query(clean_message, answer.get("answer", "")))
 
-    # Persist message to user's conversation session with temporary state flag
+    # Persist message to user's conversation session with temporary state flag and image references
     curr_msgs = list(conv.messages or [])
     if not curr_msgs or conv.title == "New Conversation":
         conv.title = clean_message[:40] + ("…" if len(clean_message) > 40 else "")
 
     is_temp = bool(request.incognito)
-    user_msg_entry = {"role": "user", "text": clean_message, "meta": ""}
+    user_msg_entry = {
+        "role": "user",
+        "text": clean_message,
+        "image_url": image_url_to_save,
+        "meta": ""
+    }
     assistant_msg_entry = {
         "role": "assistant",
         "text": answer["answer"],
         "meta": str(total_ms),
         "sources": answer["sources"],
+        "image_url": answer.get("image_url"),
         "is_chemistry": is_chem,
         "research_trace": answer.get("research_trace"),
     }
@@ -1028,6 +1119,7 @@ async def chat(
 
     return {
         **answer,
+        "image_url": image_url_to_save or answer.get("image_url"),
         "is_chemistry": is_chem,
         "conversation_id": conv.id,
         "latency_ms": total_ms,

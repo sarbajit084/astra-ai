@@ -3697,6 +3697,9 @@
   if ($('composerHomeCameraBtn')) {
     $('composerHomeCameraBtn').onclick = openCameraModal;
   }
+  if ($('composerHomeRightCameraBtn')) {
+    $('composerHomeRightCameraBtn').onclick = openCameraModal;
+  }
   if ($('closeCameraModal')) {
     $('closeCameraModal').onclick = closeCameraModal;
   }

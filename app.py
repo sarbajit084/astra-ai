@@ -387,10 +387,10 @@ def normalize_phone(val: str | None) -> str:
     Normalizes phone numbers across India (+91) and international formats consistently.
     Handles spaces, hyphens, parentheses, leading/trailing whitespace, and prefixes.
     Examples:
-      '9531711863' -> '+919531711863'
-      '+91 95317 11863' -> '+919531711863'
-      '+91-95317-11863' -> '+919531711863'
-      '09531711863' -> '+919531711863'
+      '9876543210' -> '+919876543210'
+      '+91 98765 43210' -> '+919876543210'
+      '+91-98765-43210' -> '+919876543210'
+      '09876543210' -> '+919876543210'
       '+1 (555) 019-9234' -> '+15550199234'
     """
     if not val:

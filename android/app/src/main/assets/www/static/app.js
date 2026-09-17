@@ -85,6 +85,93 @@
     setTimeout(() => node.classList.add('hidden'), 4200);
   };
 
+  let tokenStatus = {
+    is_logged_in: false,
+    daily_limit: 5,
+    tokens_used: 0,
+    tokens_remaining: 5,
+    out_of_tokens: false,
+    reset_seconds: 86400,
+  };
+
+  const updateTokenDisplay = (status) => {
+    if (!status) return;
+    tokenStatus = { ...tokenStatus, ...status };
+
+    const badge = $('tokenBadge');
+    const badgeText = $('tokenBadgeText');
+    const banner = $('outOfTokensBanner');
+    const bannerTitle = $('outOfTokensTitle');
+    const bannerMsg = $('outOfTokensMsg');
+    const bannerBtn = $('outOfTokensActionBtn');
+    const composerCard = document.querySelector('.composer-floating-card');
+    const sendBtn = $('sendButton');
+    const homeSendBtn = $('composerHomeSendBtn');
+    const msgInput = $('message');
+
+    const remaining = typeof tokenStatus.tokens_remaining === 'number' ? tokenStatus.tokens_remaining : 0;
+    const limit = typeof tokenStatus.daily_limit === 'number' ? tokenStatus.daily_limit : (tokenStatus.is_logged_in ? 20 : 5);
+    const isOutOfTokens = Boolean(tokenStatus.out_of_tokens || remaining <= 0);
+
+    if (badgeText) {
+      badgeText.textContent = `${remaining}/${limit} tokens`;
+    }
+    if (badge) {
+      badge.classList.remove('low', 'empty');
+      if (isOutOfTokens) {
+        badge.classList.add('empty');
+      } else if (remaining <= 2) {
+        badge.classList.add('low');
+      }
+    }
+
+    if (banner) {
+      if (isOutOfTokens) {
+        banner.classList.remove('hidden');
+        if (!tokenStatus.is_logged_in) {
+          if (bannerTitle) bannerTitle.textContent = 'Out of tokens';
+          if (bannerMsg) bannerMsg.textContent = 'You have used all 5 free guest tokens for today. Log in to get 20 tokens per day!';
+          if (bannerBtn) {
+            bannerBtn.classList.remove('hidden');
+            bannerBtn.textContent = 'Log In for 20 Tokens';
+            bannerBtn.onclick = () => {
+              if ($('authModal')) $('authModal').classList.remove('hidden');
+            };
+          }
+        } else {
+          if (bannerTitle) bannerTitle.textContent = 'Out of tokens';
+          const hrs = Math.max(1, Math.ceil((tokenStatus.reset_seconds || 86400) / 3600));
+          if (bannerMsg) bannerMsg.textContent = `You have used all 20 tokens for today. Resets in approximately ${hrs} hour${hrs === 1 ? '' : 's'}.`;
+          if (bannerBtn) bannerBtn.classList.add('hidden');
+        }
+
+        if (composerCard) composerCard.classList.add('out-of-tokens');
+        if (msgInput) msgInput.placeholder = 'Out of tokens for today';
+        if (sendBtn) sendBtn.disabled = true;
+        if (homeSendBtn) homeSendBtn.disabled = true;
+      } else {
+        banner.classList.add('hidden');
+        if (composerCard) composerCard.classList.remove('out-of-tokens');
+        if (msgInput && msgInput.placeholder === 'Out of tokens for today') {
+          msgInput.placeholder = 'Type here';
+        }
+        if (sendBtn) sendBtn.disabled = false;
+        if (homeSendBtn) homeSendBtn.disabled = false;
+      }
+    }
+  };
+
+  const fetchTokenStatus = async () => {
+    try {
+      const data = await api('/api/tokens/status');
+      if (data && typeof data.tokens_remaining !== 'undefined') {
+        updateTokenDisplay(data);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch token status:', e);
+    }
+  };
+
   const escapeHtml = (text) =>
     String(text || '').replace(/[&<>"']/g, (x) => ({
       '&': '&amp;',
@@ -2407,6 +2494,12 @@
     }
     if (!message && !curAttached) return;
 
+    if (tokenStatus && (tokenStatus.out_of_tokens || tokenStatus.tokens_remaining <= 0)) {
+      updateTokenDisplay(tokenStatus);
+      toast('Out of tokens. You have reached your daily limit.', true);
+      return;
+    }
+
     if (curAttached) {
       clearComposerAttachedImage();
     }
@@ -2510,11 +2603,31 @@
         isIncognito
       );
 
+      // Update remaining tokens from response
+      if (data.token_status) {
+        updateTokenDisplay(data.token_status);
+      } else if (typeof data.tokens_remaining !== 'undefined') {
+        updateTokenDisplay({
+          tokens_remaining: data.tokens_remaining,
+          daily_limit: data.daily_limit,
+          out_of_tokens: data.tokens_remaining <= 0,
+        });
+      }
+
     } catch (err) {
       console.error('sendMessage error:', err);
       if (pending) pending.remove();
+      const isLimit = err && (err.message.includes('Out of tokens') || err.message.includes('429'));
+      if (isLimit) {
+        updateTokenDisplay({
+          out_of_tokens: true,
+          tokens_remaining: 0,
+        });
+        toast('Out of tokens', true);
+      } else {
+        toast(err.message, true);
+      }
       addMessage('assistant', `Error: ${err.message}`, '', [], true, false, null, isIncognito);
-      toast(err.message, true);
     } finally {
       isSending = false;
       if (sendBtn) sendBtn.disabled = false;
@@ -2866,6 +2979,7 @@
         updateAuthUI();
         refreshDocuments();
         refreshConversations(true);
+        fetchTokenStatus();
       } catch (err) {
         toast(err.message, true);
         loadMathChallenge('login');
@@ -2939,6 +3053,7 @@
         updateAuthUI();
         refreshDocuments();
         refreshConversations(true);
+        fetchTokenStatus();
       } catch (err) {
         toast(err.message, true);
         loadMathChallenge('signup');
@@ -4055,6 +4170,7 @@
       // 8. Reset auth UI badges and state to guest
       authMode = 'login';
       updateAuthUI();
+      fetchTokenStatus();
       loadMathChallenge('login');
       toast('Signed out. Every field and session has been cleared.');
     };
@@ -4175,6 +4291,11 @@
         if (user) localStorage.setItem('aster_user', JSON.stringify(user));
         updateAuthUI();
         refreshConversations(true);
+        if (data && data.tokens) {
+          updateTokenDisplay(data.tokens);
+        } else {
+          fetchTokenStatus();
+        }
       })
       .catch((err) => {
         // ONLY clear token if the server explicitly reported an unauthorized / invalid auth error
@@ -4194,15 +4315,18 @@
           localStorage.removeItem('aster_username');
           localStorage.removeItem('aster_user');
           updateAuthUI();
+          fetchTokenStatus();
         } else {
           // Keep the existing session intact and attempt conversation loading
           console.warn('Network issue verifying auth status, retaining cached session:', err);
           updateAuthUI();
           refreshConversations(true);
+          fetchTokenStatus();
         }
       });
   } else {
     updateAuthUI();
+    fetchTokenStatus();
   }
 
   // Support automated test execution via URL parameter

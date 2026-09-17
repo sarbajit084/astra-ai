@@ -144,6 +144,28 @@ class QueryEvent(Base):
         }
 
 
+class DailyUsage(Base):
+    __tablename__ = "daily_usage"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    identifier: Mapped[str] = mapped_column(String(128), index=True)
+    usage_date: Mapped[str] = mapped_column(String(10), index=True)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("ix_daily_usage_id_date", "identifier", "usage_date", unique=True),
+    )
+
+    def public(self) -> dict:
+        return {
+            "id": self.id,
+            "identifier": self.identifier,
+            "usage_date": self.usage_date,
+            "tokens_used": self.tokens_used,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else "",
+        }
+
+
 def initialize_database() -> None:
     Base.metadata.create_all(bind=engine)
     # Ensure any missing columns from older SQLite database versions are gracefully migrated

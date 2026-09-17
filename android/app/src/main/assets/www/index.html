@@ -187,6 +187,10 @@
             <span class="dot"></span>
             <span id="statusText" style="display:none;">Ready</span>
           </div>
+          <div id="tokenBadge" class="token-quota-badge" title="Daily tokens remaining">
+            <span class="token-badge-icon">⚡</span>
+            <span id="tokenBadgeText">Tokens: Loading...</span>
+          </div>
         </div>
 
         <!-- Central Container -->
@@ -200,6 +204,18 @@
 
           <!-- Messages Stream (when active conversations happen) -->
           <section id="messages" class="messages-stream" aria-live="polite"></section>
+
+          <!-- Out of Tokens Main Page Alert Card -->
+          <div id="outOfTokensBanner" class="out-of-tokens-card hidden" role="alert">
+            <div class="out-of-tokens-content">
+              <div class="out-of-tokens-badge-icon">⚡</div>
+              <div class="out-of-tokens-details">
+                <strong id="outOfTokensTitle" class="out-of-tokens-title">Out of Tokens</strong>
+                <p id="outOfTokensMsg" class="out-of-tokens-msg">You have used all your tokens for today.</p>
+              </div>
+              <button type="button" id="outOfTokensActionBtn" class="out-of-tokens-btn hidden">Log In for 20 Tokens</button>
+            </div>
+          </div>
 
           <!-- Floating Composer Card (100% Matching Mockup) -->
           <form id="chatForm" class="composer-outer-form">

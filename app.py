@@ -55,7 +55,7 @@ from auth import (
     verify_password,
 )
 from config import BUNDLE_DIR, settings
-from database import Conversation, Document, QueryEvent, User, UserPreference, get_db, initialize_database
+from database import Conversation, DailyUsage, Document, QueryEvent, User, UserPreference, get_db, initialize_database
 from rag_engine import ProductionRAGService, is_chemistry_query
 
 logging.basicConfig(
@@ -300,6 +300,92 @@ def owned_document(db: Session, document_id: str, user_id: str) -> Document:
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     return document
+
+
+def get_user_token_status(user: User, client_ip: str, db: Session) -> dict:
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    is_logged_in = bool(user and user.role != "guest")
+    daily_limit = 20 if is_logged_in else 5
+
+    now_utc = datetime.now(timezone.utc)
+    tomorrow_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=timezone.utc) + timedelta(days=1)
+    reset_seconds = max(0, int((tomorrow_utc - now_utc).total_seconds()))
+
+    if is_logged_in:
+        ident = f"user:{user.id}"
+        record = db.scalar(select(DailyUsage).where(DailyUsage.identifier == ident, DailyUsage.usage_date == today_str))
+        used = record.tokens_used if record else 0
+    else:
+        ident_u = f"guest_user:{user.id}" if user else "guest_unknown"
+        ident_ip = f"guest_ip:{client_ip}"
+        rec_u = db.scalar(select(DailyUsage).where(DailyUsage.identifier == ident_u, DailyUsage.usage_date == today_str))
+        rec_ip = db.scalar(select(DailyUsage).where(DailyUsage.identifier == ident_ip, DailyUsage.usage_date == today_str))
+        used_u = rec_u.tokens_used if rec_u else 0
+        used_ip = rec_ip.tokens_used if rec_ip else 0
+        used = max(used_u, used_ip)
+
+    remaining = max(0, daily_limit - used)
+    out_of_tokens = used >= daily_limit
+
+    return {
+        "is_logged_in": is_logged_in,
+        "daily_limit": daily_limit,
+        "tokens_used": used,
+        "tokens_remaining": remaining,
+        "out_of_tokens": out_of_tokens,
+        "reset_seconds": reset_seconds,
+    }
+
+
+def consume_user_token(user: User, client_ip: str, db: Session) -> dict:
+    status = get_user_token_status(user, client_ip, db)
+    if status["out_of_tokens"]:
+        msg = (
+            "Out of tokens. You have used all 20 tokens for today."
+            if status["is_logged_in"]
+            else "Out of tokens. You have used all 5 free guest tokens for today. Please log in to get 20 tokens per day."
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=msg,
+        )
+
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    is_logged_in = status["is_logged_in"]
+
+    if is_logged_in:
+        ident = f"user:{user.id}"
+        rec = db.scalar(select(DailyUsage).where(DailyUsage.identifier == ident, DailyUsage.usage_date == today_str))
+        if not rec:
+            rec = DailyUsage(identifier=ident, usage_date=today_str, tokens_used=1)
+            db.add(rec)
+        else:
+            rec.tokens_used += 1
+            rec.updated_at = datetime.now(timezone.utc)
+    else:
+        ident_u = f"guest_user:{user.id}"
+        ident_ip = f"guest_ip:{client_ip}"
+        for ident in (ident_u, ident_ip):
+            rec = db.scalar(select(DailyUsage).where(DailyUsage.identifier == ident, DailyUsage.usage_date == today_str))
+            if not rec:
+                rec = DailyUsage(identifier=ident, usage_date=today_str, tokens_used=1)
+                db.add(rec)
+            else:
+                rec.tokens_used += 1
+                rec.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    return get_user_token_status(user, client_ip, db)
+
+
+@app.get("/api/tokens/status")
+def get_tokens_status(
+    request: Request,
+    user: User = Depends(get_optional_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    client_ip = request.client.host if request.client else "unknown"
+    return get_user_token_status(user, client_ip, db)
 
 
 @app.get("/", response_class=FileResponse)
@@ -782,14 +868,21 @@ def logout_user(
 
 
 @app.get("/api/auth/me")
-def me(user: User = Depends(get_current_user)) -> dict:
+def me(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
     displayName = user.username or user.email.split("@")[0]
+    client_ip = request.client.host if request.client else "unknown"
+    tokens = get_user_token_status(user, client_ip, db)
     return {
         "id": user.id,
         "email": user.email,
         "username": displayName,
         "phone": user.phone or "",
         "role": user.role,
+        "tokens": tokens,
     }
 
 
@@ -1037,10 +1130,26 @@ async def upload_chat_image(
 @app.post("/api/chat")
 async def chat(
     request: ChatRequest,
+    req: Request,
     user: User = Depends(get_optional_user),
     db: Session = Depends(get_db),
 ) -> dict:
     started = time.perf_counter()
+    client_ip = req.client.host if req.client else "unknown"
+
+    # Pre-check token availability before heavy inference
+    current_status = get_user_token_status(user, client_ip, db)
+    if current_status["out_of_tokens"]:
+        msg = (
+            "Out of tokens. You have used all 20 tokens for today."
+            if current_status["is_logged_in"]
+            else "Out of tokens. You have used all 5 free guest tokens for today. Please log in to get 20 tokens per day."
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=msg,
+        )
+
     if request.selected_doc_id:
         allowed = db.scalar(
             select(Document.id).where(Document.id == request.selected_doc_id, Document.owner_id == user.id)
@@ -1178,6 +1287,8 @@ async def chat(
 
     db.commit()
 
+    token_status = consume_user_token(user, client_ip, db)
+
     return {
         **answer,
         "image_url": image_url_to_save or answer.get("image_url"),
@@ -1185,6 +1296,9 @@ async def chat(
         "conversation_id": conv.id,
         "latency_ms": total_ms,
         "timings_ms": timings,
+        "token_status": token_status,
+        "tokens_remaining": token_status["tokens_remaining"],
+        "daily_limit": token_status["daily_limit"],
     }
 
 

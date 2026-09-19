@@ -3854,15 +3854,9 @@
     reader.readAsDataURL(file);
   }
 
-  // Camera Buttons Event Listeners
+  // Camera Button Event Listener (inside textbox)
   if ($('composerCameraBtn')) {
     $('composerCameraBtn').onclick = openCameraModal;
-  }
-  if ($('composerHomeCameraBtn')) {
-    $('composerHomeCameraBtn').onclick = openCameraModal;
-  }
-  if ($('composerHomeRightCameraBtn')) {
-    $('composerHomeRightCameraBtn').onclick = openCameraModal;
   }
   if ($('closeCameraModal')) {
     $('closeCameraModal').onclick = closeCameraModal;

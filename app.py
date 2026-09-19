@@ -390,7 +390,14 @@ def get_tokens_status(
 
 @app.get("/", response_class=FileResponse)
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @app.get("/robots.txt", response_class=PlainTextResponse)

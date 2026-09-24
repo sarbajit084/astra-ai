@@ -65,14 +65,14 @@ class TokenLimiterTestSuite(unittest.TestCase):
         self.assertEqual(data_after["tokens_remaining"], 0)
         self.assertTrue(data_after["out_of_tokens"])
 
-        # Attempt to chat when out of tokens: must return HTTP 429 with 'Out of tokens'
+        # Attempt to chat when out of tokens: must return HTTP 429 with 'Daily message limit hit'
         chat_req = {
             "message": "Testing guest limit exhaustion",
             "stream": False
         }
         r_chat = self.client.post("/api/chat", headers=headers, json=chat_req)
         self.assertEqual(r_chat.status_code, 429)
-        self.assertIn("Out of tokens", r_chat.json().get("detail", ""))
+        self.assertIn("Daily message limit hit", r_chat.json().get("detail", ""))
 
     def test_02_registered_user_limit_20(self):
         uid = uuid.uuid4().hex[:8]
@@ -136,7 +136,7 @@ class TokenLimiterTestSuite(unittest.TestCase):
         }
         r_chat = self.client.post("/api/chat", headers=headers, json=chat_req)
         self.assertEqual(r_chat.status_code, 429)
-        self.assertIn("Out of tokens", r_chat.json().get("detail", ""))
+        self.assertIn("Daily message limit hit", r_chat.json().get("detail", ""))
 
 if __name__ == "__main__":
     unittest.main()

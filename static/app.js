@@ -117,7 +117,7 @@
     const isOutOfTokens = Boolean(tokenStatus.out_of_tokens || remaining <= 0);
 
     if (badgeText) {
-      badgeText.textContent = `${remaining}/${limit} messages`;
+      badgeText.textContent = `${remaining}/${limit} tokens`;
     }
     if (badge) {
       badge.classList.remove('low', 'empty');
@@ -132,30 +132,30 @@
       if (isOutOfTokens) {
         banner.classList.remove('hidden');
         if (!tokenStatus.is_logged_in) {
-          if (bannerTitle) bannerTitle.textContent = 'Daily message limit hit';
-          if (bannerMsg) bannerMsg.textContent = 'You have used all 5 free guest messages for today. Log in to get 20 messages per day!';
+          if (bannerTitle) bannerTitle.textContent = 'Out of tokens';
+          if (bannerMsg) bannerMsg.textContent = 'You have used all 5 free guest tokens for today. Log in to get 20 tokens per day!';
           if (bannerBtn) {
             bannerBtn.classList.remove('hidden');
-            bannerBtn.textContent = 'Log In for 20 Messages';
+            bannerBtn.textContent = 'Log In for 20 Tokens';
             bannerBtn.onclick = () => {
               if ($('authModal')) $('authModal').classList.remove('hidden');
             };
           }
         } else {
-          if (bannerTitle) bannerTitle.textContent = 'Daily message limit hit';
+          if (bannerTitle) bannerTitle.textContent = 'Out of tokens';
           const hrs = Math.max(1, Math.ceil((tokenStatus.reset_seconds || 86400) / 3600));
-          if (bannerMsg) bannerMsg.textContent = `You have used all 20 messages for today. Resets in approximately ${hrs} hour${hrs === 1 ? '' : 's'}.`;
+          if (bannerMsg) bannerMsg.textContent = `You have used all 20 tokens for today. Resets in approximately ${hrs} hour${hrs === 1 ? '' : 's'}.`;
           if (bannerBtn) bannerBtn.classList.add('hidden');
         }
 
         if (composerCard) composerCard.classList.add('out-of-tokens');
-        if (msgInput) msgInput.placeholder = 'Daily message limit hit';
+        if (msgInput) msgInput.placeholder = 'Out of tokens for today';
         if (sendBtn) sendBtn.disabled = true;
         if (homeSendBtn) homeSendBtn.disabled = true;
       } else {
         banner.classList.add('hidden');
         if (composerCard) composerCard.classList.remove('out-of-tokens');
-        if (msgInput && (msgInput.placeholder === 'Daily message limit hit' || msgInput.placeholder === 'Out of tokens for today')) {
+        if (msgInput && msgInput.placeholder === 'Out of tokens for today') {
           msgInput.placeholder = 'Type here';
         }
         if (sendBtn) sendBtn.disabled = false;
@@ -429,19 +429,20 @@
           <div class="chat-image-wrapper" onclick="window.open('${cleanSrc}', '_blank')">
             <img src="${cleanSrc}" alt="${cleanAlt}" class="chat-image-preview" loading="lazy" />
             <div class="chat-image-overlay">
-              <span class="chat-image-overlay-text"><i class="ph ph-arrows-out-simple"></i> Click to expand full resolution</span>
+              <span class="chat-image-overlay-text">🔍 Click to expand full resolution</span>
             </div>
           </div>
           <div class="chat-image-footer">
             <div class="chat-image-badge">
+              <span>✨</span>
               <span>1024×1024 Flux.1</span>
             </div>
             <div class="chat-image-actions">
               <a href="${cleanSrc}" download="aster_artwork.jpg" target="_blank" class="chat-image-action-btn" onclick="event.stopPropagation()">
-                <i class="ph ph-download-simple"></i> Download
+                ⬇️ Download
               </a>
               <a href="${cleanSrc}" target="_blank" class="chat-image-action-btn" onclick="event.stopPropagation()">
-                <i class="ph ph-arrow-square-out"></i> Open Full
+                🔍 Open Full
               </a>
             </div>
           </div>
@@ -455,15 +456,6 @@
       if (rows.length < 2) return tableBlock;
       const headerCells = rows[0].split('|').slice(1, -1).map((c) => c.trim());
       const dataRows = rows.slice(2);
-      if (dataRows.length === 0) {
-        return `
-          <div class="empty-state empty-state-table">
-            <h4 class="empty-state-heading">No data entries</h4>
-            <p class="empty-state-desc">This table does not contain any data records.</p>
-            <button type="button" class="empty-state-btn" onclick="this.closest('.empty-state-table').remove()">Dismiss</button>
-          </div>
-        `;
-      }
       const thHtml = headerCells.map((h) => `<th>${h}</th>`).join('');
       const trHtml = dataRows.map((r) => {
         const cells = r.split('|').slice(1, -1).map((c) => `<td>${c.trim()}</td>`).join('');
@@ -572,19 +564,19 @@
           <div class="interactive-3d-card" id="${w.id}" data-spec="${rawJson}">
             <div class="interactive-3d-header">
               <div class="interactive-3d-meta">
-                <span class="interactive-3d-badge"><i class="ph ph-cube"></i> 3D WebGL</span>
+                <span class="interactive-3d-badge">✦ 3D WebGL</span>
                 <span class="interactive-3d-title">${title}</span>
               </div>
               <div class="interactive-3d-controls">
-                <button type="button" class="ctrl-btn-3d btn-rotate" title="Toggle Auto-Rotation"><i class="ph ph-arrows-clockwise"></i> Rotate</button>
-                <button type="button" class="ctrl-btn-3d btn-wireframe" title="Toggle Wireframe"><i class="ph ph-globe"></i> Wireframe</button>
-                <button type="button" class="ctrl-btn-3d btn-reset" title="Reset View"><i class="ph ph-arrow-counter-clockwise"></i> Reset</button>
-                <button type="button" class="ctrl-btn-3d btn-fullscreen" title="Toggle Fullscreen"><i class="ph ph-corners-out"></i> Full</button>
+                <button type="button" class="ctrl-btn-3d btn-rotate" title="Toggle Auto-Rotation">🔄 Rotate</button>
+                <button type="button" class="ctrl-btn-3d btn-wireframe" title="Toggle Wireframe">🌐 Wireframe</button>
+                <button type="button" class="ctrl-btn-3d btn-reset" title="Reset View">↺ Reset</button>
+                <button type="button" class="ctrl-btn-3d btn-fullscreen" title="Toggle Fullscreen">⛶ Full</button>
               </div>
             </div>
             <div class="interactive-3d-viewport">
               <canvas class="interactive-3d-canvas"></canvas>
-              <div class="interactive-3d-hint">Left Drag: Orbit · Right Drag: Pan · Scroll: Zoom</div>
+              <div class="interactive-3d-hint">🖱️ Left Drag: Orbit · Right Drag: Pan · Scroll: Zoom</div>
             </div>
             ${desc}
           </div>
@@ -603,10 +595,10 @@
           <div class="interactive-chart-card" id="${w.id}" data-spec="${rawJson}">
             <div class="interactive-chart-header">
               <div class="interactive-chart-meta">
-                <span class="interactive-chart-badge"><i class="ph ph-chart-bar"></i> Chart</span>
+                <span class="interactive-chart-badge">📊 Chart</span>
                 <span class="interactive-chart-title">${title}</span>
               </div>
-              <button type="button" class="chart-download-btn" title="Download Chart as PNG"><i class="ph ph-download-simple"></i> PNG</button>
+              <button type="button" class="chart-download-btn" title="Download Chart as PNG">⬇️ PNG</button>
             </div>
             <div class="interactive-chart-body">
               <canvas class="interactive-chart-canvas"></canvas>
@@ -617,7 +609,7 @@
         widgetHtml = `
           <div class="interactive-mermaid-card" id="${w.id}">
             <div class="interactive-mermaid-header">
-              <span class="interactive-mermaid-badge"><i class="ph ph-tree-structure"></i> Architecture &amp; Logic Diagram</span>
+              <span class="interactive-mermaid-badge">🔷 Architecture & Logic Diagram</span>
             </div>
             <div class="mermaid">${escapeHtml(w.code)}</div>
           </div>
@@ -651,11 +643,18 @@
               </div>
               <div class="code-editor-actions">
                 <button type="button" class="copy-code-btn" title="Copy code">
-                  <i class="ph ph-copy"></i>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
                   <span class="copy-btn-label">Copy code</span>
                 </button>
                 <button type="button" class="download-code-btn" title="Download code file" data-lang="${escapeHtml(rawLang)}">
-                  <i class="ph ph-download-simple"></i>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
                   <span class="download-btn-label">Download</span>
                 </button>
                 <button type="button" class="live-demo-btn" title="Live Demo">Live Demo</button>
@@ -667,7 +666,7 @@
             <div class="code-run-drawer hidden">
               <div class="code-run-drawer-header">
                 <span>Console Output</span>
-                <button type="button" class="close-run-btn" title="Close Console"><i class="ph ph-x"></i></button>
+                <button type="button" class="close-run-btn" title="Close Console">✕</button>
               </div>
               <pre class="code-run-terminal"></pre>
             </div>
@@ -822,8 +821,8 @@
   function setEngineMode(mode) {
     activeEngineMode = mode;
     updateEngineModeUI();
-    const label = mode === 'code' ? 'Code Mode' : 'General Mode';
-    toast(`${label} active`);
+    const label = mode === 'code' ? '💻 Code Mode' : '✨ General Mode';
+    toast(`✓ ${label} Active`);
   }
 
   function updateEngineModeUI() {
@@ -856,7 +855,7 @@
     if (quickRow) quickRow.classList.toggle('active', !isDetailedMode);
     if (extRow) extRow.classList.toggle('active', isDetailedMode);
 
-    toast(isDetailedMode ? 'Extended mode active: detailed answers.' : 'Quick mode active: concise answers.');
+    toast(isDetailedMode ? '⚡ Extended Mode Active: Detailed and deep answers.' : '✨ Quick Mode Active: Concise and fast answers.');
   }
 
   function toggleDetailedMode() {
@@ -893,7 +892,7 @@
         'top:8px',
         'left:12px',
         'z-index:20',
-        'border-radius:var(--radius, 6px)',
+        'border-radius:8px',
         'padding:4px 10px',
         'font-size:11px',
         'font-weight:500',
@@ -901,7 +900,7 @@
         'pointer-events:none',
         'white-space:nowrap',
       ].join(';');
-      banner.textContent = 'Temporary mode activated';
+      banner.textContent = '🕶️ Temporary mode activated';
       // Attach inside #centerStage so it floats inside the chat area
       const stage = $('centerStage');
       if (stage) {
@@ -954,7 +953,7 @@
       // 5. Show banner
       banner.style.display = 'block';
 
-      toast('Temporary chat active — messages will not be saved.');
+      toast('🕶️ Temporary Chat active — messages will not be saved.');
     } else {
       // ── DEACTIVATING TEMPORARY CHAT (RESTORE PUBLIC CHAT) ──────────────────
       // 1. Remove all temporary messages from DOM
@@ -1071,15 +1070,7 @@
       $('documentSelect').innerHTML = optionsHtml;
 
       if (!data.documents.length) {
-        $('documentList').innerHTML = `
-          <div class="empty-state">
-            <h4 class="empty-state-heading">No documents</h4>
-            <p class="empty-state-desc">Upload documents to query your knowledge base.</p>
-            <button type="button" class="empty-state-btn" id="emptyDocUploadBtn">Upload document</button>
-          </div>
-        `;
-        const emptyDocBtn = $('emptyDocUploadBtn');
-        if (emptyDocBtn) emptyDocBtn.onclick = () => $('fileInput')?.click();
+        $('documentList').innerHTML = '<p class="muted-box-msg">No documents uploaded yet</p>';
         updateComposerDocTag(null, null);
         return;
       }
@@ -1094,7 +1085,7 @@
             <strong>${escapeHtml(d.name)}</strong>
             <small>${d.chunks_count} chunks · ${escapeHtml(d.status)}</small>
           </div>
-          <button class="doc-delete-btn" data-delete="${d.id}" data-doc-name="${escapeHtml(d.name)}" title="Delete document"><i class="ph ph-trash"></i></button>
+          <button data-delete="${d.id}" data-doc-name="${escapeHtml(d.name)}" title="Delete document">×</button>
         </div>`
         )
         .join('');
@@ -1217,7 +1208,7 @@
         const setCopied = () => {
           btn.classList.add('copied');
           label.textContent = 'Copied!';
-          toast('Code copied to clipboard');
+          toast('✓ Code copied to clipboard');
           setTimeout(() => {
             btn.classList.remove('copied');
             label.textContent = origText;
@@ -1875,7 +1866,7 @@
             const sunChip = document.createElement('button');
             sunChip.type = 'button';
             sunChip.className = 'solar-planet-chip active';
-            sunChip.innerHTML = 'Sun';
+            sunChip.innerHTML = '☀️ Sun';
             topBar.appendChild(sunChip);
 
             const chips = [sunChip];
@@ -1924,7 +1915,7 @@
 
             // Default HUD state: Sun & Solar System overview
             updateHud(
-              'The Solar System',
+              '☀️ The Solar System',
               '0 km (Center)',
               '~230M Years (Milky Way)',
               '1,392,700 km',
@@ -1938,7 +1929,7 @@
               { label: '1x', val: 1.0 },
               { label: '5x', val: 5.0 },
               { label: '20x', val: 20.0 },
-              { label: 'Pause', val: 0.0 },
+              { label: '⏸', val: 0.0 },
             ];
             speeds.forEach((s, sIdx) => {
               const sBtn = document.createElement('button');
@@ -1967,7 +1958,7 @@
               }
               camera.position.set(0, 32, 58);
               updateHud(
-                'The Solar System',
+                '☀️ The Solar System',
                 '0 km (Center)',
                 '~230M Years (Milky Way)',
                 '1,392,700 km',
@@ -2229,7 +2220,7 @@
         if (btnFull) {
           btnFull.onclick = () => {
             const isFull = card.classList.toggle('fullscreen-3d');
-            btnFull.textContent = isFull ? 'Exit' : 'Full';
+            btnFull.textContent = isFull ? '✕ Exit' : '⛶ Full';
             setTimeout(handleResize, 100);
           };
         }
@@ -2300,7 +2291,7 @@
 
       const sourcesHtml = (sources && sources.length) ? `
         <div class="message-sources" style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px;">
-          ${sources.map((s) => `<span class="source-chip" style="font-size: 11px; padding: 3px 8px; border-radius: var(--radius);"><i class="ph ph-file-text"></i> ${escapeHtml(s.title || s.label || s.name || 'Source')}</span>`).join('')}
+          ${sources.map((s) => `<span class="source-chip" style="font-size: 11px; background: rgba(0,0,0,0.06); padding: 3px 8px; border-radius: 8px;">📄 ${escapeHtml(s.title || s.label || s.name || 'Source')}</span>`).join('')}
         </div>
       ` : '';
 
@@ -2314,10 +2305,10 @@
             <div class="assistant-meta-row">
               ${latencyHtml}
               <button type="button" class="action-icon-btn copy-msg-btn" title="Copy response">
-                <i class="ph ph-copy"></i>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
               </button>
               <button type="button" class="action-icon-btn share-msg-btn" title="Share response">
-                <i class="ph ph-share-network"></i>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
               </button>
             </div>
             ${sourcesHtml}
@@ -2382,15 +2373,7 @@
       if (!list) return;
 
       if (!data.conversations || !data.conversations.length) {
-        list.innerHTML = `
-          <div class="empty-state">
-            <h4 class="empty-state-heading">No conversations</h4>
-            <p class="empty-state-desc">Your chat history will appear here once you begin a conversation.</p>
-            <button type="button" class="empty-state-btn" id="emptyConvNewChatBtn">Start conversation</button>
-          </div>
-        `;
-        const emptyBtn = $('emptyConvNewChatBtn');
-        if (emptyBtn) emptyBtn.onclick = () => $('newChat')?.click();
+        list.innerHTML = '<p class="muted-box-msg">No conversations yet</p>';
         currentConversationId = '';
         localStorage.removeItem('aster_active_conv_id');
         return;
@@ -2409,7 +2392,7 @@
         .map((c) => `
           <div class="conv-item ${c.id === currentConversationId ? 'active' : ''}" data-conv-id="${c.id}">
             <span title="${escapeHtml(c.title)}">${escapeHtml(c.title)}</span>
-            <button class="conv-delete-btn" data-delete-conv="${c.id}" title="Delete conversation"><i class="ph ph-trash"></i></button>
+            <button class="conv-delete-btn" data-delete-conv="${c.id}" title="Delete conversation">×</button>
           </div>
         `)
         .join('');
@@ -2531,7 +2514,7 @@
 
     if (tokenStatus && (tokenStatus.out_of_tokens || tokenStatus.tokens_remaining <= 0)) {
       updateTokenDisplay(tokenStatus);
-      toast('Daily message limit hit. You have reached your daily limit.', true);
+      toast('Out of tokens. You have reached your daily limit.', true);
       return;
     }
 
@@ -2683,13 +2666,13 @@
         currentConversationId = '';
         localStorage.removeItem('aster_active_conv_id');
       }
-      const isLimit = err && (err.message.includes('Daily message limit hit') || err.message.includes('Out of tokens') || err.message.includes('429'));
+      const isLimit = err && (err.message.includes('Out of tokens') || err.message.includes('429'));
       if (isLimit) {
         updateTokenDisplay({
           out_of_tokens: true,
           tokens_remaining: 0,
         });
-        toast('Daily message limit hit', true);
+        toast('Out of tokens', true);
       } else {
         toast(err.message, true);
       }
@@ -2717,7 +2700,7 @@
         toast(`Uploading & indexing ${file.name}…`);
         const res = await api('/api/upload', { method: 'POST', body: form });
         const count = res.document?.chunks_count || 'multiple';
-        toast(`Indexing completed: ${file.name} (${count} chunks)`);
+        toast(`✓ ${file.name} indexed successfully (${count} chunks)`);
         if (res.document) {
           lastUploadedDoc = res.document;
         }
@@ -2813,7 +2796,7 @@
       if (mode === 'login' || mode === 'all') {
         currentLoginChallenge = challenge;
         if ($('loginMathQuestion')) {
-          $('loginMathQuestion').textContent = `${challenge.num1} ${challenge.operation} ${challenge.num2} = ?`;
+          $('loginMathQuestion').innerHTML = `<span style="color:#f472b6;">${challenge.num1}</span> <span style="color:#f97316;">${challenge.operation}</span> <span style="color:#f472b6;">${challenge.num2}</span> = ?`;
         }
         if ($('loginMathAnswer')) {
           $('loginMathAnswer').value = ''; // NEVER pre-fill! Manual user calculation required.
@@ -2822,7 +2805,7 @@
       if (mode === 'signup' || mode === 'all') {
         currentSignupChallenge = challenge;
         if ($('signupMathQuestion')) {
-          $('signupMathQuestion').textContent = `${challenge.num1} ${challenge.operation} ${challenge.num2} = ?`;
+          $('signupMathQuestion').innerHTML = `<span style="color:#f472b6;">${challenge.num1}</span> <span style="color:#f97316;">${challenge.operation}</span> <span style="color:#f472b6;">${challenge.num2}</span> = ?`;
         }
         if ($('signupMathAnswer')) $('signupMathAnswer').value = '';
       }
@@ -2836,7 +2819,7 @@
       const challenge = await api('/api/auth/challenge');
       currentForgotChallenge = challenge;
       if ($('forgotMathQuestion')) {
-        $('forgotMathQuestion').textContent = `${challenge.num1} ${challenge.operation} ${challenge.num2} = ?`;
+        $('forgotMathQuestion').innerHTML = `<span style="color:#f472b6;">${challenge.num1}</span> <span style="color:#f97316;">${challenge.operation}</span> <span style="color:#f472b6;">${challenge.num2}</span> = ?`;
       }
       if ($('forgotMathAnswer')) $('forgotMathAnswer').value = '';
     } catch (err) {
@@ -2974,7 +2957,7 @@
           }),
         });
 
-        toast(res.message || 'Password reset successfully.');
+        toast('✓ ' + (res.message || 'Password reset successfully!'));
         if ($('forgotPasswordModal')) $('forgotPasswordModal').classList.add('hidden');
         if ($('authModal')) {
           $('authModal').classList.remove('hidden');
@@ -3851,7 +3834,7 @@
     if (!capturedSnapshotData) return;
     setComposerAttachedImage(capturedSnapshotData, `Photo_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.jpg`);
     closeCameraModal();
-    toast('Photo attached to composer');
+    toast('✓ Photo attached to composer');
   }
 
   function handleCameraFileInput(files) {
@@ -3866,7 +3849,7 @@
       const dataUrl = e.target.result;
       setComposerAttachedImage(dataUrl, file.name);
       closeCameraModal();
-      toast(`${file.name} attached to composer`);
+      toast(`✓ ${file.name} attached to composer`);
     };
     reader.readAsDataURL(file);
   }
@@ -3997,6 +3980,17 @@
     };
   }
 
+  // 1. Glass Frost Slider (Blur level)
+  const frostSlider = $('glassFrostSlider');
+  const frostDisplay = $('frostValueDisplay');
+  if (frostSlider) {
+    frostSlider.oninput = (e) => {
+      const val = e.target.value;
+      document.documentElement.style.setProperty('--glass-blur', `${val}px`);
+      if (frostDisplay) frostDisplay.textContent = `${val}px`;
+      localStorage.setItem('astra_frost_blur', val);
+    };
+  }
 
   // Helper to detect perceived background image brightness & automatically adjust text contrast
   function detectBackgroundBrightness(dataUrl, callback) {
@@ -4057,7 +4051,7 @@
       if (!file) return;
 
       if (file.size > 8 * 1024 * 1024) {
-        toast('Wallpaper image must be under 8MB', true);
+        toast('⚠️ Wallpaper image must be under 8MB', true);
         return;
       }
 
@@ -4082,10 +4076,10 @@
         if (customBgStatus) {
           customBgStatus.textContent = `Custom wallpaper: ${file.name}`;
         }
-        toast('Custom background applied successfully');
+        toast('✨ Custom background applied successfully!');
       };
       reader.onerror = () => {
-        toast('Failed to read background image file', true);
+        toast('❌ Failed to read background image file', true);
       };
       reader.readAsDataURL(file);
     };
@@ -4100,12 +4094,19 @@
       localStorage.removeItem('astra_custom_bg');
       if (customBgInput) customBgInput.value = '';
       if (customBgStatus) {
-        customBgStatus.textContent = 'Default background active';
+        customBgStatus.textContent = 'Default fluid wallpaper active';
       }
-      toast('Restored default background');
+      toast('🔄 Restored default fluid wallpaper');
     };
   }
 
+  // Restore saved appearance preferences on startup
+  const savedFrost = localStorage.getItem('astra_frost_blur');
+  if (savedFrost) {
+    document.documentElement.style.setProperty('--glass-blur', `${savedFrost}px`);
+    if (frostSlider) frostSlider.value = savedFrost;
+    if (frostDisplay) frostDisplay.textContent = `${savedFrost}px`;
+  }
 
   const savedCustomBg = localStorage.getItem('astra_custom_bg');
   if (savedCustomBg && bgWallpaper) {
@@ -4202,27 +4203,11 @@
         $('documentSelect').innerHTML = '<option value="">All indexed documents</option>';
       }
       if ($('documentList')) {
-        $('documentList').innerHTML = `
-          <div class="empty-state">
-            <h4 class="empty-state-heading">No documents</h4>
-            <p class="empty-state-desc">Upload documents to query your knowledge base.</p>
-            <button type="button" class="empty-state-btn" id="emptyDocUploadBtn2">Upload document</button>
-          </div>
-        `;
-        const btn = document.getElementById('emptyDocUploadBtn2');
-        if (btn) btn.onclick = () => $('fileInput')?.click();
+        $('documentList').innerHTML = '<p class="muted-box-msg">No documents uploaded yet</p>';
       }
       if ($('docCount')) $('docCount').textContent = '0';
       if ($('conversationList')) {
-        $('conversationList').innerHTML = `
-          <div class="empty-state">
-            <h4 class="empty-state-heading">No conversations</h4>
-            <p class="empty-state-desc">Your chat history will appear here once you begin a conversation.</p>
-            <button type="button" class="empty-state-btn" id="emptyConvNewChatBtn2">Start conversation</button>
-          </div>
-        `;
-        const btn = document.getElementById('emptyConvNewChatBtn2');
-        if (btn) btn.onclick = () => $('newChat')?.click();
+        $('conversationList').innerHTML = '<p class="muted-box-msg">No conversations yet</p>';
       }
 
       // 8. Reset auth UI badges and state to guest
@@ -4303,7 +4288,7 @@
   // Row 3: Astracore O (Coming Soon)
   if ($('popoverModelAstracoreO')) {
     $('popoverModelAstracoreO').onclick = () => {
-      toast('Astracore O is coming soon.');
+      toast('🚀 Astracore O is coming soon! Stay tuned.');
     };
   }
 

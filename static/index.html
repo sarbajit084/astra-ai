@@ -6,16 +6,14 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#0f1117">
+    <meta name="theme-color" content="#111827">
     <title>Astra</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="alternate icon" type="image/png" href="/static/favicon-32x32.png">
     <link rel="apple-touch-icon" href="/static/favicon-192x192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
-    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
@@ -24,88 +22,108 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
-    <link rel="stylesheet" href="/static/style.css?v=3100">
+    <link rel="stylesheet" href="/static/style.css?v=3062">
+
   </head>
   <body>
+    <!-- Fluid Silk Wave Background Wallpaper -->
+    <div class="astra-background" aria-hidden="true"></div>
+
     <!-- Main Workspace Application Shell -->
     <div id="appView" class="astra-shell">
       <!-- Mobile Backdrop Overlay -->
       <div id="sidebarBackdrop" class="sidebar-backdrop hidden" aria-hidden="true"></div>
 
-      <!-- Collapsed Sidebar Rail -->
+      <!-- Collapsed Sidebar Glass Rail (100% Matching Mockup) -->
       <nav id="sidebarRail" class="sidebar-rail hidden" aria-label="Collapsed sidebar">
         <div class="rail-top-group">
           <!-- Top Button: Expand Sidebar -->
           <button type="button" id="railExpandBtn" class="rail-icon-btn" title="Open Sidebar" aria-label="Open sidebar">
-            <i class="ph ph-sidebar-simple"></i>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
           </button>
 
           <!-- New Conversation Button in Collapsed Rail -->
           <button type="button" id="railNewChatBtn" class="rail-icon-btn" title="New Conversation" aria-label="New conversation">
-            <i class="ph ph-plus"></i>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"></path>
+            </svg>
           </button>
         </div>
 
         <!-- Bottom Button: User Account / Login Button -->
         <button type="button" id="railUserBtn" class="rail-icon-btn" title="Account / Login" aria-label="Account login">
-          <i class="ph ph-user"></i>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
         </button>
       </nav>
 
-      <!-- Sidebar -->
+      <!-- Glassmorphic Floating Left Sidebar Card -->
       <aside id="sidebar" class="sidebar-card">
-        <!-- Top Row: Disappearing chat button, Brand, Sidebar toggle -->
+        <!-- Top Row: Disappearing chat button (left), ASTRA (center), Sidebar toggle (right) -->
         <div class="sidebar-header">
           <button type="button" id="sidebarDisappearingBtn" class="icon-pill-btn disappearing-chat-btn" title="Toggle Disappearing / Temporary Chat" aria-label="Toggle disappearing chat">
-            <i class="ph ph-eye-slash"></i>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+              <line x1="3" y1="3" x2="21" y2="21"></line>
+            </svg>
           </button>
 
-          <span class="sidebar-brand-title">Astra</span>
+          <span class="sidebar-brand-title">ASTRA</span>
 
           <button type="button" id="closeSidebar" class="icon-pill-btn" title="Toggle Sidebar" aria-label="Toggle sidebar">
-            <i class="ph ph-sidebar-simple"></i>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4" ry="4"></rect>
+              <line x1="9" y1="3" x2="9" y2="21"></line>
+            </svg>
           </button>
         </div>
 
-        <!-- New Conversation Button -->
+        <!-- New Conversation Pill Button -->
         <button type="button" id="newChat" class="new-conv-pill">
-          <span class="icon-wrap">
-            <i class="ph ph-plus"></i>
+          <span class="green-plus-circle">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#228b6d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="16"></line>
+              <line x1="8" y1="12" x2="16" y2="12"></line>
+            </svg>
           </span>
-          <span class="new-conv-text">New conversation</span>
+          <span class="new-conv-text">NEW CONVERSATION</span>
         </button>
 
         <!-- Recents Section -->
         <div class="sidebar-section">
-          <div class="section-title">Conversations</div>
+          <div class="section-title">RECENTS</div>
           <div id="conversationList" class="recents-card-box">
-            <div class="empty-state">
-              <h4 class="empty-state-heading">No conversations</h4>
-              <p class="empty-state-desc">Your chat history will appear here once you begin a conversation.</p>
-              <button type="button" class="empty-state-btn" id="emptyConvNewChatBtn">Start conversation</button>
-            </div>
+            <!-- Dynamic conversations rendered by JS -->
+            <p class="muted-box-msg">No conversations yet</p>
           </div>
         </div>
 
-        <!-- Upload Files Box -->
+        <!-- Upload Files Box (Dashed Outline) -->
         <label id="uploadDrop" class="upload-dashed-card">
           <input id="fileInput" type="file" multiple accept=".pdf,.txt,.md,.csv,.json,.py,.html,.docx,.zip" style="display: none;">
-          <div class="upload-icon-box">
-            <i class="ph ph-upload-simple"></i>
+          <div class="upload-red-circle">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e05252" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"></line>
+              <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
           </div>
-          <span class="upload-main-text">Upload files</span>
+          <span class="upload-main-text">UPLOAD FILES HERE</span>
           <span class="upload-sub-text">PDF, TXT, DOC, ZIP (max 400 MB)</span>
         </label>
 
         <!-- Uploaded Documents Section -->
         <div class="sidebar-section">
-          <div class="section-title">Uploaded documents</div>
+          <div class="section-title">UPLOADED DOCUMENTS</div>
           <div id="documentList" class="docs-card-box">
-            <div class="empty-state">
-              <h4 class="empty-state-heading">No documents</h4>
-              <p class="empty-state-desc">Upload documents to query your knowledge base.</p>
-              <button type="button" class="empty-state-btn" id="emptyDocUploadBtn">Upload document</button>
-            </div>
+            <!-- Dynamic documents rendered by JS -->
+            <p class="muted-box-msg">No documents uploaded yet.</p>
           </div>
         </div>
 
@@ -116,13 +134,20 @@
 
         <!-- Bottom Actions: User Bar -->
         <div class="sidebar-bottom-actions">
+          <!-- Login / Account Pill Bar -->
           <button type="button" id="userAuthBtn" class="user-profile-pill" title="User Account / Settings">
             <span class="user-profile-left">
-              <i class="ph ph-user"></i>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
             </span>
-            <span id="userAccountLabel" class="user-profile-name">Login</span>
+            <span id="userAccountLabel" class="user-profile-name">LOGIN</span>
             <span class="user-profile-right">
-              <i class="ph ph-gear"></i>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
             </span>
           </button>
         </div>
@@ -130,20 +155,29 @@
 
       <!-- Main Central Workspace -->
       <main class="astra-main">
-        <!-- Mobile Top App Header -->
+        <!-- Mobile Top Glass App Header -->
         <header class="mobile-nav-bar" id="mobileNavBar" aria-label="Mobile Navigation">
           <button type="button" id="mobileMenuToggleBtn" class="mobile-nav-icon-btn" title="Open Sidebar / Menu" aria-label="Open menu">
-            <i class="ph ph-list"></i>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
           </button>
           <div class="mobile-nav-center">
-            <span class="mobile-nav-brand">Astra</span>
+            <span class="mobile-nav-brand">ASTRA</span>
           </div>
           <div class="mobile-nav-right">
             <button type="button" id="mobileNewChatBtn" class="mobile-nav-icon-btn" title="New Conversation" aria-label="New conversation">
-              <i class="ph ph-plus"></i>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M5 12h14"/>
+              </svg>
             </button>
             <button type="button" id="mobileUserAuthBtn" class="mobile-nav-icon-btn mobile-user-btn" title="Login / Account" aria-label="Login or user profile">
-              <i class="ph ph-user"></i>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
             </button>
           </div>
         </header>
@@ -153,9 +187,9 @@
             <span class="dot"></span>
             <span id="statusText" style="display:none;">Ready</span>
           </div>
-          <div id="tokenBadge" class="token-quota-badge" title="Daily messages remaining">
-            <span class="token-badge-icon"><i class="ph ph-lightning"></i></span>
-            <span id="tokenBadgeText">Messages: Loading...</span>
+          <div id="tokenBadge" class="token-quota-badge" title="Daily tokens remaining">
+            <span class="token-badge-icon">⚡</span>
+            <span id="tokenBadgeText">Tokens: Loading...</span>
           </div>
         </div>
 
@@ -163,71 +197,68 @@
         <div id="centerStage" class="astra-center-stage welcome-mode">
           <div id="welcome" class="welcome-greeting-container">
             <div class="welcome-hero">
-              <h1 class="welcome-brand-title">Astra</h1>
-              <p id="welcomeShuffledTagline" class="welcome-hero-tagline">Intelligent enterprise retrieval-augmented generation and reasoning.</p>
-              
-              <!-- Product Screenshot Placeholder (Rule 4) -->
-              <div class="screenshot-placeholder" role="img" aria-label="Product Screenshot Placeholder">
-                <div class="screenshot-placeholder-content">
-                  <i class="ph ph-image screenshot-placeholder-icon"></i>
-                  <span class="screenshot-placeholder-title">Product Screenshot: Astra Workspace &amp; Grounded RAG</span>
-                  <span class="screenshot-placeholder-sub">16:9 Aspect Ratio Placeholder</span>
-                </div>
-              </div>
+              <h1 class="welcome-brand-title">ASTRA</h1>
+              <div id="welcomeShuffledTagline" class="welcome-hero-tagline">LETS DIVE IN !</div>
             </div>
           </div>
 
           <!-- Messages Stream (when active conversations happen) -->
           <section id="messages" class="messages-stream" aria-live="polite"></section>
 
-          <!-- Daily Message Limit Main Page Alert Card -->
+          <!-- Out of Tokens Main Page Alert Card -->
           <div id="outOfTokensBanner" class="out-of-tokens-card hidden" role="alert">
             <div class="out-of-tokens-content">
-              <div class="out-of-tokens-badge-icon"><i class="ph ph-lightning"></i></div>
+              <div class="out-of-tokens-badge-icon">⚡</div>
               <div class="out-of-tokens-details">
-                <strong id="outOfTokensTitle" class="out-of-tokens-title">Daily message limit reached</strong>
-                <p id="outOfTokensMsg" class="out-of-tokens-msg">You have used all allocated messages for today.</p>
+                <strong id="outOfTokensTitle" class="out-of-tokens-title">Out of Tokens</strong>
+                <p id="outOfTokensMsg" class="out-of-tokens-msg">You have used all your tokens for today.</p>
               </div>
-              <button type="button" id="outOfTokensActionBtn" class="out-of-tokens-btn hidden">Log in for 20 messages</button>
+              <button type="button" id="outOfTokensActionBtn" class="out-of-tokens-btn hidden">Log In for 20 Tokens</button>
             </div>
           </div>
 
-          <!-- Composer Card -->
+          <!-- Floating Composer Card (100% Matching Mockup) -->
           <form id="chatForm" class="composer-outer-form">
             <div class="composer-floating-card">
-              <!-- Active Document Tag Chip -->
+              <!-- Active Document Tag Chip (small on top of textbox) -->
               <div id="activeDocTag" class="active-doc-tag hidden">
                 <span class="active-doc-icon">
-                  <i class="ph ph-file-text"></i>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                  </svg>
                 </span>
                 <span id="activeDocName" class="active-doc-text">Document</span>
-                <button type="button" id="removeActiveDocBtn" class="remove-doc-tag-btn" title="Remove document focus" aria-label="Remove document focus">
-                  <i class="ph ph-x"></i>
-                </button>
+                <button type="button" id="removeActiveDocBtn" class="remove-doc-tag-btn" title="Remove document focus" aria-label="Remove document focus">✕</button>
               </div>
 
               <!-- Attached Image Preview Chip in Composer -->
               <div id="composerImagePreview" class="composer-img-chip hidden">
                 <img id="composerImageThumb" src="" alt="Thumbnail" class="composer-img-thumb" />
                 <span id="composerImageLabel" class="composer-img-label">Photo</span>
-                <button type="button" id="removeImageBtn" class="remove-img-chip-btn" title="Remove photo" aria-label="Remove photo">
-                  <i class="ph ph-x"></i>
-                </button>
+                <button type="button" id="removeImageBtn" class="remove-img-chip-btn" title="Remove photo" aria-label="Remove photo">✕</button>
               </div>
 
-              <!-- Input Area -->
+              <!-- Recessed Capsule Input Area matching screenshot (Type here) -->
               <div class="composer-recessed-pill">
                 <!-- Paperclip Button inside/integrated -->
                 <div class="composer-attach-wrapper">
                   <button type="button" id="composerAttachBtn" class="capsule-squircle-btn" title="Upload Document / File" aria-label="Upload document or file">
-                    <i class="ph ph-paperclip"></i>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                    </svg>
                   </button>
 
                   <!-- Attachment Dropdown Menu -->
                   <div id="attachDropdown" class="attach-dropdown hidden" role="menu">
                     <button type="button" id="actionUploadDoc" class="attach-menu-item">
                       <span class="attach-menu-icon doc-icon-bg">
-                        <i class="ph ph-file-text"></i>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                          <polyline points="14 2 14 8 20 8"></polyline>
+                          <line x1="12" y1="18" x2="12" y2="12"></line>
+                          <line x1="9" y1="15" x2="15" y2="15"></line>
+                        </svg>
                       </span>
                       <div class="attach-menu-info">
                         <strong>Upload Document</strong>
@@ -235,8 +266,11 @@
                       </div>
                     </button>
                     <button type="button" id="actionCamera" class="attach-menu-item">
-                      <span class="attach-menu-icon">
-                        <i class="ph ph-camera"></i>
+                      <span class="attach-menu-icon" style="background: rgba(16, 185, 129, 0.15);">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                          <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
                       </span>
                       <div class="attach-menu-info">
                         <strong>Take Photograph</strong>
@@ -245,7 +279,11 @@
                     </button>
                     <button type="button" id="actionVoiceSearch" class="attach-menu-item">
                       <span class="attach-menu-icon voice-icon-bg">
-                        <i class="ph ph-microphone"></i>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e05252" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                          <line x1="12" y1="19" x2="12" y2="22"></line>
+                        </svg>
                       </span>
                       <div class="attach-menu-info">
                         <strong>Voice Dictation</strong>
@@ -257,7 +295,10 @@
 
                 <!-- Camera Button directly in capsule -->
                 <button type="button" id="composerCameraBtn" class="capsule-squircle-btn camera-btn" title="Open Camera / Photograph" aria-label="Open Camera or Photograph">
-                  <i class="ph ph-camera"></i>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                  </svg>
                 </button>
 
                 <textarea id="message" rows="1" maxlength="10000" placeholder="Type here" autocomplete="off"></textarea>
@@ -279,36 +320,48 @@
                     <span class="wave-bar"></span>
                   </div>
                   <button type="button" id="composerMicBtn" class="capsule-mic-btn" title="Voice Search" aria-label="Voice search">
-                    <i class="ph ph-microphone"></i>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                      <line x1="12" y1="19" x2="12" y2="22"></line>
+                    </svg>
                   </button>
                 </div>
 
-                <!-- Upward Arrow Send Button -->
+                <!-- Upward Arrow Send Button (Squircle) -->
                 <button type="submit" id="sendButton" class="capsule-squircle-btn send-btn" aria-label="Send query" title="Send query">
-                  <i class="ph ph-arrow-up"></i>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="19" x2="12" y2="5"></line>
+                    <polyline points="5 12 12 5 19 12"></polyline>
+                  </svg>
                 </button>
               </div>
 
-              <!-- Bottom Bar -->
+              <!-- Bottom Bar:
+                   On homescreen (welcome-mode): Left has Paperclip; Right has Astracore 3.1 + Mic + Send button
+                   On ongoing chat (chat-active): Left has Disclaimer text; Right has Astracore 3.1 toggle
+              -->
               <div class="composer-sub-row">
-                <!-- Homescreen Left Group -->
+                <!-- Homescreen Left Group: Paperclip Squircle -->
                 <div class="composer-home-left-controls">
                   <div class="composer-attach-wrapper">
                     <button type="button" id="composerHomeAttachBtn" class="capsule-squircle-btn" title="Upload Document / File" aria-label="Upload document or file">
-                      <i class="ph ph-paperclip"></i>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                      </svg>
                     </button>
                   </div>
                 </div>
 
                 <!-- Chat-Active Disclaimer Text -->
-                <span class="composer-sub-disclaimer">Astra can make mistakes. Please verify responses with source documents.</span>
+                <span class="composer-sub-disclaimer">Astra is AI and can make mistakes. Please double-check responses.</span>
 
                 <!-- Homescreen & Chat Right Group: Astracore 3.1 + Microphone + Send Button -->
                 <div class="composer-home-right-controls">
                   <div class="engine-toggle-wrapper">
-                    <!-- Popover Menu -->
+                    <!-- Floating Glass Popover Menu matching mockup exactly -->
                     <div id="modelEnginePopover" class="model-engine-popover hidden" role="menu" aria-label="Model and Mode Options">
-                      <!-- Row 1: Temporary Chat + Toggle Switch -->
+                      <!-- Row 1: Temporary Chat + iOS Switch -->
                       <div class="popover-row popover-toggle-row">
                         <span class="popover-row-label">Temporary chat</span>
                         <label class="ios-switch" title="Toggle Temporary ephemeral chat">
@@ -317,42 +370,43 @@
                         </label>
                       </div>
 
-                      <!-- Row 2: Astracore 3.1 -->
+                      <!-- Row 2: Astracore 3.1 with blue checkmark -->
                       <div class="popover-row popover-option-row active" id="popoverModelAstracore" role="menuitem">
                         <span class="popover-row-label">Astracore 3.1</span>
-                        <span class="popover-check-icon" id="popoverAstracoreCheck"><i class="ph ph-check"></i></span>
+                        <span class="popover-check-icon" id="popoverAstracoreCheck">✓</span>
                       </div>
 
                       <!-- Row 3: Astracore O (Coming Soon) -->
                       <div class="popover-row popover-option-row coming-soon-row" id="popoverModelAstracoreO" role="menuitem" style="opacity: 0.75; cursor: default;">
                         <span class="popover-row-label">Astracore O</span>
-                        <span class="coming-soon-badge">Coming soon</span>
+                        <span class="coming-soon-badge" style="font-family: 'Instrument Serif', Georgia, serif; font-size: 13px; font-weight: 600; color: #64748b; background: rgba(0, 0, 0, 0.06); padding: 2px 8px; border-radius: 12px; letter-spacing: 0.5px;">COMING SOON</span>
                       </div>
 
+                      <!-- Divider line -->
                       <hr class="popover-divider">
 
-                      <!-- Row 4: Quick (Simple mode) -->
+                      <!-- Row 3: Quick (Simple mode) -->
                       <div class="popover-row popover-option-row active" id="popoverModeQuick" role="menuitem">
                         <span class="popover-row-label">Quick</span>
-                        <span class="popover-check-icon" id="popoverQuickCheck"><i class="ph ph-check"></i></span>
+                        <span class="popover-check-icon" id="popoverQuickCheck">✓</span>
                       </div>
 
-                      <!-- Row 5: Extended (Detailed mode) -->
+                      <!-- Row 4: Extended (Detailed mode) -->
                       <div class="popover-row popover-option-row" id="popoverModeExtended" role="menuitem">
                         <span class="popover-row-label">Extended</span>
-                        <span class="popover-check-icon hidden" id="popoverExtendedCheck"><i class="ph ph-check"></i></span>
+                        <span class="popover-check-icon hidden" id="popoverExtendedCheck">✓</span>
                       </div>
 
-                      <!-- Row 6: Code -->
+                      <!-- Row 5: Code -->
                       <div class="popover-row popover-option-row" id="popoverModeCode" role="menuitem">
                         <span class="popover-row-label">Code</span>
-                        <span class="popover-check-icon hidden" id="popoverCodeCheck"><i class="ph ph-check"></i></span>
+                        <span class="popover-check-icon hidden" id="popoverCodeCheck">✓</span>
                       </div>
                     </div>
 
-                    <button type="button" id="engineToggleBtn" class="model-spec-toggle-btn" title="Model & Chat Mode Options" aria-haspopup="true" aria-expanded="false">
+                    <button type="button" id="engineToggleBtn" class="model-spec-toggle-btn" title="Model & Chat Mode Options (Live Web Active)" aria-haspopup="true" aria-expanded="false">
                       <span id="engineLabel" class="model-spec-label">Astracore 3.1</span>
-                      <span id="liveWebIndicator" class="live-web-dot" title="Live Internet Active"></span>
+                      <span id="liveWebIndicator" class="live-web-dot" title="Live Internet & Real-Time Intelligence Active"></span>
                     </button>
                   </div>
 
@@ -373,13 +427,20 @@
                       <span class="wave-bar"></span>
                     </div>
                     <button type="button" id="composerHomeMicBtn" class="capsule-mic-btn composer-home-mic-btn" title="Voice Dictation" aria-label="Voice dictation">
-                      <i class="ph ph-microphone"></i>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="22"></line>
+                      </svg>
                     </button>
                   </div>
 
-                  <!-- Homescreen Send Button -->
+                  <!-- Homescreen Send Button (Squircle) -->
                   <button type="button" id="composerHomeSendBtn" class="capsule-squircle-btn send-btn composer-home-send-btn" aria-label="Send query" title="Send query">
-                    <i class="ph ph-arrow-up"></i>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                      <line x1="12" y1="19" x2="12" y2="5"></line>
+                      <polyline points="5 12 12 5 19 12"></polyline>
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -389,17 +450,17 @@
       </main>
     </div>
 
-    <!-- User Sign In / Register Modal -->
+    <!-- User Sign In / Register Modal with 2-digit Math Calculation & Optional Sync -->
     <div id="authModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Sign In">
       <div class="glass-modal-card">
         <div class="modal-header">
           <div>
-            <span class="modal-brand-title">Astra</span>
-            <p class="modal-eyebrow" id="authEyebrow">Secure workspace</p>
+            <span class="modal-brand-title">ASTRA</span>
+            <p class="modal-eyebrow" id="authEyebrow">SECURE WORKSPACE</p>
             <h2 id="authHeading" class="modal-h2">Account Login</h2>
-            <p id="authSubtitle" class="modal-desc">Sign in to sync your conversations across devices, or continue as guest.</p>
+            <p id="authSubtitle" style="font-size: 13.5px; color: #94a3b8; margin-top: 4px; line-height: 1.4;">Sign in to sync your conversations across devices, or continue as guest.</p>
           </div>
-          <button id="closeAuthModal" class="close-icon-btn" title="Close"><i class="ph ph-x"></i></button>
+          <button id="closeAuthModal" class="close-icon-btn" title="Close">✕</button>
         </div>
 
         <div class="modal-tabs">
@@ -407,7 +468,7 @@
           <button class="modal-tab" data-mode="signup">Register</button>
         </div>
 
-        <!-- Login Form -->
+        <!-- Login Form with Password + 2-digit Math Challenge -->
         <form id="loginForm" class="auth-modal-form" autocomplete="off">
           <label>Phone Number, Email, or Username
             <input id="loginIdentifier" type="text" required autocomplete="off" placeholder="Phone number, email, or username">
@@ -416,7 +477,7 @@
           <label>Password
             <div class="password-input-wrapper">
               <input id="loginPassword" type="password" required autocomplete="new-password" placeholder="Enter your password">
-              <button type="button" class="pwd-toggle-btn" id="toggleLoginPasswordBtn" title="Show/Hide Password" aria-label="Toggle password visibility"><i class="ph ph-eye"></i></button>
+              <button type="button" class="pwd-toggle-btn" id="toggleLoginPasswordBtn" title="Show/Hide Password" aria-label="Toggle password visibility">👁️</button>
             </div>
           </label>
           <div class="auth-extra-row">
@@ -425,22 +486,22 @@
           
           <div class="math-challenge-box">
             <div class="math-challenge-header">
-              <span class="math-title">Verification calculation</span>
-              <button type="button" id="loginRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation" aria-label="Refresh calculation"><i class="ph ph-arrows-clockwise"></i></button>
+              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
+              <button type="button" id="loginRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
             </div>
             <div id="loginMathQuestion" class="math-question-text">
-              Loading problem...
+              Loading math problem…
             </div>
             <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
               <input id="loginMathAnswer" type="number" required autocomplete="off" placeholder="Calculate and enter the result">
             </label>
-            <p class="math-hint">Calculate the result of the two numbers to verify and login.</p>
+            <p class="math-hint">Calculate between the two numbers to verify and login.</p>
           </div>
 
-          <button type="submit" class="modal-primary-btn" id="loginSubmitBtn">Verify &amp; Login</button>
+          <button type="submit" class="modal-primary-btn" id="loginSubmitBtn">Verify & Login</button>
         </form>
 
-        <!-- Register Form -->
+        <!-- Register Form with 2-digit Math Challenge & Legal Consent -->
         <form id="signupForm" class="auth-modal-form hidden" autocomplete="off">
           <label>Username
             <input id="signupUsername" type="text" required autocomplete="off" placeholder="Choose a username">
@@ -452,32 +513,32 @@
             <input id="signupPhone" type="tel" autocomplete="off" placeholder="Enter 10-digit mobile or phone number">
           </label>
           <label>Password
-            <input id="signupPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 chars with letters &amp; numbers">
+            <input id="signupPassword" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 chars with letters & numbers">
           </label>
 
           <div class="math-challenge-box">
             <div class="math-challenge-header">
-              <span class="math-title">Verification calculation</span>
-              <button type="button" id="signupRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation" aria-label="Refresh calculation"><i class="ph ph-arrows-clockwise"></i></button>
+              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
+              <button type="button" id="signupRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
             </div>
             <div id="signupMathQuestion" class="math-question-text">
-              Loading problem...
+              Loading math problem…
             </div>
             <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
               <input id="signupMathAnswer" type="number" required placeholder="Calculate and enter the result">
             </label>
-            <p class="math-hint">Calculate the result of the two numbers to verify and register.</p>
+            <p class="math-hint">Calculate between the two numbers to verify and register.</p>
           </div>
 
-          <!-- Legal Consent Checkbox -->
-          <div class="legal-consent-box">
-            <input type="checkbox" id="signupTermsConsent">
-            <label for="signupTermsConsent">
-              I agree to the <a href="/terms" target="_blank">Terms &amp; Conditions</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.
+          <!-- Legal Consent Checkbox (Unchecked by default) -->
+          <div class="legal-consent-box" style="margin: 14px 0 16px; display: flex; align-items: flex-start; gap: 10px; text-align: left; padding: 10px 12px; background: rgba(0,0,0,0.15); border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+            <input type="checkbox" id="signupTermsConsent" style="margin-top: 2px; width: 16px; height: 16px; cursor: pointer; accent-color: #f472b6;">
+            <label for="signupTermsConsent" style="font-size: 13px; color: #cbd5e1; cursor: pointer; line-height: 1.4; margin: 0; font-weight: normal;">
+              I agree to the <a href="/terms" target="_blank" style="color: #f472b6; text-decoration: underline; font-weight: 600;">Terms & Conditions</a> and <a href="/privacy" target="_blank" style="color: #f472b6; text-decoration: underline; font-weight: 600;">Privacy Policy</a>.
             </label>
           </div>
 
-          <button type="submit" class="modal-primary-btn" id="signupSubmitBtn">Verify &amp; Create Account</button>
+          <button type="submit" class="modal-primary-btn" id="signupSubmitBtn">Verify & Create Account</button>
         </form>
 
         <div id="authLogoutSection" class="hidden">
@@ -492,14 +553,14 @@
       <div class="glass-modal-card">
         <div class="modal-header">
           <div>
-            <span class="modal-brand-title">Astra</span>
-            <p class="modal-eyebrow">Account recovery</p>
+            <span class="modal-brand-title">ASTRA</span>
+            <p class="modal-eyebrow">ACCOUNT RECOVERY</p>
             <h2 class="modal-h2" id="forgotHeading">Reset Password</h2>
           </div>
-          <button id="closeForgotModal" class="close-icon-btn" type="button"><i class="ph ph-x"></i></button>
+          <button id="closeForgotModal" class="close-icon-btn" type="button">✕</button>
         </div>
 
-        <!-- Step 1: Verification -->
+        <!-- Step 1: Verification & Request Reset Token -->
         <form id="forgotPasswordForm" class="auth-modal-form">
           <p class="auth-sub-desc">Enter your account identifier and solve the calculation to verify identity.</p>
           <label>Phone Number, Email, or Username
@@ -508,26 +569,26 @@
 
           <div class="math-challenge-box">
             <div class="math-challenge-header">
-              <span class="math-title">Verification calculation</span>
-              <button type="button" id="forgotRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation" aria-label="Refresh calculation"><i class="ph ph-arrows-clockwise"></i></button>
+              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
+              <button type="button" id="forgotRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
             </div>
-            <div id="forgotMathQuestion" class="math-question-text">Loading problem...</div>
+            <div id="forgotMathQuestion" class="math-question-text">Loading math problem…</div>
             <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
               <input id="forgotMathAnswer" type="number" required placeholder="Calculate and enter the result">
             </label>
-            <p class="math-hint">Calculate the result of the two numbers to verify ownership.</p>
+            <p class="math-hint">Calculate between the two numbers to verify ownership.</p>
           </div>
 
-          <button type="submit" class="modal-primary-btn" id="forgotSubmitBtn">Verify &amp; Proceed</button>
+          <button type="submit" class="modal-primary-btn" id="forgotSubmitBtn">Verify & Proceed</button>
           <button type="button" id="backToLoginFromForgotBtn" class="modal-secondary-btn" style="margin-top: 8px;">Back to Login</button>
         </form>
 
         <!-- Step 2: Enter New Password -->
         <form id="resetPasswordForm" class="auth-modal-form hidden">
-          <p class="auth-sub-desc">Identity verified. Enter your new password below.</p>
+          <p class="auth-sub-desc">Identity verified! Enter your new password below.</p>
           <input id="resetTokenHidden" type="hidden">
           <label>New Password
-            <input id="newPasswordInput" type="password" required minlength="8" placeholder="At least 8 chars with letter &amp; number">
+            <input id="newPasswordInput" type="password" required minlength="8" placeholder="At least 8 chars with letter & number">
           </label>
           <label>Confirm New Password
             <input id="confirmPasswordInput" type="password" required minlength="8" placeholder="Re-enter new password">
@@ -538,55 +599,75 @@
       </div>
     </div>
 
-    <!-- Settings & Appearance Modal -->
+
+    <!-- Settings & Appearance Modal (Frost Level & Custom Wallpaper) -->
     <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Settings">
       <div class="glass-modal-card settings-modal-card">
         <div class="modal-header">
           <div>
-            <span class="modal-brand-title">Astra</span>
-            <p class="modal-eyebrow">Preferences &amp; appearance</p>
+            <span class="modal-brand-title">ASTRA</span>
+            <p class="modal-eyebrow">PREFERENCES & APPEARANCE</p>
             <h2 class="modal-h2">Settings</h2>
           </div>
-          <button type="button" id="closeSettingsModal" class="close-icon-btn" title="Close Settings"><i class="ph ph-x"></i></button>
+          <button type="button" id="closeSettingsModal" class="close-icon-btn" title="Close Settings">✕</button>
         </div>
 
         <div class="settings-content">
-          <!-- 1. Custom Background Wallpaper Upload -->
+          <!-- 1. Glass Frosting Setting -->
           <div class="settings-group">
             <div class="settings-group-header">
-              <span class="settings-group-icon"><i class="ph ph-image"></i></span>
+              <span class="settings-group-icon">❄️</span>
+              <div class="settings-group-text">
+                <strong class="settings-group-title">Glass Frosting (Blur)</strong>
+                <p class="settings-group-desc">Adjust the frosted blur intensity of the optical glass surfaces.</p>
+              </div>
+            </div>
+            <div class="frost-slider-wrapper">
+              <input type="range" id="glassFrostSlider" min="0" max="60" value="24" step="2" class="glass-range-slider" aria-label="Glass frost blur">
+              <div class="slider-labels">
+                <span>Crystal Clear (0px)</span>
+                <span id="frostValueDisplay" class="slider-val-badge">24px</span>
+                <span>Heavy Frost (60px)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Custom Background Wallpaper Upload -->
+          <div class="settings-group">
+            <div class="settings-group-header">
+              <span class="settings-group-icon">🖼️</span>
               <div class="settings-group-text">
                 <strong class="settings-group-title">Custom Wallpaper Background</strong>
-                <p class="settings-group-desc">Upload a background image from your device.</p>
+                <p class="settings-group-desc">Upload your own background image from your device.</p>
               </div>
             </div>
             <div class="custom-bg-controls">
               <input type="file" id="customBgFileInput" accept="image/*" style="display: none;">
               <button type="button" id="uploadBgBtn" class="settings-btn primary-glass-btn">
-                <span><i class="ph ph-upload-simple"></i></span> Upload Image from Device
+                <span>📁</span> Upload Image from Device
               </button>
               <button type="button" id="resetBgBtn" class="settings-btn secondary-glass-btn">
-                <span><i class="ph ph-arrows-clockwise"></i></span> Reset to Default
+                <span>🔄</span> Reset to Default
               </button>
             </div>
-            <div id="customBgStatus" class="custom-bg-status-msg">Default background active</div>
+            <div id="customBgStatus" class="custom-bg-status-msg">Default fluid wallpaper active</div>
           </div>
 
-          <!-- 2. Account & Policies -->
+          <!-- 3. Account & Data Management -->
           <div class="settings-group">
             <div class="settings-group-header">
-              <span class="settings-group-icon"><i class="ph ph-shield"></i></span>
+              <span class="settings-group-icon">🛡️</span>
               <div class="settings-group-text">
-                <strong class="settings-group-title">Privacy &amp; Security Policies</strong>
+                <strong class="settings-group-title">Privacy & Security Policies</strong>
                 <p class="settings-group-desc">Review your data privacy protections and service guidelines.</p>
               </div>
             </div>
             <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
               <a href="/terms" target="_blank" class="settings-btn secondary-glass-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                <span><i class="ph ph-article"></i></span> Terms &amp; Conditions
+                <span>📜</span> Terms & Conditions
               </a>
               <a href="/privacy" target="_blank" class="settings-btn secondary-glass-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                <span><i class="ph ph-lock"></i></span> Privacy Policy
+                <span>🔒</span> Privacy Policy
               </a>
             </div>
           </div>
@@ -594,11 +675,11 @@
       </div>
     </div>
 
-    <!-- Custom Confirmation Modal for Document Deletion (Single-purpose modal allowed to be centered) -->
+    <!-- Custom Confirmation Modal for Document Deletion -->
     <div id="deleteConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Confirm Deletion">
-      <div class="glass-modal-card single-purpose-modal" style="max-width: 380px; text-align: center;">
-        <div class="modal-lone-icon"><i class="ph ph-trash"></i></div>
-        <h3 class="modal-h3">Remove Document?</h3>
+      <div class="glass-modal-card" style="max-width: 380px; text-align: center;">
+        <div style="font-size: 2rem; margin-bottom: 10px;">🗑️</div>
+        <h3 style="font-family: 'Instrument Serif', Georgia, serif; font-size: 1.35rem; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Remove Document?</h3>
         <p id="deleteDocNameText" class="delete-confirm-text"></p>
         <div style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
           <button id="cancelDeleteBtn" class="modal-secondary-btn" style="flex: 1;">Cancel</button>
@@ -612,11 +693,11 @@
       <div class="glass-modal-card camera-modal-card">
         <div class="modal-header">
           <div>
-            <span class="modal-brand-title">Astra Vision</span>
-            <p class="modal-eyebrow">Multimodal capture</p>
+            <span class="modal-brand-title">ASTRA VISION</span>
+            <p class="modal-eyebrow">MULTIMODAL CAPTURE</p>
             <h2 class="modal-h2" id="cameraModalTitle">Take Photograph</h2>
           </div>
-          <button type="button" id="closeCameraModal" class="close-icon-btn" title="Close Camera"><i class="ph ph-x"></i></button>
+          <button type="button" id="closeCameraModal" class="close-icon-btn" title="Close Camera">✕</button>
         </div>
 
         <div class="camera-viewfinder-wrapper">
@@ -628,7 +709,7 @@
             <div id="cameraErrorBanner" class="camera-error-banner hidden">
               <p id="cameraErrorText">Camera access denied or unavailable.</p>
               <button type="button" id="cameraFallbackUploadBtn" class="camera-action-btn secondary" style="margin-top: 12px;">
-                <i class="ph ph-upload-simple"></i> Choose Image from Device
+                📁 Choose Image from Device
               </button>
             </div>
           </div>
@@ -636,7 +717,12 @@
           <div class="camera-controls-bar">
             <!-- Left: Switch Camera (Front/Rear) -->
             <button type="button" id="cameraSwitchBtn" class="camera-icon-btn" title="Switch Camera" aria-label="Switch Camera">
-              <i class="ph ph-camera-rotate"></i>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 16v-2a4 4 0 0 0-4-4H4"></path>
+                <polyline points="8 6 4 10 8 14"></polyline>
+                <path d="M4 8v2a4 4 0 0 0 4 4h12"></path>
+                <polyline points="16 18 20 14 16 10"></polyline>
+              </svg>
             </button>
 
             <!-- Center: Shutter (Live) or Retake/Confirm (Preview) -->
@@ -648,16 +734,20 @@
 
             <div id="cameraReviewControls" class="camera-review-actions hidden">
               <button type="button" id="cameraRetakeBtn" class="camera-action-btn secondary" title="Retake Photo">
-                <i class="ph ph-arrow-counter-clockwise"></i> Retake
+                🔄 Retake
               </button>
               <button type="button" id="cameraUsePhotoBtn" class="camera-action-btn primary" title="Use This Photo">
-                <i class="ph ph-check"></i> Use Photo
+                ✓ Use Photo
               </button>
             </div>
 
             <!-- Right: Direct File Upload Fallback button -->
             <button type="button" id="cameraUploadFallbackBtn" class="camera-icon-btn" title="Upload from Device" aria-label="Upload from Device">
-              <i class="ph ph-upload-simple"></i>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
             </button>
           </div>
         </div>
@@ -671,6 +761,6 @@
     <!-- Global Toast Notification -->
     <div id="toast" class="toast hidden"></div>
 
-    <script src="/static/app.js?v=3100"></script>
+    <script src="/static/app.js?v=3062"></script>
   </body>
 </html>

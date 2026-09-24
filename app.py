@@ -341,9 +341,9 @@ def consume_user_token(user: User, client_ip: str, db: Session) -> dict:
     status = get_user_token_status(user, client_ip, db)
     if status["out_of_tokens"]:
         msg = (
-            "Daily message limit hit. You have used all 20 messages for today."
+            "Out of tokens. You have used all 20 tokens for today."
             if status["is_logged_in"]
-            else "Daily message limit hit. You have used all 5 free guest messages for today. Please log in to get 20 messages per day."
+            else "Out of tokens. You have used all 5 free guest tokens for today. Please log in to get 20 tokens per day."
         )
         raise HTTPException(
             status_code=429,
@@ -1148,9 +1148,9 @@ async def chat(
     current_status = get_user_token_status(user, client_ip, db)
     if current_status["out_of_tokens"]:
         msg = (
-            "Daily message limit hit. You have used all 20 messages for today."
+            "Out of tokens. You have used all 20 tokens for today."
             if current_status["is_logged_in"]
-            else "Daily message limit hit. You have used all 5 free guest messages for today. Please log in to get 20 messages per day."
+            else "Out of tokens. You have used all 5 free guest tokens for today. Please log in to get 20 tokens per day."
         )
         raise HTTPException(
             status_code=429,

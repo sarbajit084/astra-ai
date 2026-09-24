@@ -63,13 +63,13 @@ def clean_agent_response(text: str) -> str:
     # Match code blocks with optional language identifier and any code content
     cleaned = re.sub(r"```[^\n]*\n[\s\S]*?```", _save_code, normalized)
 
-    # 4. Protect all math display blocks ($$...$$ or \[...\]) and inline math ($...$ or \(...\))
+    # 4. Protect all math display blocks ($$...$$) and inline math ($...$)
     math_blocks = []
     def _save_math(m):
         math_blocks.append(m.group(0))
         return f"__ASTRA_MATHBLOCK_{len(math_blocks)-1}__"
 
-    cleaned = re.sub(r"\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$\$[\s\S]+?\$\$|\$[^\n$]+?\$", _save_math, cleaned)
+    cleaned = re.sub(r"\$\$[\s\S]+?\$\$|\$[^\n$]+?\$", _save_math, cleaned)
 
     # Remove stray banner-like comment slashes in prose (e.g. / ---- ... ---- / or / --- /)
     cleaned = re.sub(r"^[ \t]*/+[ \t]*[-=~_]+.*?[-=~_]+[ \t]*/+[ \t]*$", "", cleaned, flags=re.MULTILINE)
@@ -809,7 +809,6 @@ class ProductionRAGService:
         else:
             is_3d_model = self._is_3d_model_request(query)
             is_coding = (mode == "code") or self._is_coding_request(query)
-            is_math = self._is_math_request(query)
             if is_3d_model:
                 # Dedicated 3D Creation Request: bypass external web search entirely!
                 web_results = None
@@ -844,33 +843,6 @@ class ProductionRAGService:
                         "label": "💻 Astra Code Studio Engine",
                         "type": "ai",
                         "snippet": "Production-grade code generation with interactive preview and syntax highlighting",
-                    }
-                ]
-            elif is_math and not self._is_live_external_query(query):
-                # Dedicated High-Precision Mathematical & Calculus Engine: bypass web search
-                web_results = None
-                if settings.grok_configured:
-                    answer = await self._general_llm_answer(
-                        query,
-                        None,
-                        history=clean_history,
-                        rewritten_query=rewritten,
-                        incognito=incognito,
-                        detailed=detailed,
-                        mode=mode,
-                        is_math=True,
-                    )
-                    model_used = "Astracore Math Engine"
-                else:
-                    answer = self._generate_math_fallback(query)
-                    model_used = "Astracore Math Engine"
-
-                sources = [
-                    {
-                        "id": "MATH",
-                        "label": "🧮 Astracore Mathematics & Analytical Engine",
-                        "type": "ai",
-                        "snippet": "Rigorous First-Principles Symbolic & Analytical Mathematical Derivation with Verified Final Answer",
                     }
                 ]
             else:
@@ -1249,66 +1221,6 @@ class ProductionRAGService:
         if re.search(r"\b(?:print|write|code|create|show)\s+[\w\s-]{1,30}\s+in\s+(?:python|javascript|js|java|c\+\+|cpp|c#|rust|golang|go|sql|bash|html)\b", q):
             return True
         return False
-
-    def _is_math_request(self, query: str) -> bool:
-        """Determines if a query is a mathematical problem, equation, integral, calculus problem, or analytical derivation."""
-        if not query or not query.strip():
-            return False
-        q = query.strip()
-        q_lower = q.lower()
-
-        # 1. LaTeX formatting or mathematical notation indicators
-        if any(tok in q for tok in [
-            "$$", "\\int", "\\sum", "\\frac", "\\lim", "\\partial", "\\prod", "\\sqrt",
-            "\\ln", "\\log", "\\sin", "\\cos", "\\tan", "\\cdot", "\\approx", "\\infty",
-            "\\zeta", "\\mathbf", "\\left", "\\right", "\\boxed", "\\[", "\\("
-        ]):
-            return True
-
-        # 2. Math symbols
-        if any(sym in q for sym in ["∫", "∑", "∏", "√", "∂", "π", "θ", "±", "≠", "≤", "≥"]):
-            return True
-
-        # 3. Explicit mathematical calculus / algebra / analysis terms
-        math_terms = [
-            "integral", "integrate", "antiderivative", "derivative", "differentiate",
-            "calculus", "limit as x", "evaluate the integral", "solve the equation",
-            "solve for x", "solve for y", "solve for z", "eigenvalue", "eigenvector",
-            "determinant", "matrix multiplication", "polynomial", "quadratic equation",
-            "binomial theorem", "taylor series", "maclaurin series", "fourier transform",
-            "laplace transform", "differential equation", "ode", "pde", "trigonometry",
-            "trig identity", "factorize", "simplify the expression", "arithmetic progression",
-            "geometric progression", "fibonacci", "permutation", "combination",
-            "standard deviation", "variance", "hypotenuse", "pythagorean", "riemann hypothesis",
-            "riemann zeta", "zeta function", "definite integral", "indefinite integral",
-            "integration by parts", "chain rule", "l'hopital", "lhopital", "cauchy",
-            "residue theorem", "contour integral", "triple integral", "double integral"
-        ]
-        if any(term in q_lower for term in math_terms):
-            return True
-
-        # 4. Expressions like "f(x) =", "y' =", "dy/dx", "I =", "solve 2x^2 + 5x - 3 = 0"
-        if re.search(r"\b(?:dy/dx|d/dx|f\([a-zA-Z]\)|y'|y''|I\s*=)\b", q):
-            return True
-        if re.search(r"[0-9a-zA-Z]\s*[\^*/+-]\s*[0-9a-zA-Z].*=", q):
-            return True
-
-        return False
-
-    def _generate_math_fallback(self, query: str) -> str:
-        """Fallback solver for mathematical requests when remote LLM APIs are unreachable."""
-        try:
-            sol = MathSolver.solve(query) or self._solve_math_locally(query)
-            if sol:
-                return sol
-        except Exception as e_ms:
-            logger.warning("math_fallback_solve_error: %s", e_ms)
-        return (
-            "### 🧮 Mathematical Problem Analysis\n\n"
-            f"**Query**: $${query}$$\n\n"
-            "Unable to connect to the Astracore high-precision reasoning model at this moment. "
-            "Please check network connectivity or retry in a few seconds."
-        )
 
     def _is_live_external_query(self, query: str) -> bool:
         """Determines if query explicitly requires live real-time web facts, news, or weather."""
@@ -2375,13 +2287,11 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 llm_messages.append({"role": turn["role"], "content": turn["content"]})
         llm_messages.append({"role": "user", "content": user_prompt})
 
-        is_math = self._is_math_request(original_query)
-        target_tokens = 8192 if (is_coding or is_math) else (4096 if detailed else 2048)
         payload = {
             "model": settings.active_model,
             "messages": llm_messages,
-            "temperature": 0.1 if is_math else (0.2 if is_coding else 0.2),
-            "max_tokens": target_tokens,
+            "temperature": 0.2 if is_coding else 0.2,
+            "max_tokens": 8192 if is_coding else (2000 if detailed else 600),
         }
 
         headers = {
@@ -2394,12 +2304,7 @@ print("Procedural 3D model exported successfully to model.glb")"""
         if settings.llm_provider == "xai":
             provider_candidates = [settings.active_model, "grok-2-latest", "grok-2", "grok-beta"]
         elif settings.llm_provider == "groq":
-            if is_math:
-                provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
-            elif is_coding:
-                provider_candidates = [settings.active_model, "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
-            else:
-                provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+            provider_candidates = [settings.active_model, "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
         else:
             provider_candidates = [settings.active_model, "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"]
         for m in provider_candidates:
@@ -2408,21 +2313,24 @@ print("Procedural 3D model exported successfully to model.glb")"""
 
         for attempt, model_candidate in enumerate(candidate_models):
             payload["model"] = model_candidate
-            payload["max_tokens"] = target_tokens
+            if settings.llm_provider == "groq" and "120b" in model_candidate:
+                payload["max_tokens"] = min(payload.get("max_tokens", 3800), 3800)
+            elif is_coding:
+                payload["max_tokens"] = min(payload.get("max_tokens", 4096), 4096)
 
             try:
                 response = await self.http.post(
                     settings.llm_endpoint,
                     headers=headers,
                     json=payload,
-                    timeout=60.0 if (is_coding or is_math) else 25.0,
+                    timeout=50.0 if is_coding else 16.0,
                 )
                 if response.status_code == 200:
                     data = response.json()
                     choices = data.get("choices", [])
                     if choices and "message" in choices[0]:
                         content = choices[0]["message"].get("content")
-                        if content and str(content).strip():
+                        if content:
                             return self._clean_llm_text(str(content))
                 elif response.status_code in (413, 429):
                     logger.warning("grounded_llm_rate_or_size_limited attempt=%d model=%s status=%d", attempt, model_candidate, response.status_code)
@@ -3076,13 +2984,11 @@ print("Procedural 3D model exported successfully to model.glb")"""
         incognito: bool = False,
         detailed: bool = False,
         mode: str = "general",
-        is_math: bool = False,
     ) -> str:
         """Answer general greetings, outside questions, or follow-ups conversationally like ChatGPT/Grok, incorporating web search facts and dialogue context."""
         project_state = self._detect_project_state(history, query)
         is_3d_model = self._is_3d_model_request(query)
         is_coding = (mode == "code") or is_3d_model or project_state["is_active_project"] or self._is_coding_request(query)
-        is_math = is_math or self._is_math_request(query)
         is_web_design = (mode == "code") or (project_state["is_active_project"] and project_state["is_modification"]) or any(
             k in query.lower() for k in [
                 "website", "landing page", "web app", "dashboard", "portfolio",
@@ -3096,13 +3002,13 @@ print("Procedural 3D model exported successfully to model.glb")"""
         )
         if is_web_design or is_3d_model:
             is_coding = True
-        if not is_coding and not is_math:
+        if not is_coding:
             math_sol = self._solve_math_locally(query)
             if math_sol:
                 return math_sol
 
         web_context_text = ""
-        if web_results and not is_coding and not is_math:
+        if web_results and not is_coding:
             blocks = []
             for w in web_results:
                 blocks.append(f"[Live Source: {w['title']}]\n{w['snippet']}")
@@ -3129,16 +3035,6 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 "   - Provide clean, idiomatic, fully runnable code with input handling, sample test runs, and clear output.\n"
                 "5. ZERO FILLER: Do NOT output conversational filler, philosophical chatter, or evasive responses. Focus 100% on delivering the exact code requested."
             )
-        elif is_math:
-            system_prompt = (
-                "You are Astracore Math Engine, a world-renowned computational mathematician, theoretical physicist, and analytical reasoning polymath.\n\n"
-                "CRITICAL MATHEMATICAL SOLVING PROTOCOL:\n"
-                "1. COMPLETE EXHAUSTIVE DERIVATION: Provide the complete, rigorous, step-by-step mathematical derivation from beginning to end. Never skip intermediate steps, never abbreviate, and never leave calculations incomplete.\n"
-                "2. ZERO TRUNCATION: You MUST work through the calculation completely. Under NO circumstances should you stop midway or omit steps.\n"
-                "3. PRISTINE LATEX: Format all mathematical formulas, integrals, series, indices, limits, and equations in standard LaTeX display blocks ($$ ... $$) or inline ($ ... $).\n"
-                "4. DEFINITIVE FINAL ANSWER: You MUST clearly provide the exact, simplified final answer at the very conclusion of your response, clearly highlighted in display math with \\boxed{...} (e.g. $$\\boxed{\\text{Result}}$$).\n"
-                "5. VERIFICATION: Briefly verify the result using an alternative method, asymptotic check, or numerical approximation whenever appropriate."
-            )
         else:
             system_prompt = self._deep_research_system_prompt(is_grounded=False, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
 
@@ -3152,13 +3048,6 @@ print("Procedural 3D model exported successfully to model.glb")"""
             user_content = (
                 f"{query}\n\n"
                 "Please generate the complete, production-grade, bug-free, copy-paste ready code in standard markdown code fences with full implementation details:"
-            )
-        elif is_math:
-            user_content = (
-                f"{query}\n\n"
-                "Please provide the complete, rigorous, step-by-step mathematical solution. "
-                "Show all intermediate algebraic steps, series expansions, substitutions, and identities clearly with pristine LaTeX ($$ ... $$). "
-                "CRITICAL REQUIREMENT: Do NOT cut off or stop halfway. You MUST complete all steps and clearly state the final verified answer at the very end formatted inside \\boxed{...}:"
             )
         elif web_context_text:
             user_content = (
@@ -3177,12 +3066,11 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 llm_messages.append({"role": turn["role"], "content": turn["content"]})
         llm_messages.append({"role": "user", "content": user_content})
 
-        target_tokens = 8192 if (is_coding or is_math) else (4096 if detailed else 2048)
         payload = {
             "model": settings.active_model,
             "messages": llm_messages,
-            "temperature": 0.1 if is_math else (0.2 if is_coding else 0.2),
-            "max_tokens": target_tokens,
+            "temperature": 0.2 if is_coding else 0.2,
+            "max_tokens": 4096 if is_coding else (2000 if detailed else 600),
         }
         headers = {
             "Authorization": f"Bearer {settings.active_llm_key}",
@@ -3194,9 +3082,7 @@ print("Procedural 3D model exported successfully to model.glb")"""
         if settings.llm_provider == "xai":
             provider_candidates = [settings.active_model, "grok-2-latest", "grok-2", "grok-beta"]
         elif settings.llm_provider == "groq":
-            if is_math:
-                provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
-            elif is_coding:
+            if is_coding:
                 provider_candidates = [settings.active_model, "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
             else:
                 provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
@@ -3209,21 +3095,29 @@ print("Procedural 3D model exported successfully to model.glb")"""
 
         for attempt, model_candidate in enumerate(candidate_models):
             payload["model"] = model_candidate
-            payload["max_tokens"] = target_tokens
+
+            # Safe token capping for Groq
+            if settings.llm_provider == "groq":
+                if "120b" in model_candidate:
+                    payload["max_tokens"] = min(payload.get("max_tokens", 3800), 3800)
+                else:
+                    payload["max_tokens"] = 4096 if is_coding else (2000 if detailed else 600)
+            else:
+                payload["max_tokens"] = 8192 if is_coding else (2000 if detailed else 600)
 
             try:
                 response = await self.http.post(
                     settings.llm_endpoint,
                     headers=headers,
                     json=payload,
-                    timeout=60.0 if (is_coding or is_math) else 25.0,
+                    timeout=50.0 if is_coding else 16.0,
                 )
                 if response.status_code == 200:
                     data = response.json()
                     choices = data.get("choices", [])
                     if choices and "message" in choices[0]:
                         content = choices[0]["message"].get("content")
-                        if content and str(content).strip():
+                        if content:
                             return self._clean_llm_text(str(content))
                 elif response.status_code in (413, 429):
                     logger.warning("general_llm_rate_or_size_limited attempt=%d model=%s status=%d", attempt, model_candidate, response.status_code)
@@ -3246,9 +3140,6 @@ print("Procedural 3D model exported successfully to model.glb")"""
 
         if is_coding:
             return self._generate_code_fallback(query)
-
-        if is_math:
-            return self._generate_math_fallback(query)
 
         if web_results:
             top_snippet = web_results[0].get("snippet", "")

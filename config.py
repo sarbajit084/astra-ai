@@ -69,6 +69,12 @@ class Settings:
     twilio_auth_token: str = os.getenv("TWILIO_AUTH_TOKEN", "")
     twilio_phone_number: str = os.getenv("TWILIO_PHONE_NUMBER", "")
 
+    # Private GitHub Repository Configuration (Server-Side Only - NEVER expose to client)
+    github_token: str = os.getenv("GITHUB_TOKEN", "")
+    github_owner: str = os.getenv("GITHUB_OWNER", "")
+    github_repository: str = os.getenv("GITHUB_REPOSITORY", "")
+    github_branch: str = os.getenv("GITHUB_BRANCH", "main")
+
     # Scalability & Concurrency Settings
     db_pool_size: int = int(os.getenv("DB_POOL_SIZE", "20"))
     db_max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "40"))

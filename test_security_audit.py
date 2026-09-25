@@ -15,6 +15,9 @@ class SecurityAuditTestSuite(unittest.TestCase):
         initialize_database()
         cls.client = TestClient(app_module.app, raise_server_exceptions=False)
 
+    def setUp(self):
+        app_module.rate_limiter.requests.clear()
+
     def get_valid_challenge(self):
         r = self.client.get("/api/auth/challenge")
         data = r.json()
@@ -257,14 +260,23 @@ class SecurityAuditTestSuite(unittest.TestCase):
             "Here is the secret: gsk_abcdef1234567890abcdef1234567890 "
             "Also my JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c "
             "And reset token: rst_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef "
-            "And xai: xai-abcdefghijklmnopqrstuvwxyz012345"
+            "And xai: xai-abcdefghijklmnopqrstuvwxyz012345 "
+            "And classic PAT: ghp_123456789012345678901234567890123456 "
+            "And fine PAT: github_pat_11AAAAAAA01234567890_abcdefghijklmnopqrstuvwxyz01234567890 "
+            "And repo url: https://github.com/my-org/my-private-repo.git "
+            "And raw url: https://raw.githubusercontent.com/my-org/my-private-repo/main/secret.txt"
         )
         cleaned = clean_agent_response(leaky_response)
         self.assertNotIn("gsk_", cleaned)
         self.assertNotIn("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", cleaned)
         self.assertNotIn("rst_0123456789abcdef", cleaned)
         self.assertNotIn("xai-abcdef", cleaned)
+        self.assertNotIn("ghp_1234567890", cleaned)
+        self.assertNotIn("github_pat_11AAAAAAA", cleaned)
+        self.assertNotIn("my-private-repo", cleaned)
         self.assertIn("[REDACTED]", cleaned)
+        self.assertIn("[REDACTED_TOKEN]", cleaned)
+        self.assertIn("[REDACTED_REPOSITORY_URL]", cleaned)
 
     def test_10_sanitized_health_check(self):
         resp = self.client.get("/api/health")
@@ -274,6 +286,69 @@ class SecurityAuditTestSuite(unittest.TestCase):
         resp2 = self.client.get("/health")
         self.assertEqual(resp2.status_code, 200)
         self.assertEqual(resp2.json(), {"status": "ok"})
+
+    def test_11_repository_endpoint_auth_guard(self):
+        # Unauthenticated request to /api/repository/resource must be 401
+        unauth_client = TestClient(app_module.app, raise_server_exceptions=False)
+        resp = unauth_client.get("/api/repository/resource?path=README.md")
+        self.assertEqual(resp.status_code, 401, "Unauthenticated access to repository proxy must be blocked")
+
+        # Unauthenticated request to /api/repository/ingest must be 401
+        resp_ingest = unauth_client.post("/api/repository/ingest", json={"path": "README.md"})
+        self.assertEqual(resp_ingest.status_code, 401, "Unauthenticated ingest must be blocked")
+
+    def test_12_repository_endpoint_path_traversal_and_validation(self):
+        # Register a valid user and get JWT
+        uid = uuid.uuid4().hex[:8]
+        t_c, ans = self.get_valid_challenge()
+        reg_resp = self.client.post("/api/auth/register", json={
+            "username": f"repo_user_{uid}",
+            "email": f"repo_user_{uid}@example.com",
+            "password": "TestPassword123!",
+            "password_confirm": "TestPassword123!",
+            "challenge_token": t_c,
+            "calculation_result": ans,
+            "agreed_to_terms": True,
+        })
+        token = reg_resp.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Path traversal attack tests
+        traversal_attempts = [
+            "../../etc/passwd",
+            "..\\..\\config.py",
+            "data/../.env",
+            "/.git/config",
+            ".env",
+            "app.db",
+        ]
+        for bad_path in traversal_attempts:
+            resp = self.client.get(f"/api/repository/resource?path={bad_path}", headers=headers)
+            # Must return 400 Bad Request or 503 (if unconfigured), NEVER 200 or 500
+            self.assertIn(resp.status_code, (400, 503), f"Path traversal attempt '{bad_path}' was not rejected")
+
+    def test_13_frontend_zero_github_exposure(self):
+        import glob
+        from pathlib import Path
+
+        # Scan all production static files
+        static_dir = Path("d:/rag_agent/static")
+        forbidden_patterns = [
+            "ghp_",
+            "github_pat_",
+            "sarbajit084/astra-ai",
+            "api.github.com",
+        ]
+
+        for filepath in static_dir.glob("**/*"):
+            if filepath.is_file() and not filepath.name.endswith(('.png', '.jpg', '.jpeg', '.svg', '.ico')):
+                content = filepath.read_text(encoding="utf-8", errors="ignore")
+                for pat in forbidden_patterns:
+                    self.assertNotIn(pat, content, f"Forbidden pattern '{pat}' leaked in frontend file {filepath.name}")
+
+        # Ensure no .map source map files exist in static/
+        map_files = list(static_dir.glob("**/*.map"))
+        self.assertEqual(len(map_files), 0, "No production source maps should exist in client assets")
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,8 +36,8 @@ An enterprise-grade, full-stack **Retrieval-Augmented Generation (RAG)** platfor
 ### 1. Clone & Setup Virtual Environment
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/astra-ai.git
-cd astra-ai
+git clone https://github.com/your-org/your-private-repo.git
+cd your-private-repo
 
 # Create and activate virtual environment
 python -m venv venv
@@ -116,10 +116,11 @@ For full Android build and installation instructions, see [android/README.md](an
 
 ## 🔒 Security & Privacy Notice
 
+- **Private Repository Security**: The application repository is strictly private. All interactions with repository resources are mediated exclusively by backend endpoints (`/api/repository/resource`). Client-side JavaScript and mobile WebViews never communicate directly with GitHub or receive repository tokens.
 - All passwords are encrypted with **Argon2id** password hashing.
 - File uploads are verified for MIME types, maximum size (400 MB), path traversal (`../`), and compression expansion limits.
 - Sensitive files (`.env`, private databases, logs, and build artifacts) are excluded via `.gitignore` and distribution packaging.
-- Always keep your `.env` private and never share API keys publicly.
+- Always keep your `.env` private and never share API keys or GitHub tokens publicly.
 
 ---
 

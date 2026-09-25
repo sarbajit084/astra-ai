@@ -1,3 +1,6 @@
+import os
+os.environ["GUEST_DAILY_LIMIT"] = "5"
+os.environ["USER_DAILY_LIMIT"] = "20"
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -11,6 +14,9 @@ class TokenLimiterTestSuite(unittest.TestCase):
     def setUpClass(cls):
         initialize_database()
         cls.client = TestClient(app_module.app, raise_server_exceptions=False)
+
+    def setUp(self):
+        app_module.rate_limiter.requests.clear()
 
     def get_valid_challenge(self):
         r = self.client.get("/api/auth/challenge")

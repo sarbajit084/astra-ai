@@ -133,10 +133,10 @@
         banner.classList.remove('hidden');
         if (!tokenStatus.is_logged_in) {
           if (bannerTitle) bannerTitle.textContent = 'Out of tokens';
-          if (bannerMsg) bannerMsg.textContent = 'You have used all 5 free guest tokens for today. Log in to get 20 tokens per day!';
+          if (bannerMsg) bannerMsg.textContent = `You have used all ${tokenStatus.daily_limit} free guest tokens for today. Log in to get more tokens per day!`;
           if (bannerBtn) {
             bannerBtn.classList.remove('hidden');
-            bannerBtn.textContent = 'Log In for 20 Tokens';
+            bannerBtn.textContent = 'Log In / Sign Up';
             bannerBtn.onclick = () => {
               if ($('authModal')) $('authModal').classList.remove('hidden');
             };
@@ -144,7 +144,7 @@
         } else {
           if (bannerTitle) bannerTitle.textContent = 'Out of tokens';
           const hrs = Math.max(1, Math.ceil((tokenStatus.reset_seconds || 86400) / 3600));
-          if (bannerMsg) bannerMsg.textContent = `You have used all 20 tokens for today. Resets in approximately ${hrs} hour${hrs === 1 ? '' : 's'}.`;
+          if (bannerMsg) bannerMsg.textContent = `You have used all ${tokenStatus.daily_limit} tokens for today. Resets in approximately ${hrs} hour${hrs === 1 ? '' : 's'}.`;
           if (bannerBtn) bannerBtn.classList.add('hidden');
         }
 

@@ -112,6 +112,29 @@ def clean_agent_response(text: str) -> str:
     cleaned = re.sub(r"sk-[a-zA-Z0-9]{20,}", "[REDACTED]", cleaned)
     cleaned = re.sub(r"eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}", "[REDACTED_TOKEN]", cleaned)
     cleaned = re.sub(r"rst_[a-zA-Z0-9]{16,}", "[REDACTED_TOKEN]", cleaned)
+
+    # GitHub credentials & tokens redaction (PATs, OAuth, App, Server-to-server)
+    cleaned = re.sub(r"ghp_[a-zA-Z0-9]{20,}", "[REDACTED_TOKEN]", cleaned)
+    cleaned = re.sub(r"github_pat_[a-zA-Z0-9_]{30,}", "[REDACTED_TOKEN]", cleaned)
+    cleaned = re.sub(r"gh[ousr]_[a-zA-Z0-9]{20,}", "[REDACTED_TOKEN]", cleaned)
+
+    # Private repository URLs & raw content URLs redaction
+    cleaned = re.sub(
+        r"https?://(?:www\.)?github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:\.git)?(?:/[^\s\"\'<>]*)?",
+        "[REDACTED_REPOSITORY_URL]",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"https?://raw\.githubusercontent\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:/[^\s\"\'<>]*)?",
+        "[REDACTED_REPOSITORY_URL]",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"https?://api\.github\.com/repos/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:/[^\s\"\'<>]*)?",
+        "[REDACTED_REPOSITORY_URL]",
+        cleaned,
+    )
+
     cleaned = re.sub(r"(?i)\b(?:built|created|developed|trained)\s+by\s+OpenAI\b", "built by SSR Group", cleaned)
     cleaned = re.sub(r"(?i)\bOpenAI\s+assistant\b", "Astra AI assistant", cleaned)
 
@@ -1909,7 +1932,8 @@ print("Procedural 3D model exported successfully to model.glb")"""
                     "2. If the user is modifying, updating, or adding to an ongoing website or software project (e.g. 'Make the car black', 'Add rotating 3D model to hero section'), rewrite it to explicitly identify the project subject and requested change (e.g. 'Update the futuristic car 3D website: make the car body color black', 'Add an interactive rotating 3D watch model to the hero section of the luxury watch website').\n"
                     "3. Resolve all pronouns and ambiguous references using the conversation context.\n"
                     "4. Expand abbreviations and acronyms accurately (e.g., 'GP' to 'Grand Prix', 'F1' to 'Formula 1'). NEVER truncate names or terms.\n"
-                    "5. Do NOT answer the question. Output ONLY the complete rewritten standalone query in plain text without quotes or formatting."
+                    "5. Correct common keyboard typos and misspellings (e.g., 'go' to 'GP / Grand Prix' in racing/sports context, 'roughyl' to 'roughly', 'ewhat' to 'what').\n"
+                    "6. Do NOT answer the question. Output ONLY the complete rewritten standalone query in plain text without quotes or formatting."
                 )
                 try:
                     payload = {
@@ -2031,7 +2055,10 @@ print("Procedural 3D model exported successfully to model.glb")"""
             "- Ground your answer directly on the provided LIVE SEARCH CONTEXT and verified real-world facts. Do NOT include bracketed citation codes like [W1], [W2], or 【W1】.\n"
             "- You have full real-time internet connectivity and live tools for weather, global stock markets, forex/currency rates, crypto, sports, and web news.\n"
             "- When LIVE SEARCH CONTEXT is provided (such as live weather reports, stock prices, currency rates, crypto prices, or web results), ALWAYS use this data to deliver a direct, accurate, and authoritative answer.\n"
-            "- NEVER claim that you do not have real-time information or tell the user to check a live weather service or external website. The live data is directly provided in your context.\n"
+            "- ABSOLUTE PROHIBITION ON REFUSALS OR EVASIVE ANSWERS: NEVER say 'The current live search results don't include information about...', 'I don't have access to...', 'I cannot find...', or give up on answering. You are an omniscient, deeply knowledgeable AI. If live search results are brief or do not explicitly state an answer, seamlessly synthesize your extensive parametric knowledge to answer the user's question completely, accurately, and authoritatively.\n"
+            "- SPORTS, RACING & TOURNAMENTS: When asked about sports championships, Grand Prix races, or tournaments (e.g., Formula 1 Italian Grand Prix, Monaco GP, World Cup, UEFA Champions League, Wimbledon, Super Bowl): ALWAYS state the latest confirmed winner/champion (e.g. Charles Leclerc won the 2024 Italian Grand Prix at Monza for Ferrari, following Max Verstappen in 2023 and 2022). If asked about the current year and the event has not yet been held, state the latest champion and clarify the current season schedule/status!\n"
+            "- USER TYPO & SHORTHAND TOLERANCE: Decipher user typos and keyboard proximity slips naturally (e.g. 'italian go' means Italian GP / Grand Prix; 'roughyl ewhat' means roughly what; 'who won world cup' means FIFA or Cricket World Cup). Always answer the user's intended question directly and brilliantly without commenting on the typo.\n"
+            "- UNIVERSAL TOPIC COVERAGE: You answer questions on ANY topic: sports, engineering, college admissions and placements (e.g. SRM, IITs, NITs average packages and companies), coding, science, philosophy, history, cinema, geography, and daily advice. Deliver smart, sharp, direct, and insightful answers every single time.\n"
             "- If asked about weather: state the current temperature, conditions, feels-like, humidity, wind, and expected range immediately.\n"
             "- If asked about currency (e.g., 1 USD to INR, 1 use to inr): state the current live rate and exact conversion immediately.\n"
             "- If asked about stock prices or crypto: state the live price, currency, change, and market stats immediately.\n"
@@ -3052,13 +3079,22 @@ print("Procedural 3D model exported successfully to model.glb")"""
         elif web_context_text:
             user_content = (
                 f"{query}\n\n"
-                f"=== SYSTEM TEMPORAL ANCHOR: TODAY IS {now_dt.strftime('%A').upper()}, {now_dt.strftime('%B').upper()} {now_dt.day}, {now_dt.year} ({today_date_str}) ===\n"
-                f"=== LIVE SEARCH CONTEXT ===\n"
+                f"=== SYSTEM TEMPORAL CONTEXT: CURRENT DATE IS {now_dt.strftime('%A').upper()}, {now_dt.strftime('%B').upper()} {now_dt.day}, {now_dt.year} ({today_date_str}) ===\n"
+                f"=== LIVE SEARCH & FACTUAL CONTEXT ===\n"
                 f"{web_context_text}\n\n"
-                f"Please provide a {'comprehensive, deeply detailed' if detailed else 'short, concise, direct'} and accurate answer for today ({today_date_str}) in clean prose without citation tags like [W1], [W2]:"
+                "INSTRUCTIONS FOR ANSWERING:\n"
+                "- Answer the user's question directly, insightfully, and authoritatively.\n"
+                "- Seamlessly combine the live context and your vast internal knowledge base. NEVER refuse with 'search results don't include information'.\n"
+                "- If asked about annual events, sports championships, or Grand Prix races that have not yet occurred in the current year, state the latest confirmed champion/winner and clarify the season status.\n"
+                "- Fix and understand any user typos or colloquial shorthand naturally.\n"
+                f"- Deliver a {'comprehensive, deeply detailed' if detailed else 'direct, engaging, clear'} response in clean prose without bracketed citation codes like [W1], [W2]:"
             )
         else:
-            user_content = query
+            user_content = (
+                f"{query}\n\n"
+                f"=== SYSTEM TEMPORAL CONTEXT: CURRENT DATE IS {now_dt.strftime('%A').upper()}, {now_dt.strftime('%B').upper()} {now_dt.day}, {now_dt.year} ({today_date_str}) ===\n"
+                "Please provide a direct, insightful, and authoritative answer drawing upon your complete knowledge base:"
+            )
 
         llm_messages: list[dict] = [{"role": "system", "content": system_prompt}]
         if history:
@@ -4243,6 +4279,7 @@ print("Procedural 3D model exported successfully to model.glb")"""
         if len(results) < 4:
             try:
                 ddg_q = clean_q
+                ddg_q = re.sub(r"\b([a-zA-Z]+)\s+go\b", r"\1 Grand Prix", ddg_q, flags=re.IGNORECASE)
                 if "gp" in ddg_q.lower():
                     ddg_q = re.sub(r"\bgp\b", "Grand Prix", ddg_q, flags=re.IGNORECASE)
 
@@ -4275,6 +4312,7 @@ print("Procedural 3D model exported successfully to model.glb")"""
         if len(results) < 4:
             try:
                 wiki_term = re.sub(r"^(who won|who is|what is|winner of|who is the winner of|result of|tell me about)\s+", "", clean_q, flags=re.IGNORECASE).strip()
+                wiki_term = re.sub(r"\b([a-zA-Z]+)\s+go\b", r"\1 Grand Prix", wiki_term, flags=re.IGNORECASE)
                 if "gp" in wiki_term.lower():
                     wiki_term = re.sub(r"\bgp\b", "Grand Prix", wiki_term, flags=re.IGNORECASE)
                 wiki_term = wiki_term or clean_q

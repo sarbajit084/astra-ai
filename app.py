@@ -13,6 +13,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import os
 import random
 import re
 import time
@@ -56,6 +57,7 @@ from auth import (
 )
 from config import BUNDLE_DIR, settings
 from database import Conversation, DailyUsage, Document, QueryEvent, User, UserPreference, get_db, initialize_database
+from github_service import github_service
 from rag_engine import ProductionRAGService, is_chemistry_query
 
 logging.basicConfig(
@@ -305,7 +307,9 @@ def owned_document(db: Session, document_id: str, user_id: str) -> Document:
 def get_user_token_status(user: User, client_ip: str, db: Session) -> dict:
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     is_logged_in = bool(user and user.role != "guest")
-    daily_limit = 20 if is_logged_in else 5
+    guest_limit = int(os.getenv("GUEST_DAILY_LIMIT", "1000"))
+    user_limit = int(os.getenv("USER_DAILY_LIMIT", "5000"))
+    daily_limit = user_limit if is_logged_in else guest_limit
 
     now_utc = datetime.now(timezone.utc)
     tomorrow_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=timezone.utc) + timedelta(days=1)
@@ -341,9 +345,9 @@ def consume_user_token(user: User, client_ip: str, db: Session) -> dict:
     status = get_user_token_status(user, client_ip, db)
     if status["out_of_tokens"]:
         msg = (
-            "Out of tokens. You have used all 20 tokens for today."
+            f"Out of tokens. You have used all {status['daily_limit']} tokens for today."
             if status["is_logged_in"]
-            else "Out of tokens. You have used all 5 free guest tokens for today. Please log in to get 20 tokens per day."
+            else f"Out of tokens. You have used all {status['daily_limit']} free guest tokens for today. Please log in to get more tokens per day."
         )
         raise HTTPException(
             status_code=429,
@@ -1072,6 +1076,108 @@ def delete_document(
     return {"success": True}
 
 
+# ==============================================================================
+# Secure Server-Side Repository Proxy Endpoints
+# Private repository files/assets are fetched strictly on the backend.
+# The client never connects directly to GitHub and never receives tokens/URLs.
+# ==============================================================================
+
+@app.get("/api/repository/resource")
+def get_repository_resource(
+    path: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Securely fetches a file or directory listing from the private repository.
+    Strictly server-side; credentials and repository URLs are never exposed.
+    """
+    try:
+        clean_path = github_service.sanitize_path(path)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+    if not github_service.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Repository service is not configured on this server.",
+        )
+
+    try:
+        data = github_service.fetch_file(clean_path)
+        return {"success": True, "data": data}
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found.")
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to retrieve resource from repository.",
+        )
+
+
+class RepositoryIngestPayload(BaseModel):
+    path: str = Field(..., max_length=500)
+
+
+@app.post("/api/repository/ingest")
+async def ingest_repository_resource(
+    payload: RepositoryIngestPayload,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Allows an administrator to ingest a private repository document directly into RAG.
+    The document is fetched server-side and indexed into Qdrant/vector store.
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator privileges required.")
+
+    try:
+        clean_path = github_service.sanitize_path(payload.path)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+    if not github_service.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Repository service is not configured on this server.",
+        )
+
+    try:
+        resource = github_service.fetch_file(clean_path)
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found in repository.")
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch repository resource.")
+
+    if resource.get("type") != "file":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Can only ingest single files.")
+
+    content = resource.get("content", "").encode("utf-8")
+    filename = Path(resource.get("path", "repo_doc.txt")).name
+
+    document = Document(owner_id=user.id, name=f"[Repo] {filename}", status="processing")
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
+    try:
+        result = await rag.ingest_async(document.id, user.id, filename, content)
+        document.status = "ready"
+        document.chunk_count = result["chunks_count"]
+        document.character_count = result["characters"]
+        db.commit()
+        return {"success": True, "document": document.public()}
+    except Exception as exc:
+        document.status = "failed"
+        db.commit()
+        logger.exception("repo_document_ingestion_failed document_id=%s", document.id)
+        raise HTTPException(422, "The repository resource could not be processed into the knowledge base.") from exc
+
+
 @app.post("/api/chat/upload-image")
 async def upload_chat_image(
     request: Request,
@@ -1148,9 +1254,9 @@ async def chat(
     current_status = get_user_token_status(user, client_ip, db)
     if current_status["out_of_tokens"]:
         msg = (
-            "Out of tokens. You have used all 20 tokens for today."
+            f"Out of tokens. You have used all {current_status['daily_limit']} tokens for today."
             if current_status["is_logged_in"]
-            else "Out of tokens. You have used all 5 free guest tokens for today. Please log in to get 20 tokens per day."
+            else f"Out of tokens. You have used all {current_status['daily_limit']} free guest tokens for today. Please log in to get more tokens per day."
         )
         raise HTTPException(
             status_code=429,

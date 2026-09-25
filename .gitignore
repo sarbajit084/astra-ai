@@ -16,20 +16,23 @@ venv/
 .venv/
 ENV/
 
-# Distribution & Build Artifacts
+# Distribution, Build Artifacts & Source Maps
 build/
 dist/
 *.spec
 *.zip
 *.tar.gz
 *.apk
+*.map
 
-# Database & Runtime Uploads
-data/*.db
-data/images/
-*.db
+# Database & Runtime Data Directories
+data/*
+!data/.gitkeep
 uploads/*
 !uploads/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
 backups/
 
 # Logs & Temporary Files

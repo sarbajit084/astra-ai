@@ -902,20 +902,14 @@
   }, 300);
 
   function setEngineMode(mode) {
-    activeEngineMode = mode;
+    activeEngineMode = 'general';
     updateEngineModeUI();
-    const label = mode === 'code' ? '💻 Code Mode' : '✨ General Mode';
-    toast(`✓ ${label} Active`);
   }
 
   function updateEngineModeUI() {
-    const codeCheck = $('popoverCodeCheck');
-    const codeRow = $('popoverModeCode');
-    if (codeCheck) codeCheck.classList.toggle('hidden', activeEngineMode !== 'code');
-    if (codeRow) codeRow.classList.toggle('active', activeEngineMode === 'code');
     const label = $('engineLabel');
     if (label) {
-      label.textContent = activeEngineMode === 'code' ? 'Astracore Code' : 'Astracore 3.1';
+      label.textContent = 'Astracore 3.1';
     }
   }
 
@@ -2423,10 +2417,9 @@
     // Initialize 3D models, charts, and diagrams within this message
     initInteractiveWidgets(row);
 
-    // Update outside-the-box code layout matching ChatGPT aesthetic
+    // Keep standard centered layout
     if (stage) {
-      const hasCode = Boolean(stage.querySelector('.code-editor-card') || row.querySelector('.code-editor-card') || activeEngineMode === 'code');
-      stage.classList.toggle('has-code-view', hasCode);
+      stage.classList.remove('has-code-view');
     }
 
     if (stayAtTop) {
@@ -2561,8 +2554,7 @@
 
       const stage = $('centerStage');
       if (stage) {
-        const hasCode = Boolean(stage.querySelector('.code-editor-card') || activeEngineMode === 'code');
-        stage.classList.toggle('has-code-view', hasCode);
+        stage.classList.remove('has-code-view');
       }
     } catch (err) {
       if (currentConversationId === convId) {
@@ -4395,12 +4387,6 @@
     };
   }
 
-  // Row: Code Mode
-  if ($('popoverModeCode')) {
-    $('popoverModeCode').onclick = () => {
-      setEngineMode('code');
-    };
-  }
 
   // Sync initial detailed mode checkmark UI
   setDetailedMode(isDetailedMode);

@@ -71,8 +71,8 @@ class TestStoryAndWebsiteModes(unittest.TestCase):
             self.assertNotIn("```html", ans.lower(), f"Website must NOT output ```html for '{q}'")
             self.assertNotIn("```css", ans.lower(), f"Website must NOT output ```css for '{q}'")
             self.assertNotIn("```javascript", ans.lower(), f"Website must NOT output ```javascript for '{q}'")
-            # Must clearly state that websites are not generated and small code (Python, C++, C) is supported
-            self.assertIn("do not generate websites", ans.lower(), f"Website request must state websites are not generated for '{q}'")
+            # Must clearly state that websites cannot be generated and small code (Python, C++, C) is supported
+            self.assertIn("cannot be generated", ans.lower(), f"Website request must state website cannot be generated for '{q}'")
             self.assertIn("python", ans.lower(), f"Website request must mention Python for '{q}'")
 
     def test_04_story_request_never_outputs_website_or_code(self):

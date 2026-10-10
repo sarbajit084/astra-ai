@@ -863,13 +863,13 @@ class ProductionRAGService:
                     "is_chemistry": False,
                     "sources": [
                         {
-                            "id": "MODE",
-                            "label": "💻 Astra Mode System",
+                            "id": "POLICY",
+                            "label": "🛡️ Astra System Policy",
                             "type": "ai",
-                            "snippet": "Switch to Code Mode to generate functional website code and live previews.",
+                            "snippet": "Website and web application generation is permanently disabled.",
                         }
                     ],
-                    "model_used": "Astra Architecture Guide",
+                    "model_used": "Astra",
                     "has_context": False,
                     "rewritten_query": query,
                     "timings_ms": {
@@ -1213,7 +1213,7 @@ class ProductionRAGService:
         return False
 
     def _is_website_request(self, query: str) -> bool:
-        """Determines if query is specifically requesting website, landing page, or web UI creation/generation."""
+        """Determines if query is requesting website, landing page, or web UI creation/generation."""
         q = query.lower().strip()
         if self._is_creative_request(query):
             return False
@@ -1222,30 +1222,27 @@ class ProductionRAGService:
             "website", "web site", "webpage", "web page", "landing page",
             "hero section", "portfolio site", "portfolio website", "cafe website",
             "restaurant website", "ecommerce site", "ecommerce website",
-            "storefront", "web app", "3d website"
+            "storefront", "web app", "webapp", "3d website", "full stack website",
+            "frontend template", "web template", "html website", "html page",
+            "html and css", "html css js", "threejs website", "three.js website"
         ]
-        explicit_patterns = [
-            r"\b(?:make|create|build|generate|design|develop|code)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:complete\s+|modern\s+|responsive\s+|interactive\s+|3d\s+)?(?:website|site|landing\s+page|webpage|web\s+page|web\s+app|portfolio|storefront)\b",
-            r"\b(?:make|create|build|generate|design)\s+(?:me\s+)?(?:a\s+|an\s+)?[\w\s-]{1,25}\s+(?:website|landing page|web page|web app|storefront)\b",
-            r"\b(?:html|css|frontend|front-end)\s+(?:website|site|landing\s+page|template)\b"
-        ]
-        if any(re.search(pat, q) for pat in explicit_patterns):
+        if any(re.search(rf"\b{re.escape(term)}\b", q) for term in website_terms):
             return True
 
-        creation_verbs = ["make", "create", "build", "generate", "design", "develop", "code", "construct", "give me", "show me"]
-        has_verb = any(v in q for v in creation_verbs)
-        has_web_term = any(re.search(rf"\b{re.escape(term)}\b", q) for term in website_terms)
-        if has_verb and has_web_term:
+        explicit_patterns = [
+            r"\b(?:make|create|build|generate|design|develop|code|construct)\s+(?:me\s+)?(?:a\s+|an\s+)?[\w\s-]{0,30}\s*(?:website|site|landing\s+page|webpage|web\s+page|web\s+app|webapp|storefront|portfolio)\b",
+            r"\b(?:html|css|frontend|front-end)\s+(?:website|site|landing\s+page|template|page)\b"
+        ]
+        if any(re.search(pat, q) for pat in explicit_patterns):
             return True
 
         return False
 
     def _build_no_website_response(self, query: str = "") -> str:
-        """Explicitly refuses website generation and confirms small code only."""
+        """Explicitly refuses website generation."""
         return (
-            "I do not generate websites, HTML pages, or front-end templates.\n\n"
-            "I specialize in small, focused code snippets, algorithms, and functions in languages like **Python**, **C++**, and **C**.\n\n"
-            "Please describe the specific algorithmic problem, function, or script you'd like me to write!"
+            "Websites and web applications cannot be generated.\n\n"
+            "Website generation has been disabled. I can only assist with general queries, questions, stories, scripts, or small code snippets in languages like Python, C++, and C."
         )
 
     _build_website_mode_notice = _build_no_website_response

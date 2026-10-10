@@ -1159,6 +1159,62 @@ img, video, canvas, svg {
   box-sizing: border-box;
 }
 
+.assistant-content .assistant-p {
+  margin-top: 0;
+  margin-bottom: 15px;
+  line-height: 1.52;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.assistant-content .assistant-p:last-child {
+  margin-bottom: 0;
+}
+
+.assistant-content .chat-break {
+  display: block;
+  content: "";
+  margin-top: 6px;
+}
+
+.assistant-content ul.chat-list,
+.assistant-content ol.chat-list {
+  margin: 8px 0 16px 0;
+  padding-left: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  list-style-position: outside;
+}
+
+.assistant-content ul.chat-list {
+  list-style-type: disc;
+}
+
+.assistant-content ol.chat-list {
+  list-style-type: decimal;
+}
+
+.assistant-content .chat-li {
+  line-height: 1.48;
+  margin-bottom: 2px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.assistant-content .chat-subheading {
+  font-family: inherit;
+  font-size: 1.18rem;
+  font-weight: 700;
+  margin: 18px 0 8px;
+  color: inherit;
+  line-height: 1.35;
+}
+
+.assistant-content .chat-subheading:first-child {
+  margin-top: 0;
+}
+
 .astra-center-stage.has-code-view .assistant-content,
 .astra-center-stage:has(.code-editor-card) .assistant-content {
   font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;

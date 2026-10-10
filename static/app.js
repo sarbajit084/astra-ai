@@ -395,6 +395,17 @@
     text = text.replace(/(?:^|\n)(?:Here(?:'s| is) a thinking process:?|Thinking Process:?|1\. Analyze User Input:?)[\s\S]*?(?=(?:\n\n[A-Z]|\n\n\*\*|\n\n#|\n\n-|\n\n•|$))/gi, '').trim();
     if (!text) return '';
 
+    // 0. Currency & Rate separation: if multiple conversions are joined on the same line
+    // e.g. "**1 USD = 0.8924 EUR 1 USD = 96.87 INR**" -> "**1 USD = 0.8924 EUR**\n**1 USD = 96.87 INR**"
+    text = text.replace(/\*\*([^*]+?\b[A-Za-z]{3,4}\s*=.*?[A-Za-z]{3,4}\s*=.*?)\*\*/gi, (match, content) => {
+      const subEqs = content.split(/[ \t,;]+(?=\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=)/i);
+      if (subEqs.length > 1) {
+        return subEqs.filter(Boolean).map(p => `**${p.trim()}**`).join('\n');
+      }
+      return match;
+    });
+    text = text.replace(/(\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=[^=\n]+?\b[A-Za-z]{3,4}\b(?:\s*\([^)\n]*\))?)[ \t,;]+(?=\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=)/gi, '$1\n');
+
     // 1. Normalize code fences if LLM used '''lang or """lang
     let normalized = text.replace(/^([ \t]*)'{3}([a-zA-Z0-9_#+.-]*)/gm, '$1```$2');
     normalized = normalized.replace(/^([ \t]*)"{3}([a-zA-Z0-9_#+.-]*)/gm, '$1```$2');
@@ -411,7 +422,7 @@
       const widgetId = `widget_${Date.now()}_${nextWidgetId++}`;
       const cleanLang = (lang || '').toLowerCase().trim();
       codeWidgets.push({ id: widgetId, lang: cleanLang, code: code.trim(), raw: match });
-      return `%%CODEWIDGET_${widgetId}%%`;
+      return `\n\n%%CODEWIDGET_${widgetId}%%\n\n`;
     });
 
     // Strip citation tags: 【W1】, 【W2】, [W1], [S1], (W1), etc.
@@ -420,11 +431,13 @@
     processed = processed.replace(/\([WwSs]\d+\)/g, '');
     processed = processed.replace(/[ \t]{2,}/g, ' ');
 
-    // Handle markdown images: ![alt](url)
+    // Handle markdown images: ![alt](url) -> protect as IMAGEWIDGET
+    const imageWidgets = [];
     processed = processed.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
       const cleanSrc = src.trim();
       const cleanAlt = escapeHtml(alt.trim() || 'AI Generated Artwork');
-      return `
+      const widgetId = `img_${Date.now()}_${nextWidgetId++}`;
+      const html = `
         <div class="chat-image-card">
           <div class="chat-image-wrapper" onclick="window.open('${cleanSrc}', '_blank')">
             <img src="${cleanSrc}" alt="${cleanAlt}" class="chat-image-preview" loading="lazy" />
@@ -448,9 +461,12 @@
           </div>
         </div>
       `;
+      imageWidgets.push({ id: widgetId, html });
+      return `\n\n%%IMAGEWIDGET_${widgetId}%%\n\n`;
     });
 
-    // Format markdown tables into sleek data tables
+    // Format markdown tables into sleek data tables -> protect as TABLEWIDGET
+    const tableWidgets = [];
     processed = processed.replace(/(?:(?:^|\n)\|[^\n]+\|\r?\n\|[-: |]+\|\r?\n(?:\|[^\n]+\|\r?\n?)+)/g, (tableBlock) => {
       const rows = tableBlock.trim().split(/\r?\n/).filter((r) => r.trim().startsWith('|'));
       if (rows.length < 2) return tableBlock;
@@ -461,7 +477,10 @@
         const cells = r.split('|').slice(1, -1).map((c) => `<td>${c.trim()}</td>`).join('');
         return `<tr>${cells}</tr>`;
       }).join('');
-      return `<div class="deep-research-table-wrapper"><table class="deep-research-table"><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table></div>`;
+      const widgetId = `tbl_${Date.now()}_${nextWidgetId++}`;
+      const html = `<div class="deep-research-table-wrapper"><table class="deep-research-table"><thead><tr>${thHtml}</tr></thead><tbody>${trHtml}</tbody></table></div>`;
+      tableWidgets.push({ id: widgetId, html });
+      return `\n\n%%TABLEWIDGET_${widgetId}%%\n\n`;
     });
 
     // Extract math blocks and inlines into safe placeholders to protect from markdown stripping
@@ -473,8 +492,8 @@
     };
 
     // 1. Block math: $$ ... $$ or \[ ... \]
-    let mathShielded = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => `\n${saveMathWidget(math, true)}\n`);
-    mathShielded = mathShielded.replace(/\\\[([\s\S]+?)\\\]/g, (_, math) => `\n${saveMathWidget(math, true)}\n`);
+    let mathShielded = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => `\n\n${saveMathWidget(math, true)}\n\n`);
+    mathShielded = mathShielded.replace(/\\\[([\s\S]+?)\\\]/g, (_, math) => `\n\n${saveMathWidget(math, true)}\n\n`);
 
     // 2. Inline math: \( ... \) or $ ... $ (ignoring pure currency like $50 or $100)
     mathShielded = mathShielded.replace(/\\\(([\s\S]+?)\\\)/g, (_, math) => saveMathWidget(math, false));
@@ -490,17 +509,11 @@
     // Format markdown headers cleanly without hashtags (#)
     // Only apply to lines that are NOT placeholder lines
     mathHandled = mathHandled.replace(/^(#{1,6})\s*(.+)$/gm, (m, hashes, title) => {
-      if (title.includes('%%CODEWIDGET') || title.includes('%%MATHWIDGET')) return m;
-      return `<h4 class="chat-subheading">${title}</h4>`;
+      if (title.includes('%%CODEWIDGET') || title.includes('%%MATHWIDGET') || title.includes('%%TABLEWIDGET') || title.includes('%%IMAGEWIDGET')) return m;
+      return `\n\n<h4 class="chat-subheading">${title.trim()}</h4>\n\n`;
     });
 
-    // Format bullet points cleanly without asterisks (*)
-    mathHandled = mathHandled.replace(/^[\s]*\*\s+(.+)$/gm, (m, content) => {
-      if (content.includes('%%CODEWIDGET') || content.includes('%%MATHWIDGET')) return m;
-      return `• ${content}`;
-    });
-
-    // Format bold markdown (**text** or __text__) cleanly as bold and red important words
+    // Format bold markdown (**text** or __text__) cleanly as bold and important words
     mathHandled = mathHandled.replace(/\*\*\*([^*]+?)\*\*\*/g, '<strong class="agent-important-word"><em>$1</em></strong>');
     mathHandled = mathHandled.replace(/\*\*([^*]+?)\*\*/g, '<strong class="agent-important-word">$1</strong>');
     mathHandled = mathHandled.replace(/__([^_]+?)__/g, '<strong class="agent-important-word">$1</strong>');
@@ -518,7 +531,7 @@
 
     // Remove any remaining stray asterisks, hashtags, and citation brackets outside code and math
     mathHandled = mathHandled.split('\n').map(line => {
-      if (line.includes('%%CODEWIDGET') || line.includes('%%MATHWIDGET')) return line;
+      if (line.includes('%%CODEWIDGET') || line.includes('%%MATHWIDGET') || line.includes('%%TABLEWIDGET') || line.includes('%%IMAGEWIDGET')) return line;
       return line.replace(/[*#]/g, '');
     }).join('\n');
     mathHandled = mathHandled.replace(/【[^】]*】/g, '').replace(/\[[WwSs]\d+\]/g, '').replace(/\([WwSs]\d+\)/g, '');
@@ -530,12 +543,72 @@
       return `<span class="chat-emoji">${emoji}</span>`;
     });
 
+    // 4. Structure into clean paragraphs, lists & line breaks
+    // Split into raw blocks by double newlines (\n\n+) so multi-paragraph stories, answers, and narratives breathe
+    const rawBlocks = mathHandled.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
+
+    const formattedBlocks = rawBlocks.map(block => {
+      // If block is a placeholder widget or already an HTML block element (table, heading, code, image)
+      if (/^%%(CODE|TABLE|IMAGE|MATH)WIDGET_/.test(block) || /^<h4\b/.test(block) || /^<div\b/.test(block)) {
+        return block;
+      }
+
+      const lines = block.split(/\n/).map(l => l.trim()).filter(Boolean);
+      const subBlocks = [];
+      let curType = null; // 'p', 'ul', 'ol'
+      let curItems = [];
+
+      const flush = () => {
+        if (!curItems.length) return;
+        if (curType === 'ul') {
+          subBlocks.push(`<ul class="chat-list">${curItems.map(i => `<li class="chat-li">${i}</li>`).join('')}</ul>`);
+        } else if (curType === 'ol') {
+          subBlocks.push(`<ol class="chat-list">${curItems.map(i => `<li class="chat-li">${i}</li>`).join('')}</ol>`);
+        } else if (curType === 'p') {
+          subBlocks.push(`<p class="assistant-p">${curItems.join('<br class="chat-break" />')}</p>`);
+        }
+        curItems = [];
+        curType = null;
+      };
+
+      for (const line of lines) {
+        if (/^[-*•+]\s+/.test(line)) {
+          if (curType !== 'ul') flush();
+          curType = 'ul';
+          curItems.push(line.replace(/^[-*•+]\s+/, '').trim());
+        } else if (/^\d+\.\s+/.test(line)) {
+          if (curType !== 'ol') flush();
+          curType = 'ol';
+          curItems.push(line.replace(/^\d+\.\s+/, '').trim());
+        } else {
+          if (curType !== 'p') flush();
+          curType = 'p';
+          curItems.push(line);
+        }
+      }
+      flush();
+
+      return subBlocks.join('\n');
+    });
+
+    let structuredHtml = formattedBlocks.join('\n');
+
     // Restore and render all math widgets cleanly with KaTeX and responsive fallback
     for (const mw of mathWidgets) {
       const rendered = mw.isBlock
         ? `<div class="math-block-wrapper">${formatLatexChunk(mw.tex, true)}</div>`
         : formatLatexChunk(mw.tex, false);
-      mathHandled = mathHandled.replace(`%%MATHWIDGET_${mw.id}%%`, rendered);
+      structuredHtml = structuredHtml.replace(`%%MATHWIDGET_${mw.id}%%`, rendered);
+    }
+
+    // Restore and render all table widgets
+    for (const tw of tableWidgets) {
+      structuredHtml = structuredHtml.replace(`%%TABLEWIDGET_${tw.id}%%`, tw.html);
+    }
+
+    // Restore and render all image widgets
+    for (const iw of imageWidgets) {
+      structuredHtml = structuredHtml.replace(`%%IMAGEWIDGET_${iw.id}%%`, iw.html);
     }
 
     // 3. Restore and render all code widgets (3D Models, Charts, Diagrams, Code Blocks)
@@ -674,10 +747,10 @@
         `;
       }
 
-      mathHandled = mathHandled.replace(placeholder, () => widgetHtml);
+      structuredHtml = structuredHtml.replace(placeholder, () => widgetHtml);
     }
 
-    return mathHandled;
+    return structuredHtml;
   };
 
   // Duration formatting matching mockup: "Responded in 0.8 seconds"
@@ -780,24 +853,34 @@
 
   // Enhanced configurable code-request detector
   const codeRequestConfig = {
-    verbs: ['write','create','build','implement','generate','make','code','program','develop','script','design','show','give','provide'],
+    verbs: ['write','create','build','implement','generate','make','code','program','develop','design','show','give','provide'],
     langs: ['python','javascript','typescript','java','c++','cpp','c#','csharp','rust','go','golang','php','ruby','kotlin','swift','sql','bash','shell','html','css','react','node','django','flask','express','vue','angular','ts','js','py'],
-    nouns: ['function','class','method','algorithm','snippet','program','script','code','api','endpoint','component','module','library','implementation','binary search','linked list','factorial','fibonacci','sort','recursion','loop','array','stack','queue','tree','graph','example']
+    nouns: ['function','class','method','algorithm','snippet','program','code','api','endpoint','component','module','library','implementation','binary search','linked list','factorial','fibonacci','sort','recursion','loop','array','stack','queue','tree','graph','example']
   };
   const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const codeVerbRegex = new RegExp('\\b(' + codeRequestConfig.verbs.map(escapeRegExp).join('|') + ')\\b','i');
   const codeLangRegex = new RegExp('\\b(' + codeRequestConfig.langs.map(escapeRegExp).join('|') + ')\\b','i');
   const codeNounRegex = new RegExp('\\b(' + codeRequestConfig.nouns.map(escapeRegExp).join('|') + ')\\b','i');
 
+  function _isCreativeRequest(text) {
+    const q = (text || '').toLowerCase().trim();
+    if (/\b(python|bash|shell|powershell|sql|automation|node|code)\s+script\b/i.test(q)) return false;
+    const creativeWords = /\b(story|stories|tale|tales|fable|novel|poem|poetry|rhyme|lyrics|screenplay|movie script|film script|video script|youtube script|podcast script|dialogue|play script|theatrical script|skit|monologue|bedtime story)\b/i;
+    if (creativeWords.test(q)) return true;
+    if (/\b(write|tell|compose|craft)\s+(me\s+)?(a\s+|an\s+)?(story|script|poem|play|dialogue|scene)\b/i.test(q)) return true;
+    return false;
+  }
+
   function _isCodeRequest(text) {
-    const q = text.toLowerCase();
+    if (_isCreativeRequest(text)) return false;
+    const q = (text || '').toLowerCase();
     const hasVerb = codeVerbRegex.test(q);
     const hasLang = codeLangRegex.test(q);
     const hasNoun = codeNounRegex.test(q);
     if (hasVerb && (hasLang || hasNoun)) return true;
     if (hasLang && hasNoun) return true;
-    if (/\\b(give me|show me|write|provide)\\s+(a\\s+)?(code|program|script|implementation|function|class|example)\\b/i.test(q)) return true;
-    if (/\\b(debug|fix|refactor|explain this code|optimize this code)\\b/i.test(q)) return true;
+    if (/\b(give me|show me|write|provide)\s+(a\s+)?(code|program|implementation|function|class|example)\b/i.test(q)) return true;
+    if (/\b(debug|fix|refactor|explain this code|optimize this code)\b/i.test(q)) return true;
     return false;
   }
 

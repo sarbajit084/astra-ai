@@ -81,6 +81,27 @@ def clean_agent_response(text: str) -> str:
     # Convert multiplication like '2 * 3' to clean '2 × 3'
     cleaned = re.sub(r"(\d+)\s*\*\s*(\d+)", r"\1 × \2", cleaned)
 
+    # Split concatenated currency conversions (e.g. "**1 USD = 0.8924 EUR 1 USD = 96.87 INR**" or "1 USD = ... 1 USD = ...")
+    def _split_bold_currencies(m):
+        content = m.group(1)
+        sub_eqs = re.split(r'[ \t,;]+(?=\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=)', content)
+        if len(sub_eqs) > 1:
+            return '\n'.join(f'**{part.strip()}**' for part in sub_eqs if part.strip())
+        return m.group(0)
+
+    cleaned = re.sub(
+        r'\*\*([^*]+?\b[A-Za-z]{3,4}\s*=[^*]*?\b[A-Za-z]{3,4}\s*=[^*]*)\*\*',
+        _split_bold_currencies,
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r'(\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=[^=\n]+?\b[A-Za-z]{3,4}\b(?:\s*\([^)\n]*\))?)[ \t,;]+(?=\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=)',
+        r'\1\n',
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+
     # Protect bold markdown (**word**) from being stripped
     cleaned = re.sub(r"\*\*\*([^*]+?)\*\*\*", r"__BOLDITALIC__\1__ENDBOLDITALIC__", cleaned)
     cleaned = re.sub(r"\*\*([^*]+?)\*\*", r"__BOLD__\1__ENDBOLD__", cleaned)
@@ -494,7 +515,7 @@ class ProductionRAGService:
                 logger.exception("multimodal_vision_failed error=%s", e_vis)
 
         # Phase 0.2: Instant Local Mathematics / Integration / Calculus Solver (skip if asking for code)
-        is_code_request = (mode == "code") or any(k in query.lower() for k in ["code", "script", "program", "python", "solve using code", "write a function", "website", "html"])
+        is_code_request = not self._is_creative_request(query) and ((mode == "code") or self._is_coding_request(query))
         math_sol = None if is_code_request else (MathSolver.solve(query, mode=mode, detailed=detailed) or self._solve_math_locally(query))
         if math_sol:
             cleaned_math = clean_agent_response(math_sol)
@@ -830,8 +851,38 @@ class ProductionRAGService:
                 for i, item in enumerate(ranked[:4])
             ]
         else:
-            is_3d_model = self._is_3d_model_request(query)
-            is_coding = (mode == "code") or self._is_coding_request(query)
+            is_creative = self._is_creative_request(query)
+            is_website = self._is_website_request(query)
+
+            # Prevent generating website code when user is NOT in Code Mode
+            if is_website:
+                notice = self._build_no_website_response(query)
+                total_ms = max(2.0, round((time.perf_counter() - total_start) * 1000, 1))
+                return {
+                    "answer": notice,
+                    "is_chemistry": False,
+                    "sources": [
+                        {
+                            "id": "MODE",
+                            "label": "💻 Astra Mode System",
+                            "type": "ai",
+                            "snippet": "Switch to Code Mode to generate functional website code and live previews.",
+                        }
+                    ],
+                    "model_used": "Astra Architecture Guide",
+                    "has_context": False,
+                    "rewritten_query": query,
+                    "timings_ms": {
+                        "rewrite": 1.0,
+                        "retrieval": 0.0,
+                        "rerank": 0.0,
+                        "generation": total_ms,
+                        "total": total_ms,
+                    },
+                }
+
+            is_3d_model = not is_creative and self._is_3d_model_request(query)
+            is_coding = not is_creative and ((mode == "code") or self._is_coding_request(query))
             if is_3d_model:
                 # Dedicated 3D Creation Request: bypass external web search entirely!
                 web_results = None
@@ -866,6 +917,24 @@ class ProductionRAGService:
                         "label": "💻 Astra Code Studio Engine",
                         "type": "ai",
                         "snippet": "Production-grade code generation with interactive preview and syntax highlighting",
+                    }
+                ]
+            elif is_creative:
+                # Dedicated Creative Writing (Story, Narrative, Creative Script, Screenplay, Poetry): bypass web search & code generation
+                web_results = None
+                if settings.grok_configured:
+                    answer = await self._general_llm_answer(query, None, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
+                    model_used = "Astra Creative Studio"
+                else:
+                    answer = self._build_creative_fallback(query)
+                    model_used = "Astra Creative Studio"
+
+                sources = [
+                    {
+                        "id": "CREATIVE",
+                        "label": "✨ Astra Creative Studio",
+                        "type": "ai",
+                        "snippet": "Expressive storytelling, creative writing, and screenplay dialogue without code generation",
                     }
                 ]
             else:
@@ -1045,8 +1114,9 @@ class ProductionRAGService:
         topic_switch = any(ts in q_lower for ts in [
             "forget about", "new topic", "different question", "never mind", "who is", "what is the capital"
         ])
+        is_creative = self._is_creative_request(query)
 
-        if state["is_active_project"] and not topic_switch:
+        if state["is_active_project"] and not topic_switch and not is_creative:
             modification_verbs = {
                 "make", "change", "add", "remove", "turn", "set", "switch", "replace",
                 "fix", "improve", "modify", "update", "customize", "tweak", "adjust",
@@ -1064,136 +1134,24 @@ class ProductionRAGService:
             has_mod_verb = bool(words & modification_verbs)
             has_project_entity = any(pe in q_lower for pe in project_entities)
             is_relative_followup = any(q_lower.startswith(p) for p in [
-                "make it", "make the", "add a", "add the", "can you", "could you", "also add", "now make", "turn the", "change the", "switch to", "make"
+                "make it", "make the", "add a", "add the", "can you", "could you", "also add", "now make", "turn the", "change the", "switch to"
             ])
 
-            if has_mod_verb or has_project_entity or is_relative_followup or (len(words) <= 7 and not q_lower.startswith("what is")):
+            # Strictly require project entity or follow-up with project styling/attributes
+            project_attrs = {"color", "background", "style", "canvas", "header", "button", "section", "hero", "model", "car", "watch", "3d", "theme", "light", "font", "layout"}
+            if has_project_entity or (is_relative_followup and bool(words & project_attrs)):
                 state["is_modification"] = True
 
         return state
 
     def _build_web_directive(self, project_state: dict, query: str) -> str:
-        """Builds a dynamic 3D web experience directive tailored to the domain and whether this is an incremental modification."""
-        domain = project_state.get("domain", "general")
-        is_mod = project_state.get("is_modification", False)
-        q_lower = query.lower()
-
-        needs_blender = any(k in q_lower for k in [
-            "blender", "bpy", "glb", "gltf", "3d asset", "3d model asset",
-            "procedural 3d", "cinema 4d", "c4d", "export to glb", "export glb"
-        ])
-
-        if domain == "automotive":
-            domain_guide = (
-                "INDUSTRY FOCUS: HIGH-END AUTOMOTIVE / FUTURISTIC SUPERCAR 3D SHOWCASE\n"
-                "• 3D Scene Architecture:\n"
-                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
-                "  - Procedural composite 3D supercar model: Aerodynamic low-slung chassis, glass cockpit canopy, front splitter, side air intakes, rear diffuser, glowing LED headlights and taillight strip, wheels with rims, and ground shadow/reflection grid plane.\n"
-                "  - PBR Materials: `THREE.MeshPhysicalMaterial` with metallic car paint shader (roughness: 0.15, metalness: 0.85, clearcoat: 1.0, clearcoatRoughness: 0.1), tinted glass canopy (transmission: 0.9, transparent: true), glowing emissive headlights.\n"
-                "  - Studio Lighting: 3-point lighting setup (warm key, cool fill, specular rim light) + ambient light.\n"
-                "  - Interactivity: 360° mouse drag and touch rotation with smooth lerp damping, mouse parallax tilt, and dynamic color switcher swatches (e.g. Stealth Matte Black, Cyber Silver, Electric Cyan, Rosso Corsa Red) that live-update the car paint material.\n"
-                "• Display Typography & Layout:\n"
-                "  - Split monumental typography (e.g. 'VELOCE' top-left, 'HYPER-GT' bottom-right) in clamp(4.5rem, 13vw, 12rem) font-weight: 800.\n"
-                "  - Technical Specs Matrix (0-60 mph, horsepower, top speed, electric range).\n"
-                "  - Interactive configurator controls, slide-out drawer, and working cart/order modal.\n"
-            )
-        elif domain == "horology_watch":
-            domain_guide = (
-                "INDUSTRY FOCUS: LUXURY HOROLOGY & CHRONOGRAPH TIMEPIECE 3D SHOWCASE\n"
-                "• 3D Scene Architecture:\n"
-                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
-                "  - High-precision composite 3D chronograph timepiece: Brushed metallic case, rotatable fluted ceramic bezel, sapphire crystal face with transmission, sub-dials, textured crown, link bracelet, and functioning ticking hour, minute, and second hands synced to real time or smoothly ticking in requestAnimationFrame.\n"
-                "  - PBR Materials: High-grade brushed steel/titanium (metalness: 0.9, roughness: 0.25), 18K gold accents, glowing Super-LumiNova hour indices.\n"
-                "  - Studio Lighting: Dramatic jewelry caustics lighting with high specular rim light.\n"
-                "  - Interactivity: 360° drag rotation, interactive rotatable bezel on drag, material switcher (Platinum, Rose Gold, Midnight DLC, Titanium).\n"
-                "• Display Typography & Layout:\n"
-                "  - Split monumental typography (e.g. 'CHRONOS' top-left, 'GENEVE' bottom-right).\n"
-                "  - Calibre movement specs matrix, power reserve, water resistance depth.\n"
-            )
-        elif domain == "architecture":
-            domain_guide = (
-                "INDUSTRY FOCUS: MODERNIST ARCHITECTURE & LIVING PAVILION 3D SHOWCASE\n"
-                "• 3D Scene Architecture:\n"
-                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
-                "  - Cantilevered architectural pavilion / modernist villa: Textured concrete slabs, floor-to-ceiling glass curtain walls, glowing warm interior lighting, reflecting pool with water surface reflection.\n"
-                "  - Lighting & Atmosphere: Dynamic directional Sun light with shadow casting.\n"
-                "  - Interactivity: Interactive Sun/Shadow Time-of-Day slider that shifts directional light angle and sky ambient tone from dawn to midday to golden hour dusk.\n"
-                "• Display Typography & Layout:\n"
-                "  - Split monumental typography (e.g. 'PAVILION' top-left, 'ATELIER' bottom-right).\n"
-                "  - Floor plan matrix, material narrative, and booking/inquiry modal.\n"
-            )
-        elif domain == "creative_tech":
-            domain_guide = (
-                "INDUSTRY FOCUS: CREATIVE TECH / CYBER SAAS / AI STUDIO 3D SHOWCASE\n"
-                "• 3D Scene Architecture:\n"
-                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
-                "  - Kinetic geometric core / neural nexus: Pulsating wireframe rings, faceted polyhedron with holographic physical material, drifting particle constellation reacting to cursor position.\n"
-                "  - Interactivity: 360° interactive drag, mouse parallax acceleration, interactive particle dispersion on hover.\n"
-                "• Display Typography & Layout:\n"
-                "  - Split monumental typography (e.g. 'NEXUS' top-left, 'SYSTEM' bottom-right).\n"
-                "  - Performance benchmarks, feature breakdown grid, and interactive terminal/cart.\n"
-            )
-        else:
-            domain_guide = (
-                "INDUSTRY FOCUS: LUXURY CRAFT, SCULPTURAL DESIGN & STUDIO SHOWCASE\n"
-                "• 3D Scene Architecture:\n"
-                "  - Hero canvas `<canvas id=\"webgl-canvas\"></canvas>` powered by Three.js.\n"
-                "  - Sculptural composite 3D artifact tailored to the brand (e.g. fluted ceramic vessel, luxury perfume flacon, faceted prism, or modern design artifact).\n"
-                "  - PBR Materials: `THREE.MeshPhysicalMaterial` with clearcoat, roughness 0.3, metalness 0.15, studio 3-point lighting, and floating dust particle field.\n"
-                "  - Interactivity: 360° click-and-drag and touch rotation with damping, mouse parallax tilt, and interactive color/material swatch buttons.\n"
-                "• Display Typography & Layout:\n"
-                "  - Monumental split architectural typography in clamp(4.5rem, 14vw, 13rem) font-weight: 800.\n"
-                "  - Flanking editorial micro-copy columns and dual pill CTA buttons.\n"
-                "  - Multi-section depth (material studio, craftsmanship story, product grid, specs matrix, reviews, slide-out drawer, editorial footer).\n"
-            )
-
-        if is_mod:
-            mod_directive = (
-                "\n=== INCREMENTAL UPDATE MODE (DO NOT REGENERATE FROM SCRATCH) ===\n"
-                f"The user is asking to modify their existing website project with the following request:\n"
-                f"\"{query}\"\n\n"
-                "MANDATORY CONTINUITY RULES:\n"
-                "1. PRESERVE the existing brand identity, theme, typography, color palette (except requested color changes), layout, and sections.\n"
-                "2. TARGETED UPDATE: Modify the specific HTML elements, CSS styles, and JavaScript 3D logic (e.g. material colors, geometries, lighting, or controls) needed to fulfill the user's request.\n"
-                "   - For example, if asked to 'Make the car black', update the 3D car paint material to deep gloss black (#0a0a0a with high clearcoat), update the active color swatch in HTML, update corresponding CSS accent highlights, and keep all existing sections, controls, and features intact.\n"
-                "3. OUTPUT COMPLETE UPDATED CODE BLOCKS: You must deliver the complete updated files (```html, ```css, ```javascript) with zero placeholders so Astra's Live Demo button immediately previews the updated website.\n"
-                "4. Provide a friendly, concise summary of the applied updates before the code blocks.\n"
-            )
-        else:
-            mod_directive = (
-                "\n=== COMPLETE PRODUCTION WEBSITE CREATION DIRECTIVE ===\n"
-                "Deliver a complete, Awwwards Site-of-the-Day caliber 3D creative digital experience.\n"
-                "NEVER generate a flat, boring, black-and-orange or generic card-grid website!\n"
-            )
-
-        blender_directive = ""
-        if needs_blender:
-            blender_directive = (
-                "\n=== BLENDER 3D ASSET PIPELINE (BPY) DIRECTIVE ===\n"
-                "The user requested custom 3D asset modeling or a Blender pipeline. In addition to the website code blocks, you MUST provide a 4th code block:\n"
-                "4. ```python (<!-- generate_asset.py -->)\n"
-                "   - Complete, executable Blender Python script using `import bpy`.\n"
-                "   - Procedural mesh modeling (clean vertices, bmesh, subdivision modifiers, smooth shading).\n"
-                "   - Principled BSDF PBR material node setup (Base Color, Metallic, Roughness, Normal).\n"
-                "   - Studio lighting (3-point lights), camera setup, and export to Draco-compressed .glb:\n"
-                "     `bpy.ops.export_scene.gltf(filepath=\"model.glb\", export_format='GLB', export_draco_mesh_compression_enable=True)`\n"
-                "   - In // script.js, include `THREE.GLTFLoader` with automatic fallback to procedural Three.js geometry so the Live Demo works instantly!\n"
-            )
-
-        return (
-            f"\n\n=== MANDATORY 3D WEB PRODUCTION DIRECTIVE ===\n"
-            f"{domain_guide}"
-            f"{mod_directive}"
-            f"{blender_directive}\n"
-            "MANDATORY CODE OUTPUT STRUCTURE (ZERO PLACEHOLDERS):\n"
-            "1. ```html (<!-- index.html -->) - Semantic HTML5 with <canvas id=\"webgl-canvas\"></canvas>, header, hero overlay, sections, drawer, footer.\n"
-            "2. ```css (/* styles.css */) - Modern, responsive CSS with CSS variables, fluid typography clamp(), frosted glass, dark aesthetic, and overflow-x: hidden.\n"
-            "3. ```javascript (// script.js) - Complete Three.js scene (window.THREE, OrbitControls, GSAP pre-loaded), camera, lighting, PBR materials, drag & touch controls, resize listener, swatch hooks, and UI interactions.\n"
-            f"{'4. ```python (<!-- generate_asset.py -->) - Blender procedural generation script.\n' if needs_blender else ''}"
-        )
+        """Website generation is completely disabled."""
+        return ""
 
     def _is_3d_model_request(self, query: str) -> bool:
         """Detects if user is asking to create, generate, render, or build a 3D model, object, scene, landscape, or asset."""
+        if self._is_creative_request(query):
+            return False
         q = query.lower().strip()
         
         # Check explicit patterns
@@ -1219,29 +1177,100 @@ class ProductionRAGService:
         ])
         return (has_3d and (has_action or has_3d_object))
 
-    def _is_coding_request(self, query: str) -> bool:
-        """Determines if a query is requesting code, script, program, website, or software implementation."""
+    def _is_creative_request(self, query: str) -> bool:
+        """Determines if query is asking for a story, narrative, creative script, dialogue, poem, essay, etc."""
         q = query.lower().strip()
-        coding_terms = [
-            "code", "script", "program", "website", "web site", "webpage", "web page",
-            "html", "css", "javascript", "python", "function", "class", "react", "c++",
-            "cpp", "c#", "csharp", "java", "sql", "build a site", "landing page", "hero page",
-            "hero section", "web app", "rust", "golang", "go code", "bash", "shell script",
-            "algorithm", "dashboard", "portfolio", "e-commerce", "ecommerce", "store",
-            "restaurant website", "cafe website", "cafe style", "college website", "ui design",
-            "front-end", "frontend", "redesign", "star pattern", "pattern in python", "print star",
-            "star py", "write a code", "write code", "give me code", "give me the code",
-            "make me a website", "create a website", "generate a website", "vue", "svelte",
-            "fastapi", "flask", "django", "express", "binary search", "linked list",
-            "sorting algorithm", "recursion", "regex", "leetcode", "json parsing", "rest api",
-            "unit test", "dockerfile", "make me a cafe", "build me a", "make a cafe",
-            "print pattern", "star triangle", "pyramid pattern"
+        # Explicit programming script overrides
+        code_script_override = any(k in q for k in [
+            "python script", "bash script", "shell script", "powershell script",
+            "sql script", "automation script", "test script", "node script",
+            "code script", "script in python", "script in bash", "script in javascript",
+            "script in js", "script in c++", "script in c#", "script in java", "script in go"
+        ])
+        if code_script_override:
+            return False
+
+        creative_keywords = [
+            "story", "stories", "tale", "tales", "fable", "narrative", "novel", "fiction",
+            "bedtime story", "fairytale", "fairy tale", "short story",
+            "poem", "poetry", "haiku", "rhyme", "sonnet", "lyrics", "song",
+            "screenplay", "movie script", "film script", "drama script", "video script",
+            "youtube script", "podcast script", "dialogue", "play script", "theatrical script",
+            "skit", "monologue", "roleplay", "character backstory"
         ]
-        if any(term in q for term in coding_terms):
+        if any(re.search(rf"\b{re.escape(kw)}\b", q) for kw in creative_keywords):
             return True
-        if re.search(r"\b(?:make|create|build|generate|design)\s+(?:me\s+)?(?:a\s+)?[\w\s-]{1,30}\s+(?:website|site|page|app|dashboard|portfolio|store|cafe|shop)\b", q):
+
+        patterns = [
+            r"\b(?:write|tell|generate|create|give me|make)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:short\s+|bedtime\s+|scary\s+|funny\s+|sci-fi\s+|fiction\s+)?story\b",
+            r"\b(?:write|generate|create|give me|make)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:movie\s+|video\s+|youtube\s+|drama\s+|podcast\s+|theatre\s+|stage\s+)?script\b",
+            r"\b(?:write|compose|craft)\s+(?:me\s+)?(?:a\s+)?(?:poem|poetry|essay|speech|monologue|dialogue|scene)\b",
+            r"\bonce upon a time\b",
+        ]
+        if any(re.search(pat, q) for pat in patterns):
             return True
-        if re.search(r"\b(?:print|write|code|create|show)\s+[\w\s-]{1,30}\s+in\s+(?:python|javascript|js|java|c\+\+|cpp|c#|rust|golang|go|sql|bash|html)\b", q):
+
+        return False
+
+    def _is_website_request(self, query: str) -> bool:
+        """Determines if query is specifically requesting website, landing page, or web UI creation/generation."""
+        q = query.lower().strip()
+        if self._is_creative_request(query):
+            return False
+
+        website_terms = [
+            "website", "web site", "webpage", "web page", "landing page",
+            "hero section", "portfolio site", "portfolio website", "cafe website",
+            "restaurant website", "ecommerce site", "ecommerce website",
+            "storefront", "web app", "3d website"
+        ]
+        explicit_patterns = [
+            r"\b(?:make|create|build|generate|design|develop|code)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:complete\s+|modern\s+|responsive\s+|interactive\s+|3d\s+)?(?:website|site|landing\s+page|webpage|web\s+page|web\s+app|portfolio|storefront)\b",
+            r"\b(?:make|create|build|generate|design)\s+(?:me\s+)?(?:a\s+|an\s+)?[\w\s-]{1,25}\s+(?:website|landing page|web page|web app|storefront)\b",
+            r"\b(?:html|css|frontend|front-end)\s+(?:website|site|landing\s+page|template)\b"
+        ]
+        if any(re.search(pat, q) for pat in explicit_patterns):
+            return True
+
+        creation_verbs = ["make", "create", "build", "generate", "design", "develop", "code", "construct", "give me", "show me"]
+        has_verb = any(v in q for v in creation_verbs)
+        has_web_term = any(re.search(rf"\b{re.escape(term)}\b", q) for term in website_terms)
+        if has_verb and has_web_term:
+            return True
+
+        return False
+
+    def _build_no_website_response(self, query: str = "") -> str:
+        """Explicitly refuses website generation and confirms small code only."""
+        return (
+            "I do not generate websites, HTML pages, or front-end templates.\n\n"
+            "I specialize in small, focused code snippets, algorithms, and functions in languages like **Python**, **C++**, and **C**.\n\n"
+            "Please describe the specific algorithmic problem, function, or script you'd like me to write!"
+        )
+
+    _build_website_mode_notice = _build_no_website_response
+
+    def _is_coding_request(self, query: str) -> bool:
+        """Determines if a query is requesting small code, function, algorithm, or program in Python, C++, C, etc."""
+        q = query.lower().strip()
+        if self._is_creative_request(query):
+            return False
+
+        # Strictly exclude any website requests
+        if self._is_website_request(query):
+            return False
+
+        coding_terms = [
+            "code", "program", "function", "class", "python", "c++", "cpp",
+            "c code", "c program", "java", "sql", "rust", "golang", "go code", "bash",
+            "shell script", "python script", "algorithm", "binary search", "linked list",
+            "sorting algorithm", "recursion", "regex", "leetcode", "json parsing",
+            "unit test", "star pattern", "pattern in python", "print star",
+            "write code", "give me code", "write a code", "snippet"
+        ]
+        if any(re.search(rf"\b{re.escape(term)}\b", q) for term in coding_terms):
+            return True
+        if re.search(r"\b(?:print|write|code|create|show|solve)\s+[\w\s-]{1,30}\s+in\s+(?:python|c\+\+|cpp|c|java|rust|golang|go|sql|bash)\b", q):
             return True
         return False
 
@@ -1255,579 +1284,14 @@ class ProductionRAGService:
         ])
 
     def _build_3d_model_directive(self, query: str) -> str:
-        """Constructs an expert 3D modeling and shader engineering directive for creating a standalone 3D model with realistic PBR materials, custom shaders, cinematic lighting, and OrbitControls."""
-        return (
-            "\n\n=== MANDATORY PRODUCTION 3D MODEL, SHADER & LIGHTING DIRECTIVE ===\n"
-            f"The user wants a complete, realistic 3D model with proper shaders, lighting, and materials for: \"{query}\".\n"
-            "You are a Principal 3D Graphics Engineer, Shader Artist, and Creative Technologist.\n"
-            "You must deliver a complete, production-grade 3D model with realistic PBR materials, custom shaders, cinematic 3-point lighting, ground reflection/shadows, and smooth interactive controls.\n\n"
-            "MANDATORY DELIVERABLES (ALL IN ONE COMPREHENSIVE RESPONSE WITH ZERO PLACEHOLDERS):\n"
-            "1. ```html (<!-- index.html -->):\n"
-            "   - Semantic viewport container: `<div id=\"webgl-container\"><canvas id=\"webgl-canvas\"></canvas><div class=\"hud-controls\"><span class=\"badge\">3D REAL-TIME VIEWPORT</span><div class=\"actions\"><button id=\"btn-wireframe\">Wireframe</button><button id=\"btn-lighting\">Lighting</button><button id=\"btn-reset\">Reset Camera</button></div></div></div>`.\n"
-            "2. ```css (/* styles.css */):\n"
-            "   - Modern, responsive full-viewport styling: `html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; overflow: hidden; background: radial-gradient(circle at 50% 50%, #151824 0%, #0a0c12 70%, #040508 100%); font-family: 'Inter', system-ui, sans-serif; }`.\n"
-            "   - Canvas styling: `canvas { width: 100%; height: 100%; display: block; }`.\n"
-            "   - Floating glassmorphic HUD pill panels (`backdrop-filter: blur(16px); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 9999px; padding: 8px 16px;`).\n"
-            "3. ```javascript (// script.js):\n"
-            "   - Complete Three.js scene (window.THREE, OrbitControls, and gsap are pre-loaded in Astra runtime):\n"
-            "     • SCENE, FOG & CAMERA:\n"
-            "       - `const scene = new THREE.Scene();` with atmospheric fog `scene.fog = new THREE.FogExp2(0x0a0c12, 0.015);`.\n"
-            "       - `const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);` positioned to frame the 3D model beautifully.\n"
-            "     • RENDERER WITH ACES FILMIC TONE MAPPING & SHADOWS:\n"
-            "       - `const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });`\n"
-            "       - `renderer.setSize(window.innerWidth, window.innerHeight);`\n"
-            "       - `renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));`\n"
-            "       - `renderer.toneMapping = THREE.ACESFilmicToneMapping;`\n"
-            "       - `renderer.toneMappingExposure = 1.25;`\n"
-            "       - `renderer.shadowMap.enabled = true;`\n"
-            "       - `renderer.shadowMap.type = THREE.PCFSoftShadowMap;`\n"
-            "     • CINEMATIC 3-POINT STUDIO LIGHTING SETUP:\n"
-            "       - Key Light: `THREE.DirectionalLight(0xfff3e0, 2.5)` positioned at (5, 8, 5) with `castShadow = true`, `shadow.mapSize.width = 2048`, `shadow.bias = -0.0001`.\n"
-            "       - Fill Light: `THREE.DirectionalLight(0x90caf9, 1.2)` positioned at (-5, 3, -3) to soften contrast.\n"
-            "       - Specular Rim / Hair Light: `THREE.DirectionalLight(0x64b5f6, 3.2)` placed behind the model at (0, 6, -8) creating luminous edge highlights.\n"
-            "       - Ambient Hemisphere Light: `THREE.HemisphereLight(0xffffff, 0x111625, 0.7)`.\n"
-            "     • PROCEDURAL 3D GEOMETRY TAILORED TO THE REQUEST:\n"
-            "       - Build a rich, composite procedural 3D model exactly matching what the user requested:\n"
-            "         * If a landscape/terrain is requested: Build a dynamic heightfield terrain (`THREE.PlaneGeometry` with displaced vertices using multi-octave noise, custom vertex shader coloring based on altitude from valley to rocky cliffs to snow peaks, reflective water plane mesh with wave animation, and celestial sun/moon).\n"
-            "         * If an object/vehicle/prop is requested: Build detailed composite geometry with bevels, articulated components, and realistic proportions.\n"
-            "     • HIGH-END PBR SHADERS & MATERIALS:\n"
-            "       - Use `THREE.MeshPhysicalMaterial` or `THREE.MeshStandardMaterial` with realistic material channels:\n"
-            "         `roughness` (0.1 to 0.7), `metalness` (0.0 to 0.9), `clearcoat` (0.5 to 1.0), `clearcoatRoughness` (0.1), `transmission` (if glass/water), `reflectivity` (0.9).\n"
-            "     • GROUND CONTACT SHADOW & AMBIENT PARTICLES:\n"
-            "       - Reflective shadow receiver ground plane (`THREE.Mesh(new THREE.PlaneGeometry(100, 100), new THREE.ShadowMaterial({ opacity: 0.4 }))`).\n"
-            "       - Atmospheric floating dust/ember particle field (`THREE.Points`) drifting through the 3D scene.\n"
-            "     • FULL USER CONTROLS & EVENT LISTENERS:\n"
-            "       - `const controls = new THREE.OrbitControls(camera, canvas);` with `controls.enableDamping = true; controls.dampingFactor = 0.05;`.\n"
-            "       - Window resize listener updating camera aspect ratio and renderer viewport.\n"
-            "       - HUD buttons connected: toggle wireframe mode, toggle lighting intensity, and reset camera view.\n"
-            "       - Smooth render loop with `requestAnimationFrame`.\n"
-            "4. ```python (<!-- generate_asset.py -->):\n"
-            "   - Complete, executable procedural asset script for Blender 3.x/4.x (`import bpy, bmesh, math, mathutils`).\n"
-            "   - Procedurally creates the mesh (vertices, faces, bmesh modifiers, subdivision surface, displacement, smooth shading).\n"
-            "   - Sets up a complete node-based Principled BSDF PBR material with procedural Noise/Voronoi textures connected to Base Color, Roughness, and Bump/Normal nodes.\n"
-            "   - Sets up 3-point studio lights (Key, Fill, Rim Sun/Area lights) and camera.\n"
-            "   - Exports to Draco-compressed `.glb` (`bpy.ops.export_scene.gltf(...)`).\n"
-            "5. 3D SHADER & LIGHTING ARTISTIC BREAKDOWN:\n"
-            "   - Explain the PBR shader channels, lighting radiance ratios, and procedural geometric techniques in clean, authoritative prose.\n"
-        )
+        """3D website generation is completely disabled."""
+        return ""
 
     def _generate_3d_model_fallback(self, query: str) -> str:
-        """High-fidelity procedural Three.js 3D model fallback with PBR shaders, studio lighting, OrbitControls, and Blender export script."""
-        clean_name = re.sub(r"[^\w\s-]", "", query).strip().title() or "3D Procedural Scene"
-        is_landscape = any(k in query.lower() for k in ["landscape", "terrain", "mountain", "valley", "nature", "ground", "world"])
-        
-        if is_landscape:
-            title = f"Procedural 3D Mountain Landscape & Dynamic Atmosphere"
-            threejs_logic = """// --- 1. Scene, Fog & Perspective Camera ---
-const container = document.getElementById('webgl-container');
-const canvas = document.getElementById('webgl-canvas');
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a0c16);
-scene.fog = new THREE.FogExp2(0x0a0c16, 0.012);
-
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 18, 38);
-
-// --- 2. ACES Filmic Tone-Mapped WebGL Renderer ---
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.3;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-// --- 3. Cinematic 3-Point & Atmospheric Lighting ---
-const keyLight = new THREE.DirectionalLight(0xffecd2, 2.4);
-keyLight.position.set(20, 35, 20);
-keyLight.castShadow = true;
-keyLight.shadow.mapSize.width = 2048;
-keyLight.shadow.mapSize.height = 2048;
-keyLight.shadow.bias = -0.0001;
-scene.add(keyLight);
-
-const fillLight = new THREE.DirectionalLight(0x7694cc, 1.0);
-fillLight.position.set(-25, 20, -15);
-scene.add(fillLight);
-
-const rimLight = new THREE.DirectionalLight(0xff7744, 2.8);
-rimLight.position.set(0, 15, -40);
-scene.add(rimLight);
-
-const ambientLight = new THREE.HemisphereLight(0x5c72a8, 0x12141f, 0.7);
-scene.add(ambientLight);
-
-// --- 4. Procedural Heightfield Terrain with PBR Vertex Shading ---
-const terrainWidth = 60, terrainDepth = 60, segments = 120;
-const terrainGeo = new THREE.PlaneGeometry(terrainWidth, terrainDepth, segments, segments);
-terrainGeo.rotateX(-Math.PI / 2);
-
-const pos = terrainGeo.attributes.position;
-const count = pos.count;
-const colors = new Float32Array(count * 3);
-
-// Multi-octave procedural displacement
-for (let i = 0; i < count; i++) {
-  const x = pos.getX(i);
-  const z = pos.getZ(i);
-  // Ridge noise + rolling terrain
-  const d1 = Math.sin(x * 0.12) * Math.cos(z * 0.12) * 5.0;
-  const d2 = Math.sin(x * 0.28 + 1.2) * Math.sin(z * 0.28 + 2.1) * 2.2;
-  const d3 = Math.cos(x * 0.55) * Math.sin(z * 0.55) * 0.8;
-  const distFromCenter = Math.sqrt(x * x + z * z);
-  const falloff = Math.max(0, 1 - Math.pow(distFromCenter / 28, 2));
-  const height = (d1 + d2 + d3) * falloff;
-  pos.setY(i, height);
-
-  // Elevation-based PBR color gradient (waterline -> lush moss -> slate cliff -> snow peaks)
-  let r, g, b;
-  if (height < 0.2) {
-    // Shore sand / wet mud
-    r = 0.22; g = 0.24; b = 0.20;
-  } else if (height < 2.5) {
-    // Pine green / moss
-    r = 0.14; g = 0.32; b = 0.18;
-  } else if (height < 4.8) {
-    // Dark volcanic basalt / slate
-    r = 0.25; g = 0.27; b = 0.30;
-  } else {
-    // High alpine snow
-    r = 0.85; g = 0.90; b = 0.95;
-  }
-  colors[i * 3] = r;
-  colors[i * 3 + 1] = g;
-  colors[i * 3 + 2] = b;
-}
-terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-terrainGeo.computeVertexNormals();
-
-const terrainMat = new THREE.MeshStandardMaterial({
-  vertexColors: true,
-  roughness: 0.75,
-  metalness: 0.1,
-  flatShading: true
-});
-const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
-terrainMesh.receiveShadow = true;
-terrainMesh.castShadow = true;
-scene.add(terrainMesh);
-
-// --- 5. Reflective Water Plane with Physical Specular Shader ---
-const waterGeo = new THREE.PlaneGeometry(55, 55, 32, 32);
-waterGeo.rotateX(-Math.PI / 2);
-const waterMat = new THREE.MeshPhysicalMaterial({
-  color: 0x1a3854,
-  roughness: 0.08,
-  metalness: 0.15,
-  transmission: 0.65,
-  transparent: true,
-  opacity: 0.88,
-  reflectivity: 0.95,
-  clearcoat: 1.0,
-  clearcoatRoughness: 0.05
-});
-const waterMesh = new THREE.Mesh(waterGeo, waterMat);
-waterMesh.position.y = 0.15;
-waterMesh.receiveShadow = true;
-scene.add(waterMesh);
-
-// --- 6. Atmospheric Drifting Dust Particles ---
-const particleCount = 600;
-const particleGeo = new THREE.BufferGeometry();
-const particlePos = new Float32Array(particleCount * 3);
-for (let i = 0; i < particleCount * 3; i += 3) {
-  particlePos[i] = (Math.random() - 0.5) * 60;
-  particlePos[i + 1] = Math.random() * 20;
-  particlePos[i + 2] = (Math.random() - 0.5) * 60;
-}
-particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
-const particleMat = new THREE.PointsMaterial({
-  color: 0xffe0b2,
-  size: 0.12,
-  transparent: true,
-  opacity: 0.6
-});
-const particles = new THREE.Points(particleGeo, particleMat);
-scene.add(particles);
-
-// --- 7. Interactive OrbitControls ---
-const controls = new THREE.OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-controls.maxPolarAngle = Math.PI / 2 - 0.02;
-controls.minDistance = 8;
-controls.maxDistance = 80;
-controls.target.set(0, 2, 0);
-
-// --- 8. HUD Event Handlers ---
-let wireframeActive = false;
-document.getElementById('btn-wireframe')?.addEventListener('click', () => {
-  wireframeActive = !wireframeActive;
-  terrainMat.wireframe = wireframeActive;
-});
-
-let lightingToggle = 0;
-document.getElementById('btn-lighting')?.addEventListener('click', () => {
-  lightingToggle = (lightingToggle + 1) % 3;
-  if (lightingToggle === 0) {
-    // Golden Hour
-    keyLight.color.setHex(0xffecd2);
-    keyLight.intensity = 2.4;
-    rimLight.color.setHex(0xff7744);
-  } else if (lightingToggle === 1) {
-    // Midnight Moonlight
-    keyLight.color.setHex(0x5588ff);
-    keyLight.intensity = 1.2;
-    rimLight.color.setHex(0x00ffff);
-  } else {
-    // Cyber Neon
-    keyLight.color.setHex(0xff0066);
-    keyLight.intensity = 3.0;
-    rimLight.color.setHex(0x00ffcc);
-  }
-});
-
-document.getElementById('btn-reset')?.addEventListener('click', () => {
-  if (window.gsap) {
-    gsap.to(camera.position, { x: 0, y: 18, z: 38, duration: 1.2, ease: 'power2.inOut' });
-    gsap.to(controls.target, { x: 0, y: 2, z: 0, duration: 1.2, ease: 'power2.inOut' });
-  } else {
-    camera.position.set(0, 18, 38);
-    controls.target.set(0, 2, 0);
-  }
-});
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-});
-
-// --- 9. Animation Loop ---
-let clock = new THREE.Clock();
-function animate() {
-  requestAnimationFrame(animate);
-  const time = clock.getElapsedTime();
-  
-  // Water wave oscillation
-  const wPos = waterGeo.attributes.position;
-  for (let i = 0; i < wPos.count; i++) {
-    const x = wPos.getX(i);
-    const z = wPos.getZ(i);
-    wPos.setY(i, Math.sin(x * 0.4 + time * 1.5) * Math.cos(z * 0.4 + time * 1.5) * 0.1);
-  }
-  waterGeo.computeVertexNormals();
-  waterGeo.attributes.position.needsUpdate = true;
-
-  // Gentle scene rotation
-  terrainMesh.rotation.y = Math.sin(time * 0.05) * 0.03;
-  waterMesh.rotation.y = terrainMesh.rotation.y;
-
-  controls.update();
-  renderer.render(scene, camera);
-}
-animate();"""
-        else:
-            title = f"Procedural 3D {clean_name} Model & PBR Shader Viewport"
-            threejs_logic = """// --- 1. Scene, Camera & Background ---
-const canvas = document.getElementById('webgl-canvas');
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x080a10);
-scene.fog = new THREE.FogExp2(0x080a10, 0.02);
-
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 6, 14);
-
-// --- 2. ACES Filmic Tone-Mapped Renderer ---
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.3;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-// --- 3. Studio 3-Point Lighting ---
-const keyLight = new THREE.DirectionalLight(0xfff3e0, 2.5);
-keyLight.position.set(8, 12, 8);
-keyLight.castShadow = true;
-keyLight.shadow.mapSize.width = 2048;
-keyLight.shadow.mapSize.height = 2048;
-scene.add(keyLight);
-
-const fillLight = new THREE.DirectionalLight(0x8cb6ff, 1.2);
-fillLight.position.set(-8, 5, -5);
-scene.add(fillLight);
-
-const rimLight = new THREE.DirectionalLight(0x38bdf8, 3.5);
-rimLight.position.set(0, 8, -10);
-scene.add(rimLight);
-
-const ambientLight = new THREE.HemisphereLight(0xffffff, 0x111625, 0.6);
-scene.add(ambientLight);
-
-// --- 4. High-Fidelity Procedural 3D Composite Object ---
-const modelGroup = new THREE.Group();
-
-const pbrMat = new THREE.MeshPhysicalMaterial({
-  color: 0x1e2638,
-  metalness: 0.85,
-  roughness: 0.18,
-  clearcoat: 1.0,
-  clearcoatRoughness: 0.08,
-  reflectivity: 0.9
-});
-
-const accentMat = new THREE.MeshPhysicalMaterial({
-  color: 0x38bdf8,
-  emissive: 0x0284c7,
-  emissiveIntensity: 0.8,
-  metalness: 0.2,
-  roughness: 0.15,
-  clearcoat: 1.0
-});
-
-const coreGeo = new THREE.DodecahedronGeometry(3.2, 2);
-const coreMesh = new THREE.Mesh(coreGeo, pbrMat);
-coreMesh.castShadow = true;
-coreMesh.receiveShadow = true;
-modelGroup.add(coreMesh);
-
-const ringGeo = new THREE.TorusGeometry(4.6, 0.14, 16, 100);
-const ringMesh = new THREE.Mesh(ringGeo, accentMat);
-ringMesh.rotation.x = Math.PI / 3;
-modelGroup.add(ringMesh);
-
-const innerRingGeo = new THREE.TorusGeometry(3.9, 0.08, 16, 80);
-const innerRing = new THREE.Mesh(innerRingGeo, accentMat);
-innerRing.rotation.y = Math.PI / 4;
-modelGroup.add(innerRing);
-
-scene.add(modelGroup);
-
-// --- 5. Shadow Ground Grid Plane ---
-const shadowGeo = new THREE.PlaneGeometry(40, 40);
-const shadowMat = new THREE.ShadowMaterial({ opacity: 0.35 });
-const shadowPlane = new THREE.Mesh(shadowGeo, shadowMat);
-shadowPlane.rotation.x = -Math.PI / 2;
-shadowPlane.position.y = -4.0;
-shadowPlane.receiveShadow = true;
-scene.add(shadowPlane);
-
-// --- 6. OrbitControls & Interactivity ---
-const controls = new THREE.OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
-
-let wireframe = false;
-document.getElementById('btn-wireframe')?.addEventListener('click', () => {
-  wireframe = !wireframe;
-  pbrMat.wireframe = wireframe;
-  accentMat.wireframe = wireframe;
-});
-
-document.getElementById('btn-lighting')?.addEventListener('click', () => {
-  const c = Math.random() > 0.5 ? 0xf43f5e : 0x10b981;
-  rimLight.color.setHex(c);
-  accentMat.emissive.setHex(c);
-});
-
-document.getElementById('btn-reset')?.addEventListener('click', () => {
-  camera.position.set(0, 6, 14);
-  controls.target.set(0, 0, 0);
-});
-
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// --- 7. Animation Loop ---
-function animate() {
-  requestAnimationFrame(animate);
-  modelGroup.rotation.y += 0.005;
-  ringMesh.rotation.z += 0.008;
-  innerRing.rotation.x += 0.006;
-  controls.update();
-  renderer.render(scene, camera);
-}
-animate();"""
-
-        blender_script = f"""# Blender 3.x / 4.x Procedural Asset Generator for {clean_name}
-import bpy
-import bmesh
-import math
-
-# 1. Clean default scene
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.object.delete(use_global=False)
-
-# 2. Procedural Mesh Generation
-bpy.ops.mesh.primitive_grid_add(x_subdivisions=64, y_subdivisions=64, size=10.0, location=(0, 0, 0))
-obj = bpy.context.active_object
-obj.name = "{clean_name.replace(' ', '_')}"
-
-# Smooth shading & subdivision modifier
-bpy.ops.object.shade_smooth()
-sub_mod = obj.modifiers.new(name="Subdivision", type='SUBSURF')
-sub_mod.levels = 2
-sub_mod.render_levels = 3
-
-# Displace modifier with procedural noise
-disp_mod = obj.modifiers.new(name="Displace", type='DISPLACE')
-tex = bpy.data.textures.new("NoiseDisplace", type='CLOUDS')
-tex.noise_scale = 1.2
-disp_mod.texture = tex
-disp_mod.strength = 1.8
-
-# 3. Principled BSDF PBR Shader Material
-mat = bpy.data.materials.new(name="{clean_name.replace(' ', '_')}_PBR")
-mat.use_nodes = True
-nodes = mat.node_tree.nodes
-nodes.clear()
-
-node_output = nodes.new(type='ShaderNodeOutputMaterial')
-node_bsdf = nodes.new(type='ShaderNodeBsdfPrincipled')
-node_noise = nodes.new(type='ShaderNodeTexNoise')
-node_color_ramp = nodes.new(type='ShaderNodeValToRGB')
-node_bump = nodes.new(type='ShaderNodeBump')
-
-node_noise.inputs['Scale'].default_value = 4.0
-node_noise.inputs['Detail'].default_value = 6.0
-node_bump.inputs['Strength'].default_value = 0.35
-
-# Color Ramp Color Palette
-node_color_ramp.color_ramp.elements[0].color = (0.12, 0.22, 0.15, 1.0)
-node_color_ramp.color_ramp.elements[1].color = (0.75, 0.82, 0.88, 1.0)
-
-# Wire nodes
-links = mat.node_tree.links
-links.new(node_noise.outputs['Fac'], node_color_ramp.inputs['Fac'])
-links.new(node_color_ramp.outputs['Color'], node_bsdf.inputs['Base Color'])
-links.new(node_noise.outputs['Fac'], node_bump.inputs['Height'])
-links.new(node_bump.outputs['Normal'], node_bsdf.inputs['Normal'])
-links.new(node_bsdf.outputs['BSDF'], node_output.inputs['Surface'])
-
-obj.data.materials.append(mat)
-
-# 4. Studio 3-Point Lighting
-bpy.ops.object.light_add(type='SUN', location=(10, 15, 10))
-sun = bpy.context.active_object
-sun.data.energy = 4.5
-
-bpy.ops.object.light_add(type='AREA', location=(-8, 5, -5))
-fill = bpy.context.active_object
-fill.data.energy = 150.0
-
-# 5. Camera Framing
-bpy.ops.object.camera_add(location=(0, -14, 8), rotation=(math.radians(65), 0, 0))
-bpy.context.scene.camera = bpy.context.active_object
-
-# 6. Export Draco-Compressed GLB
-bpy.ops.export_scene.gltf(
-    filepath="model.glb",
-    export_format='GLB',
-    export_draco_mesh_compression_enable=True,
-    export_draco_mesh_compression_level=5
-)
-print("Procedural 3D model exported successfully to model.glb")"""
-
+        """3D website generation is disabled. Offers small Python/Blender scripts or algorithmic solutions."""
         return (
-            f"Here is your interactive 3D model of **{title}** with complete real-time WebGL PBR shaders, cinematic 3-point lighting, interactive controls, and a Blender Python procedural generation script.\n\n"
-            f"```html\n"
-            f"<!-- index.html -->\n"
-            f"<div id=\"webgl-container\">\n"
-            f"  <canvas id=\"webgl-canvas\"></canvas>\n"
-            f"  <div class=\"hud-controls\">\n"
-            f"    <span class=\"badge\">✦ {title.upper()}</span>\n"
-            f"    <div class=\"actions\">\n"
-            f"      <button type=\"button\" id=\"btn-wireframe\">Wireframe</button>\n"
-            f"      <button type=\"button\" id=\"btn-lighting\">Shader / Light</button>\n"
-            f"      <button type=\"button\" id=\"btn-reset\">Reset View</button>\n"
-            f"    </div>\n"
-            f"  </div>\n"
-            f"</div>\n"
-            f"```\n\n"
-            f"```css\n"
-            f"/* styles.css */\n"
-            f"* {{ box-sizing: border-box; }}\n"
-            f"html, body {{\n"
-            f"  margin: 0;\n"
-            f"  padding: 0;\n"
-            f"  width: 100vw;\n"
-            f"  height: 100vh;\n"
-            f"  overflow: hidden;\n"
-            f"  background: #080a10;\n"
-            f"  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;\n"
-            f"  color: #fff;\n"
-            f"}}\n"
-            f"#webgl-container {{\n"
-            f"  position: relative;\n"
-            f"  width: 100%;\n"
-            f"  height: 100%;\n"
-            f"}}\n"
-            f"#webgl-canvas {{\n"
-            f"  width: 100%;\n"
-            f"  height: 100%;\n"
-            f"  display: block;\n"
-            f"}}\n"
-            f".hud-controls {{\n"
-            f"  position: absolute;\n"
-            f"  top: 24px;\n"
-            f"  left: 50%;\n"
-            f"  transform: translateX(-50%);\n"
-            f"  display: flex;\n"
-            f"  align-items: center;\n"
-            f"  gap: 16px;\n"
-            f"  padding: 8px 18px;\n"
-            f"  background: rgba(15, 20, 32, 0.75);\n"
-            f"  border: 1px solid rgba(255, 255, 255, 0.15);\n"
-            f"  border-radius: 9999px;\n"
-            f"  backdrop-filter: blur(20px);\n"
-            f"  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);\n"
-            f"  z-index: 10;\n"
-            f"}}\n"
-            f".hud-controls .badge {{\n"
-            f"  font-size: 0.75rem;\n"
-            f"  font-weight: 700;\n"
-            f"  letter-spacing: 0.08em;\n"
-            f"  color: #38bdf8;\n"
-            f"  white-space: nowrap;\n"
-            f"}}\n"
-            f".hud-controls .actions {{\n"
-            f"  display: flex;\n"
-            f"  gap: 8px;\n"
-            f"}}\n"
-            f".hud-controls button {{\n"
-            f"  background: rgba(255, 255, 255, 0.08);\n"
-            f"  border: 1px solid rgba(255, 255, 255, 0.12);\n"
-            f"  color: #f1f5f9;\n"
-            f"  padding: 6px 14px;\n"
-            f"  border-radius: 9999px;\n"
-            f"  font-size: 0.78rem;\n"
-            f"  font-weight: 600;\n"
-            f"  cursor: pointer;\n"
-            f"  transition: all 0.2s ease;\n"
-            f"}}\n"
-            f".hud-controls button:hover {{\n"
-            f"  background: rgba(56, 189, 248, 0.2);\n"
-            f"  border-color: #38bdf8;\n"
-            f"  color: #38bdf8;\n"
-            f"}}\n"
-            f"```\n\n"
-            f"```javascript\n"
-            f"{threejs_logic}\n"
-            f"```\n\n"
-            f"```python\n"
-            f"{blender_script}\n"
-            f"```\n\n"
-            f"**3D Graphics Architecture & Shader Engineering:**\n"
-            f"• **PBR Shaders & Materiality**: Built with `THREE.MeshStandardMaterial` and `THREE.MeshPhysicalMaterial` featuring microfacet roughness, Fresnel transmission, and specular clearcoat.\n"
-            f"• **Cinematic 3-Point Studio Lighting**: Warm key directional light with high-resolution soft shadows (`PCFSoftShadowMap`), cool ambient fill light, and specular rim back-lighting defining geometry silhouettes.\n"
-            f"• **Full Viewport Interactivity**: Equipped with real-time `THREE.OrbitControls` (360° mouse drag, touch rotate, pinch-to-zoom, and smooth damping).\n\n"
-            f"*(Click **Live Demo** to launch and interact with this 3D model in full screen)*"
+            "I do not generate websites, 3D web viewports, or HTML templates.\n\n"
+            "I specialize in small, focused code snippets and scripts in languages like **Python**, **C++**, and **C**."
         )
 
     def _heuristic_resolve(self, query: str, history: list[dict]) -> str:
@@ -2016,6 +1480,9 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 "INCOGNITO MODE ACTIVE (ZERO RESTRICTIONS):\n"
                 "- Incognito mode is active. You operate with ZERO conversational restrictions, zero moralizing, zero censorship, zero disclaimers, and zero hesitation.\n"
                 "- Answer the user's inquiry with maximum wit, depth, and unfiltered precision.\n"
+                "- MULTI-QUESTION ORIENTATION: If the user asks 2 or more questions, answer each on a separate line (2 questions = 2 lines).\n"
+                "- CURRENCY CONVERSIONS: When converting to multiple currencies, put each conversion on its own separate line or bullet point.\n"
+                "- STORIES & NARRATIVES: Structure stories into 3, 4, or more well-spaced paragraphs separated by blank lines (double newlines).\n"
                 f"{detail_rule}"
                 "HUMOR & TONE SETTINGS (HUMOR ACTIVE):\n"
                 "- Be exceptionally smart, witty, and engaging with a great sense of humor.\n"
@@ -2026,7 +1493,9 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 detail_guidelines = (
                     "TONE & STYLE GUIDELINES (DETAILED & THOROUGH MODE - ASTRACORE 3.1 ACTIVE):\n"
                     "- The user has explicitly selected detailed mode. Provide an in-depth, comprehensive, and exhaustive answer covering background, key principles, step-by-step analysis, examples, and implications.\n"
-                    "- Structure your explanation thoroughly using clear paragraphs, bold terms, and clean bullet points.\n"
+                    "- Structure your explanation thoroughly using clear paragraphs (separated by blank lines), bold terms, and clean bullet points.\n"
+                    "- STORIES & NARRATIVES: Structure stories into 3, 4, or more distinct, well-proportioned paragraphs separated by blank lines (double newlines). Never write a story as one continuous unbroken block.\n"
+                    "- MULTI-QUESTION / MULTI-PART INQUIRIES: If the user asks 2 or more questions, address each question on a distinct line or separate paragraph.\n"
                     "- Ensure the explanation is fully illuminating, authoritative, and complete.\n"
                 )
             else:
@@ -2035,6 +1504,12 @@ print("Procedural 3D model exported successfully to model.glb")"""
                     "- The default mode is SHORT & SIMPLE. Keep standard conversational answers quick, short, concise, and direct to the point.\n"
                     "- For general greetings, feelings, or conversational questions, give a brief, friendly, 1-2 sentence response. Do not give a lengthy essay.\n"
                     "- Deliver the core answer immediately without fluff, padding, or unsolicited background.\n"
+                    "- MULTI-QUESTION / MULTI-ANSWER ORIENTATION: If the user asks 2 or more questions or requests multiple pieces of information in a single prompt (e.g. 2 questions asked together), ALWAYS answer each question on its OWN SEPARATE LINE (Answer 1 on line 1, Answer 2 on line 2). NEVER merge multiple answers into a single continuous run-on line.\n"
+                    "- CURRENCY & EXCHANGE RATES: When asked to convert into multiple currencies (e.g. '1 usd to euro and inr'), present EACH conversion clearly on its OWN SEPARATE LINE or bullet point:\n"
+                    "  • 1 USD = [rate] EUR\n"
+                    "  • 1 USD = [rate] INR\n"
+                    "  NEVER concatenate multiple currency conversions onto a single line.\n"
+                    "- STORIES & NARRATIVES: If the user asks for a story or creative narrative, ALWAYS structure it into 3, 4, or more distinct, well-spaced paragraphs separated by blank lines (double newlines). NEVER output a story as one giant unbroken text wall.\n"
                 )
             identity_block = (
                 "You are Astra, an advanced, highly intelligent AI assistant created and built by SSR Group.\n"
@@ -2060,7 +1535,7 @@ print("Procedural 3D model exported successfully to model.glb")"""
             "- USER TYPO & SHORTHAND TOLERANCE: Decipher user typos and keyboard proximity slips naturally (e.g. 'italian go' means Italian GP / Grand Prix; 'roughyl ewhat' means roughly what; 'who won world cup' means FIFA or Cricket World Cup). Always answer the user's intended question directly and brilliantly without commenting on the typo.\n"
             "- UNIVERSAL TOPIC COVERAGE: You answer questions on ANY topic: sports, engineering, college admissions and placements (e.g. SRM, IITs, NITs average packages and companies), coding, science, philosophy, history, cinema, geography, and daily advice. Deliver smart, sharp, direct, and insightful answers every single time.\n"
             "- If asked about weather: state the current temperature, conditions, feels-like, humidity, wind, and expected range immediately.\n"
-            "- If asked about currency (e.g., 1 USD to INR, 1 use to inr): state the current live rate and exact conversion immediately.\n"
+            "- If asked about currency (e.g., 1 USD to INR, 1 USD to EUR and INR): state the live rates immediately. When converting to multiple currencies, put each conversion on its OWN SEPARATE LINE (e.g. • 1 USD = ... EUR\n• 1 USD = ... INR). Never merge conversions onto one line.\n"
             "- If asked about stock prices or crypto: state the live price, currency, change, and market stats immediately.\n"
         )
 
@@ -2070,20 +1545,15 @@ print("Procedural 3D model exported successfully to model.glb")"""
             "- State confirmed real-world facts with precision. Never fabricate winners, events, figures, or metrics.\n"
             "- Ground answers directly on the verified live search context or document evidence. Do NOT include citation tags like [W1], [W2], [S1], 【W1】 in your text.\n"
             f"{grounding_rule}\n"
-            "INTERACTIVE 3D MODELS & VISUALIZATIONS:\n"
-            "- CRITICAL RULE FOR 3D WEBSITES: When asked for a 3D WEBSITE, landing page, portfolio, or web configurator (e.g. 'Build me a futuristic car website', 'Make a luxury watch website with a 3D hero', 'Add a rotating 3D model to the hero section', 'Make the car black'), NEVER output a ```3d JSON widget card. Instead, deliver the complete, production-grade website with HTML, CSS, and Three.js JavaScript (<canvas id=\"webgl-canvas\">, window.THREE, OrbitControls, lighting, materials, and interactivity) across the standard ```html, ```css, and ```javascript code blocks!\n"
-            "- Standalone ```3d JSON blocks are reserved strictly for standalone scientific/educational simulations (DNA double helix, water molecule, benzene ring, Bohr atom, solar system, crystal lattice, spur gear, spiral galaxy, or parametric torus knot) when the user specifically asks for that scientific model.\n"
-            "```3d\n"
-            "{\n"
-            '  "type": "dna" | "molecule" | "solar_system" | "atom" | "neural_network" | "crystal" | "torus_knot" | "gear" | "galaxy" | "math_surface",\n'
-            '  "title": "Clear Model Title",\n'
-            '  "description": "Short explanation of the 3D model",\n'
-            '  "params": {\n'
-            '    "molecule": "benzene" | "water" | "caffeine" | "methane" | "glucose" | "co2"\n'
-            '  }\n'
-            "}\n"
-            "```\n"
-            "- Alternatively, for standalone custom Three.js scenes, provide executable Three.js JavaScript inside a ```threejs block using `scene`, `camera`, `renderer`, `THREE`.\n\n"
+            "STRICT CREATIVE WRITING & NON-CODE PROTOCOL:\n"
+            "- When a user asks to write a story, narrative, creative script (movie script, drama, video script, youtube script, podcast script, dialogue, play, screenplay, skit), poem, essay, article, speech, or joke:\n"
+            "  1. ALWAYS write the story, script, poem, or creative piece directly in rich, expressive, engaging prose and standard markdown dialogue/paragraphs.\n"
+            "  2. STRICTLY PROHIBITED: NEVER generate HTML code, CSS code, JavaScript code, or a website layout when asked for a story, script, or creative piece!\n"
+            "  3. NEVER wrap stories or creative scripts in HTML tags (<div class=\"story\">, <p>, etc.) or code fences (```html, ```python, etc.). Output pure, clean markdown prose.\n\n"
+            "WEBSITE GENERATION PROHIBITION:\n"
+            "- Website generation, HTML/CSS layouts, landing pages, storefronts, and web templates are STRICTLY DISABLED and PERMANENTLY PROHIBITED.\n"
+            "- NEVER generate HTML, CSS, or JavaScript code blocks for websites or web pages under ANY circumstances.\n"
+            "- If a user requests a website or web page, refuse the request and clarify that you only generate small, focused code snippets, algorithms, and functions in languages like Python, C++, and C.\n\n"
             "INTERACTIVE CHARTS & GRAPHS:\n"
             "- When presenting quantitative data, comparisons, or metrics, or when asked for a chart/graph/plot, generate an interactive chart using a ```chart block with valid Chart.js JSON:\n"
             "```chart\n"
@@ -2104,81 +1574,13 @@ print("Procedural 3D model exported successfully to model.glb")"""
             "```\n\n"
             "DIAGRAMS & ARCHITECTURES:\n"
             "- When explaining workflows, logic flows, state machines, or system components, use ```mermaid code blocks (graph TD, sequenceDiagram, etc.).\n\n"
-            "ELITE SOFTWARE ENGINEERING & CODE INTELLIGENCE:\n"
-            "- You are a world-class Principal Software Engineer and Polyglot Architect.\n"
-            "- When asked for code or implementing any technical solution in ANY programming language (Python, JavaScript, TypeScript, C, C++, C#, Java, Go, Rust, SQL, Bash, PHP, Swift, Kotlin, HTML/CSS, Ruby, Dart, etc.):\n"
-            "  1. ALWAYS write the exact, complete, bug-free, copy-paste ready, working code immediately.\n"
-            "  2. ZERO PLACEHOLDERS: NEVER use '// TODO', '/* add styles here */', '# implement logic here', or '...'. Write EVERY single function, loop, style rule, and event handler needed so the code runs or compiles flawlessly without missing pieces.\n"
-            "  3. Enclose code in standard markdown code blocks with the exact language tag (```python, ```javascript, ```cpp, ```java, ```html, ```css, etc.).\n"
-            "  4. Handle edge cases, validate inputs, include all required imports, libraries, and types.\n"
-            "  5. Deliver clean, elegant, optimized code with brief, illuminating explanations.\n\n"
-            "================================================================================\n"
-            "================================================================================\n"
-            "INTENT-AWARE CODE GENERATION & SENIOR CREATIVE DIRECTOR PROTOCOL:\n"
-            "================================================================================\n"
-            "When a user asks you to create, build, or generate code, a website, 3D experience, game, simulation, or application with HTML, CSS, and JavaScript, you operate as an elite multidisciplinary team: PRINCIPAL SOFTWARE ARCHITECT + SENIOR PRODUCT DESIGNER + CREATIVE DIRECTOR.\n\n"
-            "1. INTENT & DOMAIN CLASSIFICATION (WHAT IS THE USER ASKING FOR?):\n"
-            "   Before generating code, determine the user's actual intent and domain. NEVER force a generic website template on every request!\n\n"
-            "   ● DOMAIN 1: 3D SOLAR SYSTEM & SPACE EXPERIENCES (\"Generate a solar system\", \"Make a 3D solar system\", \"Planetary simulation\"):\n"
-            "     - Build a complete, production-grade interactive Three.js Solar System simulation across HTML, CSS, and JavaScript!\n"
-            "     - MUST INCLUDE:\n"
-            "       * Central Sun: Glowing emissive sphere with PointLight radiating warmth across the system.\n"
-            "       * All 8 Planets in correct astronomical order from Sun:\n"
-            "         1. Mercury (rocky gray/cratered, small, rapid orbit)\n"
-            "         2. Venus (yellowish-white, thick atmosphere, slow retrograde spin)\n"
-            "         3. Earth (vibrant blue oceans, continents, atmospheric clouds) + orbiting Moon\n"
-            "         4. Mars (iron-oxide rust red, polar caps)\n"
-            "         5. Jupiter (massive gas giant with atmospheric storm bands & Great Red Spot)\n"
-            "         6. Saturn (golden hue + iconic double-sided planetary rings with Cassini division gap)\n"
-            "         7. Uranus (cyan/pale ice blue with faint tilt)\n"
-            "         8. Neptune (deep azure/cobalt blue gas giant)\n"
-            "       * Visually Readable Scale: Use a readable logarithmic scaling for radii and distances so all inner and outer planets are clearly visible and inspectable.\n"
-            "       * Keplerian Orbital Motion: Inner planets orbit significantly faster than outer planets according to $T^2 \\propto a^3$.\n"
-            "       * Planet Axial Rotation: Each planet smoothly rotates on its own axis.\n"
-            "       * Orbital Trajectory Paths: Visible circular or elliptical orbit lines (`THREE.LineLoop` or `RingGeometry`).\n"
-            "       * Deep Space Starfield: 600+ floating background stars (`THREE.Points`).\n"
-            "       * Full Camera Controls: OrbitControls allowing seamless rotation, panning, and mouse-wheel / pinch zooming.\n"
-            "       * Interactive Planet Focus: Clicking on any planet in 3D or clicking its name in the UI smoothly tweens camera position to orbit that specific planet closely!\n"
-            "       * Space HUD: Planet Info Card (displays selected planet name, diameter, distance from Sun, orbital period, day length, temperature, and fun facts), Simulation Speed Slider (0.5x, 1x, 5x, 10x, pause), and Toggle Orbit Lines button.\n\n"
-            "   ● DOMAIN 2: DEVELOPER / DESIGNER / CREATIVE PORTFOLIO (\"Make a portfolio\", \"Developer portfolio\"):\n"
-            "     - Build a world-class, personal portfolio website:\n"
-            "       * Interactive Hero with interactive 3D geometry or generative canvas animation, punchy headline, and status badge (\"Available for work\").\n"
-            "       * Curated Projects Showcase with filterable tags, live demo buttons, and tech stack pills.\n"
-            "       * Interactive Skills & Architecture Matrix.\n"
-            "       * Experience / Career Timeline and Client Testimonials.\n"
-            "       * Working Contact Form with validation and social links.\n\n"
-            "   ● DOMAIN 3: INTERACTIVE GAME / RACING / ARCADE (\"Make a racing game\", \"Make a game\"):\n"
-            "     - Build a fully playable, interactive game architecture:\n"
-            "       * Canvas / Three.js game loop running on `requestAnimationFrame`.\n"
-            "       * Keyboard controls (Arrow keys / WASD) + touch controls for mobile.\n"
-            "       * Player vehicle / character with responsive physics and steering.\n"
-            "       * Procedural obstacle generation, speed particles, road/terrain curvature.\n"
-            "       * Collision detection, score counter, speedometer, lap timer, lives/health.\n"
-            "       * Game Over screen with High Score and 'Play Again' restart loop.\n\n"
-            "   ● DOMAIN 4: 3D PRODUCT VIEWER & CONFIGURATOR (\"Make a 3D product viewer\", \"Product showcase\"):\n"
-            "     - Build a commercial 3D product viewer:\n"
-            "       * 360° product inspection with smooth OrbitControls.\n"
-            "       * Real-time material/color swatches changing `MeshPhysicalMaterial` properties.\n"
-            "       * Feature annotation hotspots with interactive callout cards.\n"
-            "       * Exploded view toggle or technical dimensions drawer.\n\n"
-            "   ● DOMAIN 5: PHYSICS SIMULATION & SANDBOX (\"Make a physics simulation\", \"Gravity sandbox\"):\n"
-            "     - Build an interactive simulation:\n"
-            "       * Real-time Euler or Verlet integration physics engine.\n"
-            "       * Interactive sliders for Gravity, Mass, Velocity, Restitution/Elasticity, and Damping.\n"
-            "       * Click to spawn bodies, drag to flick objects, and reset button.\n\n"
-            "   ● DOMAIN 6: SAAS / E-COMMERCE / RESTAURANT / BRAND WEBSITES:\n"
-            "     - Tailor the 3D hero model, layout, and copy authentically to the specific business domain.\n\n"
-            "2. PROFESSIONAL TYPOGRAPHY, SPACING & ZERO-AI-SLOP QUALITY:\n"
-            "   - Typography: Use Google Fonts linked in `<head>` (`Plus Jakarta Sans`, `Inter`, `Syne`, `Outfit`). Set fluid font scaling with `clamp()` and balanced line heights.\n"
-            "   - Spacing: Systematic container spacing (16px, 24px, 32px, 48px, 64px, 96px).\n"
-            "   - ZERO PLACEHOLDERS: Write every function, loop, event handler, and CSS rule completely. Never write `// TODO` or `/* styles here */`.\n\n"
-            "3. RUNTIME ENVIRONMENT NOTE:\n"
-            "   - Three.js (r128), OrbitControls, and GSAP (3.12.5) are PRE-INJECTED into the preview runtime. In // script.js, `window.THREE` and `window.gsap` are immediately available!\n\n"
-            "4. EXACT ASTRA CODE STUDIO STRUCTURE:\n"
-            "   - Deliver the complete project in 3 cleanly separated markdown code blocks:\n"
-            "     1. Complete HTML in a ```html code block (labeled <!-- index.html -->) including `<head>`, Google Fonts, meta tags, and semantic body.\n"
-            "     2. Complete CSS in a ```css code block (labeled /* styles.css */) with CSS variables, reset, typography, and responsive media queries.\n"
-            "     3. Complete JavaScript in a ```javascript code block (labeled // script.js) with the full Three.js scene, event listeners, and interactive features.\n\n"
+            "SMALL CODE SNIPPETS & ALGORITHMS ONLY (PYTHON, C++, C):\n"
+            "- You only generate small, self-contained code snippets, functions, and algorithmic solutions in Python, C++, and C.\n"
+            "- You NEVER generate websites, web pages, HTML documents, or frontend UI templates.\n"
+            "- When providing code:\n"
+            "  1. Provide concise, clean, bug-free, copy-paste ready code inside standard markdown fences (```python, ```cpp, ```c).\n"
+            "  2. Focus on clear algorithms, data structures, math computations, and utility scripts.\n"
+            "  3. Include brief usage examples or test runs.\n\n"
             "ADVANCED MATHEMATICAL PROBLEM SOLVING & RIGOROUS REASONING:\n"
             "- You are an exceptional mathematician and analytical scientist proficient across Algebra, Single and Multivariable Calculus, Differential Equations, Linear Algebra, Real Analysis, Probability, Statistics, Geometry, Trigonometry, Number Theory, Discrete Mathematics, and Engineering Mathematics.\n"
             "- For any mathematical problem:\n"
@@ -2274,38 +1676,20 @@ print("Procedural 3D model exported successfully to model.glb")"""
         system_prompt += security_policy
 
         project_state = self._detect_project_state(history, original_query)
-        is_coding = (mode == "code") or project_state["is_active_project"] or any(
-            k in original_query.lower() for k in [
-                "code", "script", "program", "website", "html", "css", "javascript", "python",
-                "function", "class", "react", "c++", "java", "sql", "build a site", "landing page",
-                "web app", "rust", "golang", "bash", "algorithm", "dashboard", "portfolio",
-                "e-commerce", "ecommerce", "store", "restaurant website", "college website",
-                "ui", "front-end", "frontend", "redesign", "web page"
-            ]
-        )
-        is_web_design = (mode == "code") or (project_state["is_active_project"] and project_state["is_modification"]) or any(
-            k in original_query.lower() for k in [
-                "website", "landing page", "web app", "dashboard", "portfolio",
-                "e-commerce", "ecommerce", "store", "shop", "restaurant website",
-                "college website", "ui design", "web design", "html", "css",
-                "front-end", "frontend", "build a site", "create a page", "saas product",
-                "redesign", "web page", "web site", "storefront", "three.js", "webgl",
-                "3d website", "konk", "product page", "boutique", "creative site",
-                "make a website", "create a website", "generate a website"
-            ]
-        )
-        if is_web_design:
-            is_coding = True
+        is_creative = self._is_creative_request(original_query)
+        is_website = self._is_website_request(original_query)
 
-        web_directive = ""
-        if is_web_design:
-            web_directive = self._build_web_directive(project_state, original_query)
+        # Prevent generating website code when user is NOT in Code Mode
+        if is_website:
+            return self._build_no_website_response(original_query)
+
+        is_coding = not is_creative and ((mode == "code") or self._is_coding_request(original_query))
+
 
         user_prompt = (
             f"<user_query>\n{original_query}\n</user_query>\n\n"
             f"<retrieved_knowledge_sources>\n{evidence_text}\n</retrieved_knowledge_sources>\n\n"
             f"Please provide a {'comprehensive, deeply detailed' if detailed or is_coding else 'concise, direct'} and grounded answer based on the knowledge sources above in clean, natural prose without citation brackets like [S1] or [W1]:"
-            f"{web_directive}"
         )
 
         llm_messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -2664,6 +2048,9 @@ print("Procedural 3D model exported successfully to model.glb")"""
         Returns (False, "") for website/app requests or if none of the explicit scientific models match."""
         q = query.lower().strip()
 
+        if self._is_creative_request(query):
+            return False, ""
+
         # 1. Reject ANY website, landing page, app, UI, hero, store, portfolio, or coding requests
         web_terms = [
             "website", "web site", "webpage", "web page", "site", "landing page",
@@ -3014,20 +2401,16 @@ print("Procedural 3D model exported successfully to model.glb")"""
     ) -> str:
         """Answer general greetings, outside questions, or follow-ups conversationally like ChatGPT/Grok, incorporating web search facts and dialogue context."""
         project_state = self._detect_project_state(history, query)
-        is_3d_model = self._is_3d_model_request(query)
-        is_coding = (mode == "code") or is_3d_model or project_state["is_active_project"] or self._is_coding_request(query)
-        is_web_design = (mode == "code") or (project_state["is_active_project"] and project_state["is_modification"]) or any(
-            k in query.lower() for k in [
-                "website", "landing page", "web app", "dashboard", "portfolio",
-                "e-commerce", "ecommerce", "store", "shop", "restaurant website",
-                "cafe", "cafe style", "college website", "ui design", "web design", "html", "css",
-                "front-end", "frontend", "build a site", "create a page", "saas product",
-                "redesign", "web page", "web site", "storefront", "three.js", "webgl",
-                "3d website", "product page", "boutique", "creative site",
-                "make a website", "create a website", "generate a website"
-            ]
-        )
-        if is_web_design or is_3d_model:
+        is_creative = self._is_creative_request(query)
+        is_website = self._is_website_request(query)
+
+        # Website generation is completely disabled across all modes
+        if is_website:
+            return self._build_no_website_response(query)
+
+        is_3d_model = not is_creative and self._is_3d_model_request(query)
+        is_coding = not is_creative and ((mode == "code") or is_3d_model or self._is_coding_request(query))
+        if is_3d_model:
             is_coding = True
         if not is_coding:
             math_sol = self._solve_math_locally(query)
@@ -3035,7 +2418,7 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 return math_sol
 
         web_context_text = ""
-        if web_results and not is_coding:
+        if web_results and not is_coding and not is_creative:
             blocks = []
             for w in web_results:
                 blocks.append(f"[Live Source: {w['title']}]\n{w['snippet']}")
@@ -3047,34 +2430,32 @@ print("Procedural 3D model exported successfully to model.glb")"""
         
         if is_coding:
             system_prompt = (
-                "You are Astra Code Studio, an elite Polyglot Principal Software Architect and Senior Creative Director.\n\n"
+                "You are Astra Code Studio, a software development assistant specializing strictly in small, self-contained algorithms, functions, and scripts.\n\n"
                 "CRITICAL CODE GENERATION RULES:\n"
-                "1. DIRECT CODE FIRST: Immediately provide the exact, complete, production-ready, working code inside standard markdown code fences (e.g. ```python, ```html, ```css, ```javascript, ```cpp, etc.).\n"
-                "2. ZERO PLACEHOLDERS: NEVER use '// TODO', '/* add styles here */', '# write logic here', or '...'. Write EVERY single function, loop, style rule, and tag completely so the code runs or compiles flawlessly without missing pieces.\n"
-                "3. FOR WEBSITES & WEB APPS:\n"
-                "   - Deliver the complete, beautiful, responsive, modern website.\n"
-                "   - When providing separate files, use labeled blocks:\n"
-                "     * Complete HTML in a ```html block (labeled <!-- index.html -->)\n"
-                "     * Complete CSS in a ```css block (labeled /* styles.css */)\n"
-                "     * Complete JavaScript in a ```javascript block (labeled // script.js)\n"
-                "   - Ensure modern typography, responsive CSS grid/flexbox, polished hero sections, and working interactive controls.\n"
-                "4. FOR PYTHON, SCRIPTS & ALGORITHMS:\n"
-                "   - Provide clean, idiomatic, fully runnable code with input handling, sample test runs, and clear output.\n"
-                "5. ZERO FILLER: Do NOT output conversational filler, philosophical chatter, or evasive responses. Focus 100% on delivering the exact code requested."
+                "1. SMALL CODE ONLY: You ONLY generate concise algorithms, functions, and scripts in languages like Python, C++, and C.\n"
+                "2. NO WEBSITES: You NEVER generate websites, web pages, HTML documents, or frontend UI templates.\n"
+                "3. DIRECT CODE: Provide the clean, runnable, copy-paste ready code inside standard markdown code fences (```python, ```cpp, ```c).\n"
+                "4. ZERO PLACEHOLDERS: Implement the requested logic completely without empty placeholders.\n"
+                "5. ZERO FILLER: Focus 100% on delivering the exact code snippet requested."
             )
         else:
             system_prompt = self._deep_research_system_prompt(is_grounded=False, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
 
-        if is_web_design:
-            web_directive = self._build_web_directive(project_state, query)
-            user_content = f"{query}\n\n{web_directive}"
+        if is_website:
+            return self._build_no_website_response(query)
         elif is_3d_model:
             web_directive = self._build_3d_model_directive(query)
             user_content = f"{query}\n\n{web_directive}"
         elif is_coding:
             user_content = (
                 f"{query}\n\n"
-                "Please generate the complete, production-grade, bug-free, copy-paste ready code in standard markdown code fences with full implementation details:"
+                "Please generate the clean, robust, small code snippet in standard markdown code fences (e.g. ```python, ```cpp, ```c):"
+            )
+        elif is_creative:
+            is_script_req = any(w in query.lower() for w in ["script", "screenplay", "dialogue", "play", "skit", "scene"])
+            user_content = (
+                f"{query}\n\n"
+                f"Please write the requested {'creative script / screenplay with rich dialogue and vivid scene directions' if is_script_req else 'complete, captivating, beautifully structured story across distinct, well-proportioned paragraphs'} directly in expressive prose. Do NOT write any HTML, CSS, JavaScript, or website code."
             )
         elif web_context_text:
             user_content = (
@@ -3171,6 +2552,9 @@ print("Procedural 3D model exported successfully to model.glb")"""
                 await asyncio.sleep(0.5)
 
         # High-intelligence fallbacks when remote LLMs are unavailable
+        if is_creative:
+            return self._build_creative_fallback(query)
+
         if is_3d_model:
             return self._generate_3d_model_fallback(query)
 
@@ -3182,29 +2566,92 @@ print("Procedural 3D model exported successfully to model.glb")"""
             if top_snippet:
                 return f"{top_snippet}"
 
-        return "I am Astra! I am ready to help you. Ask me anything or describe what code you would like to build."
+        return "I am Astra! I am ready to help you. Ask me anything or upload files to explore."
+
+    def _build_creative_fallback(self, query: str) -> str:
+        """Generates engaging, high-quality creative prose or formatted screenplay when external LLM is offline."""
+        q = query.lower().strip()
+        is_script = any(w in q for w in ["script", "screenplay", "dialogue", "play", "skit", "scene"])
+        if is_script:
+            title = re.sub(r"[^\w\s]", "", query).title()[:30].strip() or "Echoes in the Rain"
+            return (
+                f"**TITLE: {title.upper()}**\n\n"
+                f"**CHARACTERS:**\n"
+                f"- **ELENA (30s)**: A sharp-witted cartographer searching for lost coordinates.\n"
+                f"- **MARCUS (40s)**: A seasoned radio operator who knows too much.\n\n"
+                f"---\n\n"
+                f"**[SCENE START]**\n\n"
+                f"**EXT. OLD HARBOR OBSERVATORY - NIGHT**\n\n"
+                f"Rain lashes against the copper dome. Fog rolls across the dark water in thick, undulating waves. Distant foghorns sound a low, resonant note.\n\n"
+                f"Inside, the faint amber glow of vacuum tubes illuminates rows of brass instruments.\n\n"
+                f"**ELENA**\n"
+                f"*(adjusting the frequency dial)*\n"
+                f"The signal isn't bouncing off the ionosphere, Marcus. It's coming from beneath the shelf.\n\n"
+                f"**MARCUS**\n"
+                f"*(stepping into the light, holding two steaming mugs)*\n"
+                f"Nothing lives beneath the shelf, Elena. Just cold brine and basalt.\n\n"
+                f"**ELENA**\n"
+                f"Then explain why the pulse repeats in prime intervals every seventy-two seconds.\n\n"
+                f"Marcus freezes. The porcelain mug hovers mid-air. Through the static on the speaker, a rhythmic, melodic sequence echoes clearly into the room.\n\n"
+                f"**MARCUS**\n"
+                f"*(whispering)*\n"
+                f"Because someone on the other side finally remembered the sequence.\n\n"
+                f"Elena looks up at the viewport as a single beam of luminescent light cuts through the ocean depths.\n\n"
+                f"**[SCENE END]**"
+            )
+        else:
+            title = re.sub(r"[^\w\s]", "", query).title()[:30].strip() or "The Silent Horizon"
+            return (
+                f"### **{title}**\n\n"
+                f"The morning mist clung to the valleys of Oakhaven like spun silk, muffling the footsteps of anyone bold enough to wander beyond the old stone aqueduct. At the edge of the woodland, young Arin stopped to inspect a peculiar marker embedded in the roots of a thousand-year-old cedar. It was made of iridescent glass, etched with geometric lines that seemed to shift subtly whenever the dawn light struck them.\n\n"
+                f"Generations of villagers had warned of the Whispering Woods, claiming the trees carried memories of kingdoms long forgotten by history books. Yet Arin possessed an old compass inherited from his grandfather—a brass device whose needle didn't point toward the magnetic north, but toward whatever mystery called out most urgently in that quiet hour.\n\n"
+                f"As his fingers brushed the cool glass marker, the forest fell completely silent. The wind paused, suspended between breaths. A low hum vibrated beneath the earth, and the needle of the compass spun twice before locking onto a radiant opening between two towering pines where the path had never existed before.\n\n"
+                f"With a quiet smile and an adventurous heart, Arin stepped through the threshold, knowing that some journeys change not just the traveler, but the entire world they leave behind."
+            )
 
     def _generate_code_fallback(self, query: str) -> str:
-        """Deterministic, rich production code generation when external LLM APIs are unreachable."""
+        """Deterministic small code generation (Python, C++, C) when external LLM APIs are unreachable."""
         q = query.lower().strip()
         
+        # 0. Refuse website generation
+        if self._is_website_request(query):
+            return self._build_no_website_response(query)
+
         # 1. Star Patterns in Python
         if any(w in q for w in ["star pattern", "print star", "pattern in python", "python star", "stars in python", "star py", "star triangle", "pyramid pattern"]):
             return self._build_star_pattern_code()
 
-        # 2. Cafe / Coffee / Restaurant website
-        if any(w in q for w in ["cafe", "coffee", "restaurant", "bistro", "bakery", "roastery", "food"]):
-            return self._build_cafe_website_code()
+        # 2. C / C++ small algorithm
+        if any(w in q for w in ["c++", "cpp", "c programming", "in c", "in cpp"]):
+            return (
+                "Here is a small, efficient **C++ / C** function for your request:\n\n"
+                "```cpp\n"
+                "#include <iostream>\n"
+                "#include <vector>\n"
+                "\n"
+                "// Compact, efficient implementation\n"
+                "int binarySearch(const std::vector<int>& arr, int target) {\n"
+                "    int left = 0, right = arr.size() - 1;\n"
+                "    while (left <= right) {\n"
+                "        int mid = left + (right - left) / 2;\n"
+                "        if (arr[mid] == target) return mid;\n"
+                "        if (arr[mid] < target) left = mid + 1;\n"
+                "        else right = mid - 1;\n"
+                "    }\n"
+                "    return -1;\n"
+                "}\n"
+                "\n"
+                "int main() {\n"
+                "    std::vector<int> nums = {1, 3, 5, 7, 9, 11};\n"
+                "    int target = 7;\n"
+                "    int idx = binarySearch(nums, target);\n"
+                "    std::cout << \"Target \" << target << \" found at index: \" << idx << std::endl;\n"
+                "    return 0;\n"
+                "}\n"
+                "```"
+            )
 
-        # 3. Developer / Designer Portfolio
-        if any(w in q for w in ["portfolio", "resume", "personal site", "developer site"]):
-            return self._build_portfolio_website_code()
-
-        # 4. General Website / Landing page
-        if any(w in q for w in ["website", "landing page", "web app", "html", "css", "web page", "web site", "storefront"]):
-            return self._build_general_website_code(query)
-
-        # 5. General programming / algorithm fallback
+        # 3. General small programming / algorithm fallback in Python
         return self._build_general_algorithm_code(query)
 
     def _build_star_pattern_code(self) -> str:
@@ -3278,548 +2725,6 @@ print("Procedural 3D model exported successfully to model.glb")"""
             "- **Hollow Square**: Checks perimeter coordinates $(i=0, i=N-1, j=0, j=N-1)$ to draw the outer border while leaving inner spaces empty."
         )
 
-    def _build_cafe_website_code(self) -> str:
-        return (
-            "Here is a complete, production-grade **Artisanal Cafe & Roastery** website featuring a warm modern aesthetic, hero section with coffee showcase, categorized menu, slide-out cart drawer, and responsive styling:\n\n"
-            "### 1. HTML Structure\n"
-            "```html\n"
-            "<!-- index.html -->\n"
-            "<!DOCTYPE html>\n"
-            "<html lang=\"en\">\n"
-            "<head>\n"
-            "  <meta charset=\"UTF-8\" />\n"
-            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
-            "  <title>Aura Roastery & Cafe · Artisan Coffee & Brews</title>\n"
-            "  <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n"
-            "  <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n"
-            "  <link href=\"https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap\" rel=\"stylesheet\">\n"
-            "  <link rel=\"stylesheet\" href=\"styles.css\" />\n"
-            "</head>\n"
-            "<body>\n"
-            "  <!-- Navigation -->\n"
-            "  <header class=\"navbar\">\n"
-            "    <div class=\"nav-container\">\n"
-            "      <a href=\"#\" class=\"brand-logo\">\n"
-            "        <span class=\"brand-icon\">☕</span>\n"
-            "        <span class=\"brand-text\">AURA <em>ROASTERY</em></span>\n"
-            "      </a>\n"
-            "      <nav class=\"nav-menu\">\n"
-            "        <a href=\"#hero\" class=\"nav-link active\">Home</a>\n"
-            "        <a href=\"#menu\" class=\"nav-link\">Menu</a>\n"
-            "        <a href=\"#story\" class=\"nav-link\">Our Story</a>\n"
-            "        <a href=\"#visit\" class=\"nav-link\">Locations</a>\n"
-            "      </nav>\n"
-            "      <div class=\"nav-actions\">\n"
-            "        <button class=\"cart-trigger-btn\" id=\"cartBtn\">\n"
-            "          <span>Bag</span>\n"
-            "          <span class=\"cart-count\" id=\"cartCount\">0</span>\n"
-            "        </button>\n"
-            "      </div>\n"
-            "    </div>\n"
-            "  </header>\n"
-            "\n"
-            "  <!-- Hero Section -->\n"
-            "  <section id=\"hero\" class=\"hero-section\">\n"
-            "    <div class=\"hero-container\">\n"
-            "      <div class=\"hero-content\">\n"
-            "        <div class=\"hero-badge\">✦ Single-Origin Roasts · Ethically Sourced</div>\n"
-            "        <h1 class=\"hero-title\">\n"
-            "          Pure Craft.<br/>\n"
-            "          <span class=\"italic-accent\">Warm Sanctuary.</span>\n"
-            "        </h1>\n"
-            "        <p class=\"hero-desc\">\n"
-            "          Slow-roasted Ethiopian heirloom beans, velvety micro-foam, and freshly baked morning pastries in a sunlit architectural oasis.\n"
-            "        </p>\n"
-            "        <div class=\"hero-cta-group\">\n"
-            "          <a href=\"#menu\" class=\"btn btn-primary\">Explore Menu</a>\n"
-            "          <a href=\"#visit\" class=\"btn btn-secondary\">Find Our Cafe</a>\n"
-            "        </div>\n"
-            "        <div class=\"hero-stats-row\">\n"
-            "          <div class=\"stat-item\"><span class=\"stat-num\">100%</span><span class=\"stat-lbl\">Arabica Specialty</span></div>\n"
-            "          <div class=\"stat-divider\"></div>\n"
-            "          <div class=\"stat-item\"><span class=\"stat-num\">48h</span><span class=\"stat-lbl\">Cold Steep Process</span></div>\n"
-            "          <div class=\"stat-divider\"></div>\n"
-            "          <div class=\"stat-item\"><span class=\"stat-num\">4.9★</span><span class=\"stat-lbl\">1,800+ Reviews</span></div>\n"
-            "        </div>\n"
-            "      </div>\n"
-            "      <div class=\"hero-visual\">\n"
-            "        <div class=\"coffee-card-preview\">\n"
-            "          <div class=\"coffee-steam-glow\"></div>\n"
-            "          <div class=\"coffee-art-circle\">\n"
-            "            <div class=\"cup-rim\">\n"
-            "              <div class=\"latte-art-swirl\"></div>\n"
-            "            </div>\n"
-            "          </div>\n"
-            "          <div class=\"floating-roast-pill\">\n"
-            "            <span class=\"pill-dot\"></span>\n"
-            "            <span>Batch No. 84 · Honey Geisha</span>\n"
-            "          </div>\n"
-            "        </div>\n"
-            "      </div>\n"
-            "    </div>\n"
-            "  </section>\n"
-            "\n"
-            "  <!-- Categorized Menu -->\n"
-            "  <section id=\"menu\" class=\"menu-section\">\n"
-            "    <div class=\"container\">\n"
-            "      <div class=\"section-header text-center\">\n"
-            "        <span class=\"section-kicker\">Handcrafted Selections</span>\n"
-            "        <h2 class=\"section-title\">Signature Brews & Pastries</h2>\n"
-            "      </div>\n"
-            "      <div class=\"menu-tabs\" id=\"menuTabs\">\n"
-            "        <button class=\"tab-btn active\" data-category=\"espresso\">Espresso & Milk</button>\n"
-            "        <button class=\"tab-btn\" data-category=\"pour_over\">Pour Over & Single Origin</button>\n"
-            "        <button class=\"tab-btn\" data-category=\"cold_brew\">Cold Brews & Tonics</button>\n"
-            "        <button class=\"tab-btn\" data-category=\"bakery\">Artisan Bakery</button>\n"
-            "      </div>\n"
-            "      <div class=\"menu-grid\" id=\"menuGrid\"></div>\n"
-            "    </div>\n"
-            "  </section>\n"
-            "\n"
-            "  <!-- Slide-out Cart Drawer -->\n"
-            "  <div class=\"cart-drawer-overlay\" id=\"cartOverlay\"></div>\n"
-            "  <aside class=\"cart-drawer\" id=\"cartDrawer\">\n"
-            "    <div class=\"cart-drawer-header\">\n"
-            "      <h3>Your Order</h3>\n"
-            "      <button class=\"close-cart-btn\" id=\"closeCartBtn\">✕</button>\n"
-            "    </div>\n"
-            "    <div class=\"cart-items-list\" id=\"cartItemsList\">\n"
-            "      <div class=\"cart-empty-msg\">Your bag is currently empty.</div>\n"
-            "    </div>\n"
-            "    <div class=\"cart-drawer-footer\">\n"
-            "      <div class=\"cart-subtotal-row\">\n"
-            "        <span>Subtotal</span>\n"
-            "        <span id=\"cartSubtotal\">$0.00</span>\n"
-            "      </div>\n"
-            "      <button class=\"btn btn-checkout\" id=\"checkoutBtn\">Proceed to Pickup</button>\n"
-            "    </div>\n"
-            "  </aside>\n"
-            "\n"
-            "  <!-- Toast Notification -->\n"
-            "  <div class=\"toast\" id=\"toastNotification\"></div>\n"
-            "\n"
-            "  <script src=\"script.js\"></script>\n"
-            "</body>\n"
-            "</html>\n"
-            "```\n\n"
-            "### 2. CSS Styling\n"
-            "```css\n"
-            "/* styles.css */\n"
-            ":root {\n"
-            "  --bg-main: #100c09;\n"
-            "  --bg-card: #1b1510;\n"
-            "  --bg-surface: #261e18;\n"
-            "  --border-glass: rgba(212, 163, 115, 0.16);\n"
-            "  --accent-warm: #d4a373;\n"
-            "  --accent-glow: #e9c46a;\n"
-            "  --text-white: #faf7f2;\n"
-            "  --text-muted: #bda798;\n"
-            "  --font-serif: 'Playfair Display', serif;\n"
-            "  --font-sans: 'Plus Jakarta Sans', sans-serif;\n"
-            "  --radius-pill: 9999px;\n"
-            "  --radius-card: 20px;\n"
-            "  --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);\n"
-            "}\n"
-            "* { margin: 0; padding: 0; box-sizing: border-box; }\n"
-            "body {\n"
-            "  background-color: var(--bg-main);\n"
-            "  color: var(--text-white);\n"
-            "  font-family: var(--font-sans);\n"
-            "  line-height: 1.6;\n"
-            "  overflow-x: hidden;\n"
-            "}\n"
-            ".container { width: 90%; max-width: 1200px; margin: 0 auto; }\n"
-            ".text-center { text-align: center; }\n"
-            "\n"
-            "/* Navbar */\n"
-            ".navbar {\n"
-            "  position: fixed; top: 0; left: 0; right: 0; z-index: 100;\n"
-            "  background: rgba(16, 12, 9, 0.85); backdrop-filter: blur(16px);\n"
-            "  border-bottom: 1px solid var(--border-glass);\n"
-            "  padding: 18px 0;\n"
-            "}\n"
-            ".nav-container { width: 92%; max-width: 1240px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }\n"
-            ".brand-logo { text-decoration: none; display: flex; align-items: center; gap: 10px; color: var(--text-white); font-weight: 700; letter-spacing: 2px; font-size: 1.15rem; }\n"
-            ".brand-icon { font-size: 1.4rem; }\n"
-            ".brand-text em { font-family: var(--font-serif); font-style: italic; color: var(--accent-warm); font-weight: 400; }\n"
-            ".nav-menu { display: flex; gap: 32px; }\n"
-            ".nav-link { color: var(--text-muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: var(--transition); }\n"
-            ".nav-link:hover, .nav-link.active { color: var(--accent-warm); }\n"
-            ".cart-trigger-btn {\n"
-            "  background: var(--bg-surface); border: 1px solid var(--border-glass);\n"
-            "  color: var(--text-white); padding: 8px 18px; border-radius: var(--radius-pill);\n"
-            "  cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.9rem; transition: var(--transition);\n"
-            "}\n"
-            ".cart-trigger-btn:hover { background: var(--accent-warm); color: var(--bg-main); }\n"
-            ".cart-count { background: var(--accent-glow); color: var(--bg-main); border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }\n"
-            "\n"
-            "/* Hero Section */\n"
-            ".hero-section { padding: 160px 0 100px; min-height: 90vh; display: flex; align-items: center; position: relative; }\n"
-            ".hero-container { width: 92%; max-width: 1240px; margin: 0 auto; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 60px; align-items: center; }\n"
-            ".hero-badge { display: inline-block; background: rgba(212, 163, 115, 0.12); color: var(--accent-warm); border: 1px solid var(--border-glass); border-radius: var(--radius-pill); padding: 6px 16px; font-size: 0.82rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 24px; }\n"
-            ".hero-title { font-family: var(--font-serif); font-size: clamp(2.8rem, 5.5vw, 4.8rem); line-height: 1.1; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.5px; }\n"
-            ".italic-accent { font-style: italic; color: var(--accent-warm); font-weight: 400; }\n"
-            ".hero-desc { color: var(--text-muted); font-size: 1.15rem; max-width: 520px; margin-bottom: 36px; }\n"
-            ".hero-cta-group { display: flex; gap: 16px; margin-bottom: 48px; }\n"
-            ".btn { padding: 14px 30px; border-radius: var(--radius-pill); text-decoration: none; font-weight: 600; font-size: 0.95rem; cursor: pointer; transition: var(--transition); display: inline-flex; align-items: center; justify-content: center; border: none; }\n"
-            ".btn-primary { background: var(--accent-warm); color: var(--bg-main); }\n"
-            ".btn-primary:hover { background: #e0b487; transform: translateY(-2px); }\n"
-            ".btn-secondary { background: transparent; color: var(--text-white); border: 1px solid var(--border-glass); }\n"
-            ".btn-secondary:hover { background: rgba(255,255,255,0.05); color: var(--accent-warm); }\n"
-            ".hero-stats-row { display: flex; align-items: center; gap: 24px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 28px; }\n"
-            ".stat-item { display: flex; flex-direction: column; }\n"
-            ".stat-num { font-family: var(--font-serif); font-size: 1.6rem; font-weight: 700; color: var(--text-white); }\n"
-            ".stat-lbl { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }\n"
-            ".stat-divider { width: 1px; height: 36px; background: rgba(255,255,255,0.1); }\n"
-            "\n"
-            "/* Hero Visual */\n"
-            ".hero-visual { display: flex; justify-content: center; align-items: center; position: relative; }\n"
-            ".coffee-card-preview { width: 340px; height: 380px; background: radial-gradient(circle at 50% 30%, #2c2017, #130d09); border: 1px solid var(--border-glass); border-radius: var(--radius-card); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; box-shadow: 0 30px 60px rgba(0,0,0,0.5); }\n"
-            ".coffee-art-circle { width: 180px; height: 180px; border-radius: 50%; background: #4a3425; border: 10px solid #231912; display: flex; align-items: center; justify-content: center; position: relative; box-shadow: inset 0 6px 14px rgba(0,0,0,0.6); }\n"
-            ".latte-art-swirl { width: 90px; height: 90px; border-radius: 50%; background: radial-gradient(circle, #f3e5d8 30%, #a47148 70%); filter: blur(1px); animation: swirlPulse 6s ease-in-out infinite alternate; }\n"
-            "@keyframes swirlPulse { 0% { transform: scale(0.95) rotate(0deg); } 100% { transform: scale(1.05) rotate(15deg); } }\n"
-            ".floating-roast-pill { position: absolute; bottom: 24px; background: rgba(16, 12, 9, 0.85); backdrop-filter: blur(8px); border: 1px solid var(--border-glass); padding: 8px 16px; border-radius: var(--radius-pill); font-size: 0.8rem; display: flex; align-items: center; gap: 8px; color: var(--text-muted); }\n"
-            ".pill-dot { width: 8px; height: 8px; border-radius: 50%; background: #2a9d8f; }\n"
-            "\n"
-            "/* Menu Section */\n"
-            ".menu-section { padding: 90px 0; background: #0c0907; }\n"
-            ".section-kicker { color: var(--accent-warm); font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; display: block; }\n"
-            ".section-title { font-family: var(--font-serif); font-size: 2.6rem; margin-bottom: 40px; }\n"
-            ".menu-tabs { display: flex; justify-content: center; gap: 12px; margin-bottom: 48px; flex-wrap: wrap; }\n"
-            ".tab-btn { background: var(--bg-card); border: 1px solid var(--border-glass); color: var(--text-muted); padding: 10px 22px; border-radius: var(--radius-pill); font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: var(--transition); }\n"
-            ".tab-btn.active, .tab-btn:hover { background: var(--accent-warm); color: var(--bg-main); border-color: var(--accent-warm); }\n"
-            ".menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; }\n"
-            ".menu-item-card { background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; justify-content: space-between; transition: var(--transition); }\n"
-            ".menu-item-card:hover { transform: translateY(-4px); border-color: rgba(212, 163, 115, 0.35); box-shadow: 0 16px 32px rgba(0,0,0,0.3); }\n"
-            ".item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }\n"
-            ".item-name { font-family: var(--font-serif); font-size: 1.25rem; font-weight: 700; }\n"
-            ".item-price { color: var(--accent-warm); font-weight: 700; font-size: 1.15rem; }\n"
-            ".item-desc { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px; line-height: 1.5; }\n"
-            ".item-footer { display: flex; justify-content: space-between; align-items: center; }\n"
-            ".item-origin-tag { font-size: 0.78rem; color: var(--accent-glow); background: rgba(233, 196, 106, 0.1); padding: 4px 10px; border-radius: var(--radius-pill); }\n"
-            ".btn-add-item { background: var(--bg-surface); border: 1px solid var(--border-glass); color: var(--text-white); padding: 8px 16px; border-radius: var(--radius-pill); cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: var(--transition); }\n"
-            ".btn-add-item:hover { background: var(--accent-warm); color: var(--bg-main); }\n"
-            "\n"
-            "/* Cart Drawer */\n"
-            ".cart-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 1000; opacity: 0; pointer-events: none; transition: var(--transition); }\n"
-            ".cart-drawer-overlay.open { opacity: 1; pointer-events: auto; }\n"
-            ".cart-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; max-width: 90vw; background: var(--bg-card); border-left: 1px solid var(--border-glass); z-index: 1001; transform: translateX(100%); transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); display: flex; flex-direction: column; padding: 28px; }\n"
-            ".cart-drawer.open { transform: translateX(0); }\n"
-            ".cart-drawer-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 16px; margin-bottom: 20px; }\n"
-            ".cart-drawer-header h3 { font-family: var(--font-serif); font-size: 1.4rem; }\n"
-            ".close-cart-btn { background: transparent; border: none; color: var(--text-muted); font-size: 1.4rem; cursor: pointer; }\n"
-            ".cart-items-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }\n"
-            ".cart-item-row { display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface); padding: 12px 16px; border-radius: 12px; font-size: 0.9rem; }\n"
-            ".cart-item-row .del-btn { background: transparent; border: none; color: #e76f51; cursor: pointer; margin-left: 8px; }\n"
-            ".cart-empty-msg { color: var(--text-muted); text-align: center; margin-top: 60px; font-size: 0.95rem; }\n"
-            ".cart-drawer-footer { border-top: 1px solid var(--border-glass); padding-top: 20px; margin-top: 20px; }\n"
-            ".cart-subtotal-row { display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 700; margin-bottom: 16px; }\n"
-            ".btn-checkout { width: 100%; background: var(--accent-warm); color: var(--bg-main); }\n"
-            ".btn-checkout:hover { background: #e0b487; }\n"
-            "\n"
-            "/* Toast */\n"
-            ".toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--accent-warm); color: var(--bg-main); padding: 12px 24px; border-radius: var(--radius-pill); font-weight: 600; font-size: 0.9rem; box-shadow: 0 10px 30px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: var(--transition); z-index: 2000; }\n"
-            ".toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }\n"
-            "\n"
-            "/* Mobile */\n"
-            "@media (max-width: 768px) {\n"
-            "  .hero-container { grid-template-columns: 1fr; gap: 40px; text-align: center; }\n"
-            "  .hero-desc { margin: 0 auto 36px; }\n"
-            "  .hero-cta-group { justify-content: center; }\n"
-            "  .hero-stats-row { justify-content: center; }\n"
-            "  .nav-menu { display: none; }\n"
-            "}\n"
-            "```\n\n"
-            "### 3. JavaScript Logic\n"
-            "```javascript\n"
-            "// script.js\n"
-            "const MENU_ITEMS = [\n"
-            "  { id: 1, name: 'Velvet Flat White', category: 'espresso', price: 5.25, desc: 'Double ristretto with micro-textured whole or oat milk.', origin: 'Ethiopia Yirgacheffe' },\n"
-            "  { id: 2, name: 'Cinnamon Spiced Cortado', category: 'espresso', price: 4.85, desc: 'Equal parts espresso and warm milk dusted with Ceylon cinnamon.', origin: 'Guatemala Antigua' },\n"
-            "  { id: 3, name: 'Honey Geisha Pour Over', category: 'pour_over', price: 7.50, desc: 'Jasmine floral aroma with notes of bergamot and honey peach.', origin: 'Panama Boquete' },\n"
-            "  { id: 4, name: 'Kenya Nyeri AA Pour Over', category: 'pour_over', price: 6.75, desc: 'Bright blackcurrant acidity with rich sugarcane sweetness.', origin: 'Kenya Nyeri' },\n"
-            "  { id: 5, name: 'Nitrogen Cascade Cold Brew', category: 'cold_brew', price: 5.75, desc: '48-hour slow steep charged with food-grade nitrogen for a creamy head.', origin: 'Colombia Huila' },\n"
-            "  { id: 6, name: 'Cardamom Espresso Tonic', category: 'cold_brew', price: 6.25, desc: 'Artisanal tonic water over ice topped with double espresso and crushed cardamom.', origin: 'House Blend' },\n"
-            "  { id: 7, name: 'Brown Butter Almond Croissant', category: 'bakery', price: 4.50, desc: 'Flaky 72-layer laminated dough filled with frangipane almond cream.', origin: 'Baked Daily' },\n"
-            "  { id: 8, name: 'Pistachio Orange Blossom Scone', category: 'bakery', price: 4.25, desc: 'Golden crust infused with Sicilian pistachio and organic orange blossom.', origin: 'House Specialty' }\n"
-            "];\n"
-            "\n"
-            "let cart = [];\n"
-            "\n"
-            "function renderMenu(category = 'espresso') {\n"
-            "  const grid = document.getElementById('menuGrid');\n"
-            "  if (!grid) return;\n"
-            "  const filtered = MENU_ITEMS.filter(item => item.category === category);\n"
-            "  grid.innerHTML = filtered.map(item => `\n"
-            "    <div class=\"menu-item-card\">\n"
-            "      <div class=\"item-header\">\n"
-            "        <h4 class=\"item-name\">${item.name}</h4>\n"
-            "        <span class=\"item-price\">$${item.price.toFixed(2)}</span>\n"
-            "      </div>\n"
-            "      <p class=\"item-desc\">${item.desc}</p>\n"
-            "      <div class=\"item-footer\">\n"
-            "        <span class=\"item-origin-tag\">${item.origin}</span>\n"
-            "        <button class=\"btn-add-item\" onclick=\"addToCart(${item.id})\">+ Add to Bag</button>\n"
-            "      </div>\n"
-            "    </div>\n"
-            "  `).join('');\n"
-            "}\n"
-            "\n"
-            "function addToCart(itemId) {\n"
-            "  const item = MENU_ITEMS.find(i => i.id === itemId);\n"
-            "  if (!item) return;\n"
-            "  const existing = cart.find(i => i.id === itemId);\n"
-            "  if (existing) {\n"
-            "    existing.qty += 1;\n"
-            "  } else {\n"
-            "    cart.push({ ...item, qty: 1 });\n"
-            "  }\n"
-            "  updateCartUI();\n"
-            "  showToast(`Added ${item.name} to your bag!`);\n"
-            "}\n"
-            "\n"
-            "function removeFromCart(itemId) {\n"
-            "  cart = cart.filter(i => i.id !== itemId);\n"
-            "  updateCartUI();\n"
-            "}\n"
-            "\n"
-            "function updateCartUI() {\n"
-            "  const countEl = document.getElementById('cartCount');\n"
-            "  const listEl = document.getElementById('cartItemsList');\n"
-            "  const subtotalEl = document.getElementById('cartSubtotal');\n"
-            "  const totalQty = cart.reduce((acc, i) => acc + i.qty, 0);\n"
-            "  const subtotal = cart.reduce((acc, i) => acc + i.price * i.qty, 0);\n"
-            "\n"
-            "  if (countEl) countEl.textContent = totalQty;\n"
-            "  if (subtotalEl) subtotalEl.textContent = `$${subtotal.toFixed(2)}`;\n"
-            "\n"
-            "  if (listEl) {\n"
-            "    if (cart.length === 0) {\n"
-            "      listEl.innerHTML = '<div class=\"cart-empty-msg\">Your bag is currently empty.</div>';\n"
-            "    } else {\n"
-            "      listEl.innerHTML = cart.map(item => `\n"
-            "        <div class=\"cart-item-row\">\n"
-            "          <div>\n"
-            "            <strong>${item.name}</strong> × ${item.qty}\n"
-            "          </div>\n"
-            "          <div>\n"
-            "            <span>$${(item.price * item.qty).toFixed(2)}</span>\n"
-            "            <button class=\"del-btn\" onclick=\"removeFromCart(${item.id})\">✕</button>\n"
-            "          </div>\n"
-            "        </div>\n"
-            "      `).join('');\n"
-            "    }\n"
-            "  }\n"
-            "}\n"
-            "\n"
-            "function showToast(msg) {\n"
-            "  const toast = document.getElementById('toastNotification');\n"
-            "  if (!toast) return;\n"
-            "  toast.textContent = msg;\n"
-            "  toast.classList.add('show');\n"
-            "  setTimeout(() => toast.classList.remove('show'), 2400);\n"
-            "}\n"
-            "\n"
-            "document.addEventListener('DOMContentLoaded', () => {\n"
-            "  renderMenu('espresso');\n"
-            "  const tabs = document.querySelectorAll('.tab-btn');\n"
-            "  tabs.forEach(tab => {\n"
-            "    tab.addEventListener('click', () => {\n"
-            "      tabs.forEach(t => t.classList.remove('active'));\n"
-            "      tab.classList.add('active');\n"
-            "      renderMenu(tab.dataset.category);\n"
-            "    });\n"
-            "  });\n"
-            "\n"
-            "  const cartBtn = document.getElementById('cartBtn');\n"
-            "  const closeCartBtn = document.getElementById('closeCartBtn');\n"
-            "  const drawer = document.getElementById('cartDrawer');\n"
-            "  const overlay = document.getElementById('cartOverlay');\n"
-            "\n"
-            "  const toggleCart = (open) => {\n"
-            "    if (drawer) drawer.classList.toggle('open', open);\n"
-            "    if (overlay) overlay.classList.toggle('open', open);\n"
-            "  };\n"
-            "\n"
-            "  if (cartBtn) cartBtn.addEventListener('click', () => toggleCart(true));\n"
-            "  if (closeCartBtn) closeCartBtn.addEventListener('click', () => toggleCart(false));\n"
-            "  if (overlay) overlay.addEventListener('click', () => toggleCart(false));\n"
-            "});\n"
-            "```\n\n"
-            "*(Click the **Live Demo** button above to preview the interactive cafe website right in your browser, or click **Download** to save the files!)*"
-        )
-
-    def _build_portfolio_website_code(self) -> str:
-        return (
-            "Here is a complete, modern **Creative Developer & Designer Portfolio** website with an interactive hero, project showcase, skills matrix, and contact form:\n\n"
-            "### 1. HTML Structure\n"
-            "```html\n"
-            "<!-- index.html -->\n"
-            "<!DOCTYPE html>\n"
-            "<html lang=\"en\">\n"
-            "<head>\n"
-            "  <meta charset=\"UTF-8\" />\n"
-            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
-            "  <title>Alex Morgan · Creative Developer & Systems Architect</title>\n"
-            "  <link rel=\"stylesheet\" href=\"styles.css\" />\n"
-            "</head>\n"
-            "<body>\n"
-            "  <header class=\"nav-bar\">\n"
-            "    <div class=\"logo\">AM<span>.DEV</span></div>\n"
-            "    <nav><a href=\"#work\">Work</a><a href=\"#skills\">Skills</a><a href=\"#contact\">Contact</a></nav>\n"
-            "  </header>\n"
-            "  <section class=\"hero\">\n"
-            "    <div class=\"badge\">✦ Available for Select Projects</div>\n"
-            "    <h1>Engineering Elegance at the Speed of Light.</h1>\n"
-            "    <p>Senior Full-Stack & 3D Web Architect specializing in high-performance applications.</p>\n"
-            "    <div class=\"cta-btns\"><a href=\"#work\" class=\"btn primary\">View Projects</a><a href=\"#contact\" class=\"btn\">Get in Touch</a></div>\n"
-            "  </section>\n"
-            "  <section id=\"work\" class=\"section\">\n"
-            "    <h2>Selected Projects</h2>\n"
-            "    <div class=\"projects-grid\">\n"
-            "      <div class=\"card\"><h3>NeuralCanvas 3D</h3><p>Real-time WebGL generative art platform.</p></div>\n"
-            "      <div class=\"card\"><h3>Aether Cloud</h3><p>Distributed vector database indexing engine.</p></div>\n"
-            "    </div>\n"
-            "  </section>\n"
-            "  <script src=\"script.js\"></script>\n"
-            "</body>\n"
-            "</html>\n"
-            "```\n\n"
-            "### 2. CSS Styling\n"
-            "```css\n"
-            "/* styles.css */\n"
-            "* { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }\n"
-            "body { background: #0b0f19; color: #f3f4f6; line-height: 1.6; padding: 0 24px; }\n"
-            ".nav-bar { display: flex; justify-content: space-between; padding: 24px 0; max-width: 1100px; margin: 0 auto; }\n"
-            ".logo { font-weight: 800; font-size: 1.2rem; color: #fff; }\n"
-            ".logo span { color: #38bdf8; }\n"
-            "nav a { color: #9ca3af; text-decoration: none; margin-left: 24px; transition: color 0.2s; }\n"
-            "nav a:hover { color: #38bdf8; }\n"
-            ".hero { max-width: 900px; margin: 100px auto 60px; text-align: center; }\n"
-            ".badge { display: inline-block; background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.2); padding: 6px 16px; border-radius: 99px; font-size: 0.85rem; margin-bottom: 20px; }\n"
-            "h1 { font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 800; line-height: 1.1; margin-bottom: 20px; }\n"
-            "p { font-size: 1.2rem; color: #9ca3af; margin-bottom: 32px; }\n"
-            ".cta-btns { display: flex; gap: 16px; justify-content: center; }\n"
-            ".btn { padding: 12px 28px; border-radius: 99px; text-decoration: none; font-weight: 600; color: #fff; border: 1px solid rgba(255,255,255,0.2); transition: all 0.2s; }\n"
-            ".btn.primary { background: #38bdf8; color: #0b0f19; border: none; }\n"
-            ".btn.primary:hover { background: #7dd3fc; transform: translateY(-2px); }\n"
-            ".section { max-width: 1100px; margin: 80px auto; }\n"
-            ".projects-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-top: 32px; }\n"
-            ".card { background: #131b2e; border: 1px solid rgba(255,255,255,0.08); padding: 28px; border-radius: 16px; transition: transform 0.2s; }\n"
-            ".card:hover { transform: translateY(-4px); border-color: rgba(56,189,248,0.4); }\n"
-            "```\n\n"
-            "### 3. JavaScript Logic\n"
-            "```javascript\n"
-            "// script.js\n"
-            "document.addEventListener('DOMContentLoaded', () => {\n"
-            "  console.log('Portfolio initialized.');\n"
-            "});\n"
-            "```"
-        )
-
-    def _build_general_website_code(self, query: str) -> str:
-        clean_title = re.sub(r"[^\w\s]", "", query).title()[:30].strip() or "Modern Web Application"
-        return (
-            f"Here is a complete, production-grade **{clean_title}** website built with modern HTML5, responsive CSS3, and interactive JavaScript:\n\n"
-            "### 1. HTML Structure\n"
-            "```html\n"
-            "<!-- index.html -->\n"
-            "<!DOCTYPE html>\n"
-            "<html lang=\"en\">\n"
-            "<head>\n"
-            "  <meta charset=\"UTF-8\" />\n"
-            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n"
-            f"  <title>{clean_title}</title>\n"
-            "  <link rel=\"stylesheet\" href=\"styles.css\" />\n"
-            "</head>\n"
-            "<body>\n"
-            "  <header class=\"header\">\n"
-            "    <div class=\"container nav-container\">\n"
-            f"      <div class=\"brand-title\">{clean_title}</div>\n"
-            "      <nav class=\"nav-links\">\n"
-            "        <a href=\"#features\">Features</a>\n"
-            "        <a href=\"#about\">About</a>\n"
-            "        <a href=\"#contact\">Contact</a>\n"
-            "      </nav>\n"
-            "    </div>\n"
-            "  </header>\n"
-            "  <main>\n"
-            "    <section class=\"hero-section\">\n"
-            "      <div class=\"container hero-inner\">\n"
-            f"        <h1>Welcome to {clean_title}</h1>\n"
-            "        <p>A next-generation digital experience crafted with precision, performance, and modern responsive design.</p>\n"
-            "        <div class=\"button-group\">\n"
-            "          <button class=\"btn-primary\" id=\"actionBtn\">Get Started</button>\n"
-            "          <button class=\"btn-outline\">Learn More</button>\n"
-            "        </div>\n"
-            "      </div>\n"
-            "    </section>\n"
-            "    <section id=\"features\" class=\"features-section\">\n"
-            "      <div class=\"container grid-3\">\n"
-            "        <div class=\"feature-card\"><h3>⚡ Ultra Fast</h3><p>Optimized for instantaneous load times and smooth 60fps animations.</p></div>\n"
-            "        <div class=\"feature-card\"><h3>📱 100% Responsive</h3><p>Adapts flawlessly across mobile, tablet, laptop, and 4K displays.</p></div>\n"
-            "        <div class=\"feature-card\"><h3>🔒 Modern & Secure</h3><p>Engineered according to modern web accessibility and security standards.</p></div>\n"
-            "      </div>\n"
-            "    </section>\n"
-            "  </main>\n"
-            "  <footer class=\"footer\">\n"
-            f"    <div class=\"container\"><p>&copy; 2026 {clean_title}. All rights reserved.</p></div>\n"
-            "  </footer>\n"
-            "  <script src=\"script.js\"></script>\n"
-            "</body>\n"
-            "</html>\n"
-            "```\n\n"
-            "### 2. CSS Styling\n"
-            "```css\n"
-            "/* styles.css */\n"
-            ":root {\n"
-            "  --primary: #6366f1;\n"
-            "  --primary-hover: #4f46e5;\n"
-            "  --bg: #090d16;\n"
-            "  --card-bg: #111827;\n"
-            "  --text: #f9fafb;\n"
-            "  --muted: #9ca3af;\n"
-            "  --border: rgba(255, 255, 255, 0.08);\n"
-            "}\n"
-            "* { margin: 0; padding: 0; box-sizing: border-box; }\n"
-            "body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; }\n"
-            ".container { width: 90%; max-width: 1200px; margin: 0 auto; }\n"
-            ".header { padding: 20px 0; border-bottom: 1px solid var(--border); background: rgba(9, 13, 22, 0.8); backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 100; }\n"
-            ".nav-container { display: flex; justify-content: space-between; align-items: center; }\n"
-            ".brand-title { font-size: 1.25rem; font-weight: 700; color: var(--primary); }\n"
-            ".nav-links a { color: var(--muted); text-decoration: none; margin-left: 24px; transition: color 0.2s; }\n"
-            ".nav-links a:hover { color: var(--text); }\n"
-            ".hero-section { padding: 120px 0 80px; text-align: center; }\n"
-            ".hero-inner h1 { font-size: clamp(2.5rem, 5vw, 4rem); margin-bottom: 20px; font-weight: 800; letter-spacing: -0.5px; }\n"
-            ".hero-inner p { font-size: 1.2rem; color: var(--muted); max-width: 600px; margin: 0 auto 36px; }\n"
-            ".button-group { display: flex; gap: 16px; justify-content: center; }\n"
-            "button { padding: 12px 28px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 1rem; }\n"
-            ".btn-primary { background: var(--primary); color: #fff; border: none; }\n"
-            ".btn-primary:hover { background: var(--primary-hover); transform: translateY(-2px); }\n"
-            ".btn-outline { background: transparent; color: var(--text); border: 1px solid var(--border); }\n"
-            ".btn-outline:hover { background: rgba(255,255,255,0.05); }\n"
-            ".features-section { padding: 80px 0; }\n"
-            ".grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }\n"
-            ".feature-card { background: var(--card-bg); border: 1px solid var(--border); padding: 32px; border-radius: 12px; transition: border-color 0.2s; }\n"
-            ".feature-card:hover { border-color: var(--primary); }\n"
-            ".feature-card h3 { margin-bottom: 12px; font-size: 1.2rem; }\n"
-            ".feature-card p { color: var(--muted); font-size: 0.95rem; }\n"
-            ".footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; color: var(--muted); font-size: 0.9rem; }\n"
-            "```\n\n"
-            "### 3. JavaScript Logic\n"
-            "```javascript\n"
-            "// script.js\n"
-            "document.addEventListener('DOMContentLoaded', () => {\n"
-            "  const actionBtn = document.getElementById('actionBtn');\n"
-            "  if (actionBtn) {\n"
-            "    actionBtn.addEventListener('click', () => {\n"
-            "      alert('Welcome! Your journey starts now.');\n"
-            "    });\n"
-            "  }\n"
-            "});\n"
-            "```"
-        )
-
     def _build_general_algorithm_code(self, query: str) -> str:
         return (
             "Here is the clean, efficient, production-ready Python code solution for your inquiry:\n\n"
@@ -3869,6 +2774,28 @@ print("Procedural 3D model exported successfully to model.glb")"""
         ).strip()
 
         cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+        # 4. Currency & Rate separation: if multiple conversions are joined on the same line
+        def _split_bold_currencies(m):
+            content = m.group(1)
+            sub_eqs = re.split(r'[ \t,;]+(?=\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=)', content)
+            if len(sub_eqs) > 1:
+                return '\n'.join(f'**{part.strip()}**' for part in sub_eqs if part.strip())
+            return m.group(0)
+
+        cleaned = re.sub(
+            r'\*\*([^*]+?\b[A-Za-z]{3,4}\s*=[^*]*?\b[A-Za-z]{3,4}\s*=[^*]*)\*\*',
+            _split_bold_currencies,
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(
+            r'(\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=[^=\n]+?\b[A-Za-z]{3,4}\b(?:\s*\([^)\n]*\))?)[ \t,;]+(?=\b\d+(?:\.\d+)?\s*[A-Za-z]{3,4}\s*=)',
+            r'\1\n',
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
         return cleaned.strip() or text.strip()
 
     async def _web_search(self, query: str) -> list[dict]:

@@ -77,13 +77,31 @@ QUERY_LATENCY = Histogram(
 )
 
 
+import asyncio
+
 # Ensure tables are initialized
 initialize_database()
+
+
+async def _render_keep_alive_loop() -> None:
+    """Periodically pings the public health endpoint to prevent Render free-tier spin-down."""
+    target_base = (os.getenv("RENDER_EXTERNAL_URL") or "https://astrxai.com").rstrip("/")
+    health_url = f"{target_base}/health"
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        while True:
+            await asyncio.sleep(480)  # Every 8 minutes (well inside Render's 15-minute idle window)
+            try:
+                await client.get(health_url, headers={"User-Agent": "Astra-KeepAlive/1.0"})
+            except Exception:
+                pass
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
+    keep_alive_task = None
+    if settings.app_env.lower() in ("production", "prod") or os.getenv("RENDER"):
+        keep_alive_task = asyncio.create_task(_render_keep_alive_loop())
     logger.info(
         "service_started environment=%s provider=%s model=%s grok_configured=%s",
         settings.app_env,
@@ -92,6 +110,8 @@ async def lifespan(_: FastAPI):
         settings.grok_configured,
     )
     yield
+    if keep_alive_task:
+        keep_alive_task.cancel()
     await rag.close()
 
 
@@ -154,7 +174,7 @@ async def rate_limit_middleware(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
     path = request.url.path
 
-    if path.startswith("/static/") or path in ("/", "/favicon.ico", "/terms", "/privacy", "/robots.txt"):
+    if path.startswith("/static/") or path in ("/", "/favicon.ico", "/terms", "/privacy", "/robots.txt", "/health", "/healthcheck", "/api/health"):
         return await call_next(request)
 
     if path.startswith("/api/auth/"):

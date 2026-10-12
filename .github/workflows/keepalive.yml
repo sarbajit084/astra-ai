@@ -1,0 +1,18 @@
+name: Keep Render Service Awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping astrxai.com health endpoint
+        run: |
+          curl -fsSL --retry 3 --retry-delay 5 https://astrxai.com/health || true

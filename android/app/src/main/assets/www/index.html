@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
-    <link rel="stylesheet" href="static/style.css?v=3064">
+    <link rel="stylesheet" href="static/style.css?v=3065">
 
   </head>
   <body>
@@ -188,7 +188,6 @@
             <span id="statusText" style="display:none;">Ready</span>
           </div>
           <div id="tokenBadge" class="token-quota-badge" title="Daily tokens remaining">
-            <span class="token-badge-icon">⚡</span>
             <span id="tokenBadgeText">Tokens: Loading...</span>
           </div>
         </div>
@@ -208,7 +207,7 @@
           <!-- Out of Tokens Main Page Alert Card -->
           <div id="outOfTokensBanner" class="out-of-tokens-card hidden" role="alert">
             <div class="out-of-tokens-content">
-              <div class="out-of-tokens-badge-icon">⚡</div>
+              <div class="out-of-tokens-badge-icon">!</div>
               <div class="out-of-tokens-details">
                 <strong id="outOfTokensTitle" class="out-of-tokens-title">Out of Tokens</strong>
                 <p id="outOfTokensMsg" class="out-of-tokens-msg">You have used all your tokens for today.</p>
@@ -477,7 +476,9 @@
           <label>Password
             <div class="password-input-wrapper">
               <input id="loginPassword" type="password" required autocomplete="new-password" placeholder="Enter your password">
-              <button type="button" class="pwd-toggle-btn" id="toggleLoginPasswordBtn" title="Show/Hide Password" aria-label="Toggle password visibility">👁️</button>
+              <button type="button" class="pwd-toggle-btn" id="toggleLoginPasswordBtn" title="Show/Hide Password" aria-label="Toggle password visibility">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              </button>
             </div>
           </label>
           <div class="auth-extra-row">
@@ -486,8 +487,10 @@
           
           <div class="math-challenge-box">
             <div class="math-challenge-header">
-              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
-              <button type="button" id="loginRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
+              <span class="math-title">CALCULATION VERIFICATION</span>
+              <button type="button" id="loginRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+              </button>
             </div>
             <div id="loginMathQuestion" class="math-question-text">
               Loading math problem…
@@ -518,8 +521,10 @@
 
           <div class="math-challenge-box">
             <div class="math-challenge-header">
-              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
-              <button type="button" id="signupRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
+              <span class="math-title">CALCULATION VERIFICATION</span>
+              <button type="button" id="signupRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+              </button>
             </div>
             <div id="signupMathQuestion" class="math-question-text">
               Loading math problem…
@@ -569,8 +574,10 @@
 
           <div class="math-challenge-box">
             <div class="math-challenge-header">
-              <span class="math-title">🧮 CALCULATION VERIFICATION</span>
-              <button type="button" id="forgotRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">🔄</button>
+              <span class="math-title">CALCULATION VERIFICATION</span>
+              <button type="button" id="forgotRefreshChallengeBtn" class="refresh-math-btn" title="Get new calculation">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+              </button>
             </div>
             <div id="forgotMathQuestion" class="math-question-text">Loading math problem…</div>
             <label style="margin-top: 8px; margin-bottom: 0;">Your Answer
@@ -616,7 +623,6 @@
           <!-- 1. Glass Frosting Setting -->
           <div class="settings-group">
             <div class="settings-group-header">
-              <span class="settings-group-icon">❄️</span>
               <div class="settings-group-text">
                 <strong class="settings-group-title">Glass Frosting (Blur)</strong>
                 <p class="settings-group-desc">Adjust the frosted blur intensity of the optical glass surfaces.</p>
@@ -635,7 +641,6 @@
           <!-- 2. Custom Background Wallpaper Upload -->
           <div class="settings-group">
             <div class="settings-group-header">
-              <span class="settings-group-icon">🖼️</span>
               <div class="settings-group-text">
                 <strong class="settings-group-title">Custom Wallpaper Background</strong>
                 <p class="settings-group-desc">Upload your own background image from your device.</p>
@@ -644,10 +649,10 @@
             <div class="custom-bg-controls">
               <input type="file" id="customBgFileInput" accept="image/*" style="display: none;">
               <button type="button" id="uploadBgBtn" class="settings-btn primary-glass-btn">
-                <span>📁</span> Upload Image from Device
+                Upload Image from Device
               </button>
               <button type="button" id="resetBgBtn" class="settings-btn secondary-glass-btn">
-                <span>🔄</span> Reset to Default
+                Reset to Default
               </button>
             </div>
             <div id="customBgStatus" class="custom-bg-status-msg">Default fluid wallpaper active</div>
@@ -659,7 +664,6 @@
     <!-- Custom Confirmation Modal for Document Deletion -->
     <div id="deleteConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Confirm Deletion">
       <div class="glass-modal-card" style="max-width: 380px; text-align: center;">
-        <div style="font-size: 2rem; margin-bottom: 10px;">🗑️</div>
         <h3 style="font-family: 'Open Sans', sans-serif; font-size: 1.25rem; font-weight: 400; margin-bottom: 8px; color: #1e293b;">Remove Document?</h3>
         <p id="deleteDocNameText" class="delete-confirm-text"></p>
         <div style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
@@ -690,7 +694,7 @@
             <div id="cameraErrorBanner" class="camera-error-banner hidden">
               <p id="cameraErrorText">Camera access denied or unavailable.</p>
               <button type="button" id="cameraFallbackUploadBtn" class="camera-action-btn secondary" style="margin-top: 12px;">
-                📁 Choose Image from Device
+                Choose Image from Device
               </button>
             </div>
           </div>
@@ -715,10 +719,10 @@
 
             <div id="cameraReviewControls" class="camera-review-actions hidden">
               <button type="button" id="cameraRetakeBtn" class="camera-action-btn secondary" title="Retake Photo">
-                🔄 Retake
+                Retake
               </button>
               <button type="button" id="cameraUsePhotoBtn" class="camera-action-btn primary" title="Use This Photo">
-                ✓ Use Photo
+                Use Photo
               </button>
             </div>
 
@@ -743,6 +747,6 @@
     <div id="toast" class="toast hidden"></div>
 
     <script src="config.js"></script>
-    <script src="static/app.js?v=3064"></script>
+    <script src="static/app.js?v=3065"></script>
   </body>
 </html>

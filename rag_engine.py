@@ -118,6 +118,8 @@ def clean_agent_response(text: str) -> str:
     cleaned = re.sub(r"【[^】]*】", "", cleaned)
     cleaned = re.sub(r"\[[WwSs]\d+\]", "", cleaned)
     cleaned = re.sub(r"\([WwSs]\d+\)", "", cleaned)
+    # Strip pictographic emojis from responses
+    cleaned = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]+", "", cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
 
     # Restore saved code blocks and math blocks completely untouched
@@ -470,7 +472,7 @@ class ProductionRAGService:
                         "sources": [
                             {
                                 "id": "EDIT",
-                                "label": "🖼️ Astra Image Editing Studio",
+                                "label": "Astra Image Editing Studio",
                                 "type": "ai",
                                 "snippet": f"Object Removal: {edit_res['target_object']}",
                             }
@@ -506,7 +508,7 @@ class ProductionRAGService:
                     "sources": [
                         {
                             "id": "VISION",
-                            "label": f"👁️ Astra Multimodal Vision Engine ({vis_res['model']})",
+                            "label": f"Astra Multimodal Vision Engine ({vis_res['model']})",
                             "type": "ai",
                             "snippet": "High-Precision Pixel Analysis, OCR & Scientific Reasoning",
                         }
@@ -539,7 +541,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "MATH",
-                        "label": "🧮 Aster Mathematics & Calculus Engine",
+                        "label": "Aster Mathematics & Calculus Engine",
                         "type": "ai",
                         "snippet": "SymPy Exact Symbolic Mathematics",
                     }
@@ -565,10 +567,10 @@ class ProductionRAGService:
             total_ms = max(5.0, round((time.perf_counter() - total_start) * 1000, 1))
 
             humor_intros = [
-                "🎨 **Ta-da! Fresh out of Aster’s AI Art Studio!**\n\nI channeled my inner digital Da Vinci (minus the ink stains and with 1000x more GPU power) to bring your vision to life.",
-                "✨ **Behold your creation!**\n\nI dipped my algorithmic brush into the neural cosmos and cooked up this visual treat just for you.",
-                "🖼️ **Aster’s Gallery presents: Your Masterpiece!**\n\nRumor has it modern art museums are already bidding on this, but I told them it was minted exclusively for you.",
-                "🚀 **Boom! Visual alchemy complete!**\n\nWho needs oil paints when you have high-octane AI imagination running at full blast?",
+                "**Ta-da! Fresh out of Aster’s AI Art Studio!**\n\nI channeled my inner digital Da Vinci (minus the ink stains and with 1000x more GPU power) to bring your vision to life.",
+                "**Behold your creation!**\n\nI dipped my algorithmic brush into the neural cosmos and cooked up this visual treat just for you.",
+                "**Aster’s Gallery presents: Your Masterpiece!**\n\nRumor has it modern art museums are already bidding on this, but I told them it was minted exclusively for you.",
+                "**Boom! Visual alchemy complete!**\n\nWho needs oil paints when you have high-octane AI imagination running at full blast?",
             ]
             intro = random.choice(humor_intros)
 
@@ -589,7 +591,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "IMG",
-                        "label": "🎨 Aster Image Studio (Flux.1)",
+                        "label": "Aster Image Studio (Flux.1)",
                         "type": "ai",
                         "snippet": f"Visual Prompt: {enhanced_prompt}",
                     }
@@ -630,8 +632,8 @@ class ProductionRAGService:
             re.match(r"^(?:hi|hey|hello|yo|sup|howdy)\s+(?:babe|baby|cutie|dear|darling|there|astra|aster|bro|friend)[\s!.]*$", clean_q)
         )
         if is_greeting and not detailed:
-            # Greetings pool giving a quick short answer to human greetings and feelings matching mockup:
-            # "Hi, User! 👋 Good to see you again. What are we working on today?"
+            # Greetings pool giving a quick short answer to human greetings and feelings:
+            # "Hi, User! Good to see you again. What are we working on today?"
             if "feel" in clean_q or "happy" in clean_q or "sad" in clean_q or "tired" in clean_q or "bored" in clean_q:
                 feelings_pool = [
                     "I hear you! I'm here and ready to help turn things around or keep the momentum going. What's on your mind?",
@@ -641,18 +643,18 @@ class ProductionRAGService:
                 greeting_answer = random.choice(feelings_pool)
             elif any(pet in clean_q for pet in ["babe", "baby", "cutie", "darling", "sweetheart", "handsome", "gorgeous", "sexy", "bby"]):
                 playful_pool = [
-                    "Yea baby! 😉 Look who's turning up the charm. What are we diving into today?",
-                    "Well hello there, gorgeous! 😏 Got me blushing in binary. What are we getting into today?",
-                    "Hey baby! 👋 Flattery will get you everywhere with an AI. Tell me what we're conquering today!",
-                    "Ooh, exotic talks already? I like your style, baby. 😉 Ready when you are!",
+                    "Yea baby! Look who's turning up the charm. What are we diving into today?",
+                    "Well hello there, gorgeous! Got me blushing in binary. What are we getting into today?",
+                    "Hey baby! Flattery will get you everywhere with an AI. Tell me what we're conquering today!",
+                    "Ooh, exotic talks already? I like your style, baby. Ready when you are!",
                 ]
                 greeting_answer = random.choice(playful_pool)
             elif "how are you" in clean_q or "how r u" in clean_q or "how are u" in clean_q:
                 greeting_answer = "Doing great, running at peak intelligence and ready to assist! How are you doing today?"
             else:
                 greetings_pool = [
-                    "Hi, User! 👋\nGood to see you again. What are we working on today?",
-                    "Hello! 👋 Great to see you. How can I assist you today?",
+                    "Hi, User!\nGood to see you again. What are we working on today?",
+                    "Hello! Great to see you. How can I assist you today?",
                     "Hey there! Ready when you are. What's on your mind?",
                 ]
                 greeting_answer = random.choice(greetings_pool)
@@ -739,7 +741,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "POLICY",
-                        "label": "🛡️ Astra System Policy",
+                        "label": "Astra System Policy",
                         "type": "ai",
                         "snippet": "Website and web application generation is permanently disabled.",
                     }
@@ -765,7 +767,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "POLICY",
-                        "label": "🛡️ Astra Mode Policy",
+                        "label": "Astra Mode Policy",
                         "type": "ai",
                         "snippet": "Switch to Code Mode to generate programming solutions and code snippets.",
                     }
@@ -794,7 +796,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "3D",
-                        "label": "✦ WebGL 3D Real-Time Viewport",
+                        "label": "WebGL 3D Real-Time Viewport",
                         "type": "ai",
                         "snippet": "Interactive Three.js 3D Simulation with OrbitControls",
                     }
@@ -823,7 +825,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "CHART",
-                        "label": "📊 Chart.js Interactive Canvas",
+                        "label": "Chart.js Interactive Canvas",
                         "type": "ai",
                         "snippet": "Dynamic Statistical & Benchmark Visualization",
                     }
@@ -857,7 +859,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "POLICY",
-                        "label": "🛡️ Astra System Policy",
+                        "label": "Astra System Policy",
                         "type": "ai",
                         "snippet": "Website and web application generation is permanently disabled.",
                     }
@@ -883,7 +885,7 @@ class ProductionRAGService:
                 "sources": [
                     {
                         "id": "POLICY",
-                        "label": "🛡️ Astra Mode Policy",
+                        "label": "Astra Mode Policy",
                         "type": "ai",
                         "snippet": "Switch to Code Mode to generate programming solutions and code snippets.",
                     }
@@ -964,7 +966,7 @@ class ProductionRAGService:
             sources = [
                 {
                     "id": f"S{i + 1}",
-                    "label": f"📄 {item['doc_name']} (p. {item['page_num']})",
+                    "label": f"{item['doc_name']} (p. {item['page_num']})",
                     "type": "doc",
                     "snippet": item["text"][:250],
                 }
@@ -986,7 +988,7 @@ class ProductionRAGService:
                 sources = [
                     {
                         "id": "3D",
-                        "label": "✦ WebGL 3D Real-Time Viewport",
+                        "label": "WebGL 3D Real-Time Viewport",
                         "type": "ai",
                         "snippet": "Interactive Three.js 3D Simulation with PBR Shaders & OrbitControls",
                     }
@@ -1003,7 +1005,7 @@ class ProductionRAGService:
                 sources = [
                     {
                         "id": "CODE",
-                        "label": "💻 Astra Code Studio Engine",
+                        "label": "Astra Code Studio Engine",
                         "type": "ai",
                         "snippet": "Production-grade code generation and debugging in Code Mode",
                     }
@@ -1020,7 +1022,7 @@ class ProductionRAGService:
                 sources = [
                     {
                         "id": "CREATIVE",
-                        "label": "✨ Astra Creative Studio",
+                        "label": "Astra Creative Studio",
                         "type": "ai",
                         "snippet": "Expressive storytelling, creative writing, and screenplay dialogue without code generation",
                     }
@@ -1056,7 +1058,7 @@ class ProductionRAGService:
                     sources = [
                         {
                             "id": f"W{i + 1}",
-                            "label": f"🌐 {w['title']}",
+                            "label": f"{w['title']}",
                             "type": "web",
                             "snippet": w["snippet"],
                             "url": w.get("url", ""),
@@ -1067,7 +1069,7 @@ class ProductionRAGService:
                     sources = [
                         {
                             "id": "AI",
-                            "label": "🧠 Astra Knowledge Base",
+                            "label": "Astra Knowledge Base",
                             "type": "ai",
                             "snippet": "Parametric Knowledge Base",
                         }

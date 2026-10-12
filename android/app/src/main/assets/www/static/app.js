@@ -449,20 +449,19 @@
           <div class="chat-image-wrapper" onclick="window.open('${cleanSrc}', '_blank')">
             <img src="${cleanSrc}" alt="${cleanAlt}" class="chat-image-preview" loading="lazy" />
             <div class="chat-image-overlay">
-              <span class="chat-image-overlay-text">🔍 Click to expand full resolution</span>
+              <span class="chat-image-overlay-text">Click to expand full resolution</span>
             </div>
           </div>
           <div class="chat-image-footer">
             <div class="chat-image-badge">
-              <span>✨</span>
               <span>1024×1024 Flux.1</span>
             </div>
             <div class="chat-image-actions">
               <a href="${cleanSrc}" download="aster_artwork.jpg" target="_blank" class="chat-image-action-btn" onclick="event.stopPropagation()">
-                ⬇️ Download
+                Download
               </a>
               <a href="${cleanSrc}" target="_blank" class="chat-image-action-btn" onclick="event.stopPropagation()">
-                🔍 Open Full
+                Open Full
               </a>
             </div>
           </div>
@@ -543,11 +542,10 @@
     }).join('\n');
     mathHandled = mathHandled.replace(/【[^】]*】/g, '').replace(/\[[WwSs]\d+\]/g, '').replace(/\([WwSs]\d+\)/g, '');
 
-    // Format emojis with tight, clean, evenly shaped borders following their natural shape
+    // Remove any pictographic emojis from chat text
     mathHandled = mathHandled.replace(/(<[^>]+>)|(\p{Extended_Pictographic}(?:\u200D\p{Extended_Pictographic}|\uFE0F|\uFE0E|[\uD83C\uDFFB-\uD83C\uDFFF])*)/gu, (match, tag, emoji) => {
       if (tag) return tag;
-      if (!emoji) return match;
-      return `<span class="chat-emoji">${emoji}</span>`;
+      return '';
     });
 
     // 4. Structure into clean paragraphs, lists & line breaks
@@ -644,19 +642,19 @@
           <div class="interactive-3d-card" id="${w.id}" data-spec="${rawJson}">
             <div class="interactive-3d-header">
               <div class="interactive-3d-meta">
-                <span class="interactive-3d-badge">✦ 3D WebGL</span>
+                <span class="interactive-3d-badge">3D WebGL</span>
                 <span class="interactive-3d-title">${title}</span>
               </div>
               <div class="interactive-3d-controls">
-                <button type="button" class="ctrl-btn-3d btn-rotate" title="Toggle Auto-Rotation">🔄 Rotate</button>
-                <button type="button" class="ctrl-btn-3d btn-wireframe" title="Toggle Wireframe">🌐 Wireframe</button>
-                <button type="button" class="ctrl-btn-3d btn-reset" title="Reset View">↺ Reset</button>
-                <button type="button" class="ctrl-btn-3d btn-fullscreen" title="Toggle Fullscreen">⛶ Full</button>
+                <button type="button" class="ctrl-btn-3d btn-rotate" title="Toggle Auto-Rotation">Rotate</button>
+                <button type="button" class="ctrl-btn-3d btn-wireframe" title="Toggle Wireframe">Wireframe</button>
+                <button type="button" class="ctrl-btn-3d btn-reset" title="Reset View">Reset</button>
+                <button type="button" class="ctrl-btn-3d btn-fullscreen" title="Toggle Fullscreen">Full</button>
               </div>
             </div>
             <div class="interactive-3d-viewport">
               <canvas class="interactive-3d-canvas"></canvas>
-              <div class="interactive-3d-hint">🖱️ Left Drag: Orbit · Right Drag: Pan · Scroll: Zoom</div>
+              <div class="interactive-3d-hint">Left Drag: Orbit · Right Drag: Pan · Scroll: Zoom</div>
             </div>
             ${desc}
           </div>
@@ -675,10 +673,10 @@
           <div class="interactive-chart-card" id="${w.id}" data-spec="${rawJson}">
             <div class="interactive-chart-header">
               <div class="interactive-chart-meta">
-                <span class="interactive-chart-badge">📊 Chart</span>
+                <span class="interactive-chart-badge">Chart</span>
                 <span class="interactive-chart-title">${title}</span>
               </div>
-              <button type="button" class="chart-download-btn" title="Download Chart as PNG">⬇️ PNG</button>
+              <button type="button" class="chart-download-btn" title="Download Chart as PNG">PNG</button>
             </div>
             <div class="interactive-chart-body">
               <canvas class="interactive-chart-canvas"></canvas>
@@ -689,7 +687,7 @@
         widgetHtml = `
           <div class="interactive-mermaid-card" id="${w.id}">
             <div class="interactive-mermaid-header">
-              <span class="interactive-mermaid-badge">🔷 Architecture & Logic Diagram</span>
+              <span class="interactive-mermaid-badge">Architecture & Logic Diagram</span>
             </div>
             <div class="mermaid">${escapeHtml(w.code)}</div>
           </div>
@@ -947,7 +945,7 @@
         'pointer-events:none',
         'white-space:nowrap',
       ].join(';');
-      banner.textContent = '🕶️ Temporary mode activated';
+      banner.textContent = 'Temporary mode activated';
       // Attach inside #centerStage so it floats inside the chat area
       const stage = $('centerStage');
       if (stage) {
@@ -1000,7 +998,7 @@
       // 5. Show banner
       banner.style.display = 'block';
 
-      toast('🕶️ Temporary Chat active — messages will not be saved.');
+      toast('Temporary Chat active — messages will not be saved.');
     } else {
       // ── DEACTIVATING TEMPORARY CHAT (RESTORE PUBLIC CHAT) ──────────────────
       // 1. Remove all temporary messages from DOM
@@ -1256,7 +1254,7 @@
         const setCopied = () => {
           btn.classList.add('copied');
           label.textContent = 'Copied!';
-          toast('✓ Code copied to clipboard');
+          toast('Code copied to clipboard');
           setTimeout(() => {
             btn.classList.remove('copied');
             label.textContent = origText;
@@ -1866,7 +1864,7 @@
             const sunChip = document.createElement('button');
             sunChip.type = 'button';
             sunChip.className = 'solar-planet-chip active';
-            sunChip.innerHTML = '☀️ Sun';
+            sunChip.innerHTML = 'Sun';
             topBar.appendChild(sunChip);
 
             const chips = [sunChip];
@@ -1915,7 +1913,7 @@
 
             // Default HUD state: Sun & Solar System overview
             updateHud(
-              '☀️ The Solar System',
+              'The Solar System',
               '0 km (Center)',
               '~230M Years (Milky Way)',
               '1,392,700 km',
@@ -1929,7 +1927,7 @@
               { label: '1x', val: 1.0 },
               { label: '5x', val: 5.0 },
               { label: '20x', val: 20.0 },
-              { label: '⏸', val: 0.0 },
+              { label: 'Pause', val: 0.0 },
             ];
             speeds.forEach((s, sIdx) => {
               const sBtn = document.createElement('button');
@@ -1958,7 +1956,7 @@
               }
               camera.position.set(0, 32, 58);
               updateHud(
-                '☀️ The Solar System',
+                'The Solar System',
                 '0 km (Center)',
                 '~230M Years (Milky Way)',
                 '1,392,700 km',
@@ -2220,7 +2218,7 @@
         if (btnFull) {
           btnFull.onclick = () => {
             const isFull = card.classList.toggle('fullscreen-3d');
-            btnFull.textContent = isFull ? '✕ Exit' : '⛶ Full';
+            btnFull.textContent = isFull ? 'Exit' : 'Full';
             setTimeout(handleResize, 100);
           };
         }
@@ -2295,9 +2293,9 @@
             const title = escapeHtml(s.title || s.label || s.name || 'Source');
             const url = (s.url || '').trim();
             if (url && /^https?:\/\//i.test(url)) {
-              return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="source-chip source-link">🌐 ${title}</a>`;
+              return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="source-chip source-link">${title}</a>`;
             }
-            return `<span class="source-chip">📄 ${title}</span>`;
+            return `<span class="source-chip">${title}</span>`;
           }).join('')}
         </div>
       ` : '';
@@ -2705,7 +2703,7 @@
         toast(`Uploading & indexing ${file.name}…`);
         const res = await api('/api/upload', { method: 'POST', body: form });
         const count = res.document?.chunks_count || 'multiple';
-        toast(`✓ ${file.name} indexed successfully (${count} chunks)`);
+        toast(`${file.name} indexed successfully (${count} chunks)`);
         if (res.document) {
           lastUploadedDoc = res.document;
         }
@@ -2962,7 +2960,7 @@
           }),
         });
 
-        toast('✓ ' + (res.message || 'Password reset successfully!'));
+        toast(res.message || 'Password reset successfully!');
         if ($('forgotPasswordModal')) $('forgotPasswordModal').classList.add('hidden');
         if ($('authModal')) {
           $('authModal').classList.remove('hidden');
@@ -3859,7 +3857,7 @@
     if (!capturedSnapshotData) return;
     setComposerAttachedImage(capturedSnapshotData, `Photo_${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.jpg`);
     closeCameraModal();
-    toast('✓ Photo attached to composer');
+    toast('Photo attached to composer');
   }
 
   function handleCameraFileInput(files) {
@@ -3874,7 +3872,7 @@
       const dataUrl = e.target.result;
       setComposerAttachedImage(dataUrl, file.name);
       closeCameraModal();
-      toast(`✓ ${file.name} attached to composer`);
+      toast(`${file.name} attached to composer`);
     };
     reader.readAsDataURL(file);
   }
@@ -4076,7 +4074,7 @@
       if (!file) return;
 
       if (file.size > 8 * 1024 * 1024) {
-        toast('⚠️ Wallpaper image must be under 8MB', true);
+        toast('Wallpaper image must be under 8MB', true);
         return;
       }
 
@@ -4101,10 +4099,10 @@
         if (customBgStatus) {
           customBgStatus.textContent = `Custom wallpaper: ${file.name}`;
         }
-        toast('✨ Custom background applied successfully!');
+        toast('Custom background applied successfully!');
       };
       reader.onerror = () => {
-        toast('❌ Failed to read background image file', true);
+        toast('Failed to read background image file', true);
       };
       reader.readAsDataURL(file);
     };
@@ -4121,7 +4119,7 @@
       if (customBgStatus) {
         customBgStatus.textContent = 'Default fluid wallpaper active';
       }
-      toast('🔄 Restored default fluid wallpaper');
+      toast('Restored default fluid wallpaper');
     };
   }
 

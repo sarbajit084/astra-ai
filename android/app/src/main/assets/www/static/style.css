@@ -1,35 +1,12 @@
 /* ==========================================================================
-   ASTRA UI - BESPOKE GLASSMORPHISM STYLESHEET (anthropicSerif Typography)
+   ASTRA UI - BESPOKE GLASSMORPHISM STYLESHEET (Open Sans Regular Typography)
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-
-@font-face {
-  font-family: 'anthropicSerif';
-  src: local('anthropicSerif'), local('Anthropic Serif'), local('anthropicSerif-Regular'), local('Instrument Serif'), local('Georgia');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'anthropicSerif';
-  src: local('anthropicSerif-Italic'), local('Anthropic Serif Italic'), local('Instrument Serif Italic'), local('Georgia Italic');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'anthropicSerif';
-  src: local('anthropicSerif-Medium'), local('Anthropic Serif Medium'), local('anthropicSerif-SemiBold'), local('Anthropic Serif SemiBold'), local('Georgia Bold');
-  font-weight: 500 700;
-  font-style: normal;
-  font-display: swap;
-}
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
 
 :root {
-  --font-serif: 'anthropicSerif', 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-serif: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'DM Mono', Consolas, 'Courier New', monospace;
   --primary-dark: #111827;
   --text-charcoal: #1e293b;
@@ -125,7 +102,8 @@
 button, input, textarea, a, select {
   -webkit-tap-highlight-color: transparent !important;
   outline: none !important;
-  font-family: var(--font-serif);
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 400;
 }
 
 button:focus,
@@ -141,7 +119,8 @@ html, body {
   height: 100%;
   min-height: 100dvh;
   overflow-x: hidden !important;
-  font-family: var(--font-serif);
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-weight: 400;
   color: var(--text-charcoal);
   -webkit-font-smoothing: antialiased;
   scrollbar-width: none !important;
@@ -1062,9 +1041,9 @@ img, video, canvas, svg {
   border: 1px solid rgba(255, 255, 255, 0.45) !important;
   border-radius: 18px;
   padding: 10px 24px;
-  font-family: var(--font-serif);
-  font-size: 22px;
-  line-height: 1.35;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.5;
   font-weight: 400;
   color: #1a1033;
   box-shadow:
@@ -1099,7 +1078,7 @@ img, video, canvas, svg {
   border: 1px solid rgba(255, 255, 255, 0.16) !important;
   border-radius: 20px !important;
   padding: 11px 22px !important;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
   font-size: 16.5px !important;
   line-height: 1.45 !important;
   font-weight: 400 !important;
@@ -1107,7 +1086,7 @@ img, video, canvas, svg {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.22) !important;
 }
 
-/* Assistant Message: Left-aligned with A* Avatar & Cormorant Garamond font */
+/* Assistant Message: Left-aligned with A* Avatar & Open Sans Regular font */
 .message-card.assistant {
   align-items: flex-start;
   align-self: flex-start;
@@ -1157,15 +1136,15 @@ img, video, canvas, svg {
 }
 
 .assistant-content {
-  font-family: var(--font-serif);
-  font-size: 23px;
-  line-height: 1.45;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16.5px;
+  line-height: 1.6;
   color: #111827;
   font-weight: 400;
   word-break: break-word;
   overflow-wrap: anywhere !important;
   white-space: normal;
-  letter-spacing: 0.15px;
+  letter-spacing: 0.1px;
   max-width: 100% !important;
   min-width: 0 !important;
   box-sizing: border-box;
@@ -1189,7 +1168,7 @@ img, video, canvas, svg {
 .assistant-content .assistant-p {
   margin-top: 0;
   margin-bottom: 15px;
-  line-height: 1.52;
+  line-height: 1.6;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
@@ -1223,7 +1202,7 @@ img, video, canvas, svg {
 }
 
 .assistant-content .chat-li {
-  line-height: 1.48;
+  line-height: 1.55;
   margin-bottom: 2px;
   word-break: break-word;
   overflow-wrap: anywhere;
@@ -1231,8 +1210,8 @@ img, video, canvas, svg {
 
 .assistant-content .chat-subheading {
   font-family: inherit;
-  font-size: 1.18rem;
-  font-weight: 700;
+  font-size: 1.15rem;
+  font-weight: 600;
   margin: 18px 0 8px;
   color: inherit;
   line-height: 1.35;
@@ -1244,9 +1223,10 @@ img, video, canvas, svg {
 
 .astra-center-stage.has-code-view .assistant-content,
 .astra-center-stage:has(.code-editor-card) .assistant-content {
-  font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
   font-size: 16.5px !important;
   line-height: 1.65 !important;
+  font-weight: 400 !important;
   color: #0f172a !important;
   overflow-wrap: anywhere !important;
   word-break: break-word !important;
@@ -1261,7 +1241,7 @@ img, video, canvas, svg {
   gap: 10px;
   margin-top: 4px;
   font-family: var(--font-serif);
-  font-size: 14px;
+  font-size: 13.5px;
   color: #78716c;
 }
 
@@ -1426,12 +1406,12 @@ img, video, canvas, svg {
   background: transparent;
   outline: none;
   resize: none;
-  font-family: var(--font-serif);
-  font-size: 22px;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 17px;
   color: #24303e;
-  font-weight: 500;
-  line-height: 30px;
-  height: 30px;
+  font-weight: 400;
+  line-height: 26px;
+  height: 26px;
   padding: 0 8px;
   box-sizing: border-box;
   display: flex;
@@ -1449,12 +1429,12 @@ img, video, canvas, svg {
 
 #message::placeholder {
   color: rgba(62, 80, 98, 0.68);
-  font-family: var(--font-serif);
-  font-size: 22px;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 17px;
   font-style: normal;
-  font-weight: 500;
-  letter-spacing: 0.2px;
-  line-height: 30px;
+  font-weight: 400;
+  letter-spacing: 0.1px;
+  line-height: 26px;
 }
 
 /* Squircles matching image: square with soft rounded corners inside pill */
@@ -3409,9 +3389,9 @@ img, video, canvas, svg {
 }
 
 .chat-image-overlay-text {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: 'Open Sans', sans-serif;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   color: #ffffff;
   background: rgba(0, 0, 0, 0.65);
   padding: 6px 14px;
@@ -3454,9 +3434,9 @@ img, video, canvas, svg {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #e2e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   padding: 4px 10px;
   border-radius: 8px;
   text-decoration: none;
@@ -3593,9 +3573,9 @@ img, video, canvas, svg {
 }
 
 .code-lang-title {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 14.5px;
-  font-weight: 500;
+  font-weight: 400;
   color: #ececec;
   letter-spacing: 0.2px;
 }
@@ -3630,9 +3610,9 @@ img, video, canvas, svg {
   border-radius: 6px;
   padding: 4px 10px;
   color: #9ca3af;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 13.5px;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
   transition: all 0.16s ease;
   white-space: nowrap;
@@ -4141,16 +4121,18 @@ body.incognito-mode .user-bubble {
 
 /* Homescreen input text styling */
 .astra-center-stage.welcome-mode #message {
-  font-family: var(--font-serif);
-  font-size: 23px;
-  line-height: 30px;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 26px;
   padding: 0;
   color: #1e293b;
 }
 
 .astra-center-stage.welcome-mode #message::placeholder {
-  font-family: var(--font-serif);
-  font-size: 23px;
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 18px;
+  font-weight: 400;
   color: rgba(62, 80, 98, 0.65);
 }
 

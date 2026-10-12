@@ -167,11 +167,14 @@ class TestMasterUpgrade(unittest.TestCase):
         self.assertNotEqual(code_ans, "Code can only be generated in Code Mode.")
         self.assertTrue("def " in code_ans or "return" in code_ans, f"Expected Python function in Code Mode, got: {code_ans[:200]}")
 
-    def test_04_font_changed_to_anthropic_serif(self):
-        """Requirement 3: anthropicSerif configured across styling architecture while keeping monospace for code."""
+    def test_04_font_changed_to_open_sans_regular(self):
+        """Requirement 3 (Updated): Open Sans Regular configured across styling architecture while keeping monospace for code."""
         style_css = Path("static/style.css").read_text(encoding="utf-8")
-        self.assertIn("font-family: 'anthropicSerif'", style_css)
-        self.assertIn("--font-serif: 'anthropicSerif'", style_css)
+        index_html = Path("static/index.html").read_text(encoding="utf-8")
+        self.assertIn("family=Open+Sans", index_html)
+        self.assertIn("font-family: 'Open Sans'", style_css)
+        self.assertIn("--font-serif: 'Open Sans'", style_css)
+        self.assertIn("--font-sans: 'Open Sans'", style_css)
         self.assertIn("--font-mono: 'JetBrains Mono'", style_css)
 
     def test_05_privacy_section_removed_and_settings_contrast_fixed(self):

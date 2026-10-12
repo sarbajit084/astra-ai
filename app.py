@@ -84,16 +84,37 @@ initialize_database()
 
 
 async def _render_keep_alive_loop() -> None:
-    """Periodically pings the public health endpoint to prevent Render free-tier spin-down."""
+    """Periodically pings the public health endpoint to prevent Render spin-down and hot-syncs static UI assets from GitHub main."""
     target_base = (os.getenv("RENDER_EXTERNAL_URL") or "https://astrxai.com").rstrip("/")
     health_url = f"{target_base}/health"
-    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+    raw_base = "https://raw.githubusercontent.com/sarbajit084/astra-ai/main/static"
+    sync_files = ("index.html", "style.css", "app.js", "privacy.html", "terms.html")
+    tick = 0
+    async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
         while True:
-            await asyncio.sleep(480)  # Every 8 minutes (well inside Render's 15-minute idle window)
-            try:
-                await client.get(health_url, headers={"User-Agent": "Astra-KeepAlive/1.0"})
-            except Exception:
-                pass
+            await asyncio.sleep(60)
+            tick += 1
+            # Every 60s on Render: hot-sync static frontend files from GitHub main
+            if os.getenv("RENDER") or settings.app_env.lower() in ("production", "prod"):
+                for fname in sync_files:
+                    try:
+                        r = await client.get(
+                            f"{raw_base}/{fname}",
+                            headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+                        )
+                        if r.status_code == 200 and len(r.content) > 100:
+                            local_path = STATIC_DIR / fname
+                            if not local_path.exists() or local_path.read_bytes() != r.content:
+                                local_path.write_bytes(r.content)
+                                logger.info("hot_synced_static_file file=%s bytes=%d", fname, len(r.content))
+                    except Exception:
+                        pass
+            # Every 8 minutes: ping public health URL to prevent Render idle sleep
+            if tick % 8 == 0:
+                try:
+                    await client.get(health_url, headers={"User-Agent": "Astra-KeepAlive/1.0"})
+                except Exception:
+                    pass
 
 
 @asynccontextmanager

@@ -279,10 +279,10 @@ def token_payload(user: User) -> dict:
     }
 
 
-def auth_success_response(user: User) -> JSONResponse:
+def auth_success_response(user: User, request: Request | None = None) -> JSONResponse:
     body = token_payload(user)
     response = JSONResponse(content=body)
-    set_session_cookie(response, body["access_token"])
+    set_session_cookie(response, body["access_token"], request=request)
     return response
 
 
@@ -558,7 +558,7 @@ def get_calculation_challenge() -> dict:
 
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
-def register_user(payload: RegisterPayload, db: Session = Depends(get_db)) -> dict:
+def register_user(request: Request, payload: RegisterPayload, db: Session = Depends(get_db)) -> JSONResponse:
     # 1. Verify terms & conditions agreement
     if not payload.agreed_to_terms:
         raise HTTPException(
@@ -635,11 +635,11 @@ def register_user(payload: RegisterPayload, db: Session = Depends(get_db)) -> di
     db.refresh(user)
 
     logger.info("user_registered id=%s", user.id)
-    return token_response(user)
+    return token_response(user, request=request)
 
 
 @app.post("/api/auth/login")
-def login_user(request: Request, payload: LoginPayload, db: Session = Depends(get_db)) -> dict:
+def login_user(request: Request, payload: LoginPayload, db: Session = Depends(get_db)) -> JSONResponse:
     ident = (payload.identifier or payload.email or payload.phone or "").strip()
     if not ident:
         raise HTTPException(status_code=400, detail="Please enter your phone number, email, or username.")
@@ -749,7 +749,7 @@ def login_user(request: Request, payload: LoginPayload, db: Session = Depends(ge
     clear_failed_attempts(rate_key)
 
     logger.info("user_login_success id=%s", user.id)
-    return token_response(user)
+    return token_response(user, request=request)
 
 
 @app.post("/api/auth/forgot-password")
@@ -866,9 +866,8 @@ def logout_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     astra_session: str | None = Cookie(default=None, alias="astra_session"),
 ) -> JSONResponse:
-    from auth import _decode_user, _extract_token
-    token = _extract_token(credentials, astra_session)
-    user = _decode_user(token, db)
+    from auth import _resolve_authenticated_user
+    user = _resolve_authenticated_user(credentials, astra_session, db)
     if user:
         revoke_user_sessions(user, db)
         logger.info("user_logged_out_sessions_revoked user_id=%s", user.id)
@@ -1421,120 +1420,6 @@ async def chat(
         "tokens_remaining": token_status["tokens_remaining"],
         "daily_limit": token_status["daily_limit"],
     }
-
-
-# In-memory storage for interactive live website previews
-WEB_PREVIEWS: dict[str, dict] = {}
-
-class WebPreviewPayload(BaseModel):
-    html: str = ""
-    css: str = ""
-    js: str = ""
-    title: str = "Astra Live Website Demo"
-
-def _assemble_complete_html(html_code: str, css_code: str, js_code: str, title: str = "Astra Live Demo") -> str:
-    import re
-    cleaned_html = html_code.strip()
-    cleaned_css = css_code.strip()
-    cleaned_js = js_code.strip()
-
-    has_html = bool(re.search(r"<html\b", cleaned_html, re.I))
-    has_head = bool(re.search(r"<head\b", cleaned_html, re.I))
-    has_body = bool(re.search(r"<body\b", cleaned_html, re.I))
-
-    style_tag = f"\n<style>\n{cleaned_css}\n</style>\n" if cleaned_css else ""
-    script_tag = f"\n<script>\n{cleaned_js}\n</script>\n" if cleaned_js else ""
-
-    font_head_tags = (
-        '  <link rel="preconnect" href="https://fonts.googleapis.com">\n'
-        '  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
-        '  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Outfit:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">\n'
-        '  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">\n'
-        '  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>\n'
-        '  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>\n'
-        '  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>\n'
-    )
-
-    if has_html:
-        doc = cleaned_html
-        # Remove dead relative link tags like <link rel="stylesheet" href="styles.css"> or script.js so they don't 404
-        doc = re.sub(r'<link[^>]+href=["\'](?:styles?\.css|main\.css|style\.css)["\'][^>]*>', '', doc, flags=re.I)
-        doc = re.sub(r'<script[^>]+src=["\'](?:scripts?\.js|main\.js|app\.js)["\'][^>]*>\s*</script>', '', doc, flags=re.I)
-        if "three.min.js" not in doc:
-            if has_head:
-                doc = re.sub(r"(<head[^>]*>)", f"\\1\n{font_head_tags}", doc, count=1, flags=re.I)
-            else:
-                doc = re.sub(r"(<html[^>]*>)", f"\\1\n<head>{font_head_tags}</head>", doc, count=1, flags=re.I)
-                has_head = True
-        if style_tag:
-            if has_head:
-                doc = re.sub(r"(</head>)", f"{style_tag}\\1", doc, count=1, flags=re.I)
-            else:
-                doc = re.sub(r"(<html[^>]*>)", f"\\1\n<head>{font_head_tags}{style_tag}</head>", doc, count=1, flags=re.I)
-        if script_tag:
-            if has_body:
-                doc = re.sub(r"(</body>)", f"{script_tag}\\1", doc, count=1, flags=re.I)
-            else:
-                doc += script_tag
-        return doc
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title}</title>
-{font_head_tags}
-  <style>
-    *, *::before, *::after {{ box-sizing: border-box; }}
-    html {{ scroll-behavior: smooth; }}
-    html, body {{
-      overflow-x: hidden;
-      width: 100%;
-      max-width: 100vw;
-    }}
-    body {{
-      margin: 0;
-      padding: 0;
-      font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-      line-height: 1.5;
-    }}
-    canvas {{
-      display: block;
-      max-width: 100%;
-    }}
-    {cleaned_css}
-  </style>
-</head>
-<body>
-  {cleaned_html}
-  {script_tag}
-</body>
-</html>"""
-
-@app.post("/api/preview")
-def create_web_preview(payload: WebPreviewPayload) -> dict:
-    """Stores generated HTML/CSS/JS website code for live preview in a new Chrome tab."""
-    preview_id = str(uuid.uuid4())[:12]
-    complete_html = _assemble_complete_html(payload.html, payload.css, payload.js, payload.title)
-    WEB_PREVIEWS[preview_id] = {
-        "html": complete_html,
-        "created_at": time.time(),
-    }
-    if len(WEB_PREVIEWS) > 200:
-        oldest_key = min(WEB_PREVIEWS.keys(), key=lambda k: WEB_PREVIEWS[k]["created_at"])
-        WEB_PREVIEWS.pop(oldest_key, None)
-    return {"preview_id": preview_id, "url": f"/preview/{preview_id}"}
-
-@app.get("/preview/{preview_id}", response_class=HTMLResponse)
-def render_web_preview(preview_id: str) -> HTMLResponse:
-    """Renders the generated website live in a standalone browser tab."""
-    preview_data = WEB_PREVIEWS.get(preview_id)
-    if not preview_data:
-        raise HTTPException(404, "Preview expired or not found. Please regenerate or click Live Demo again.")
-    return HTMLResponse(content=preview_data["html"])
 
 
 @app.get("/api/images/{filename}")

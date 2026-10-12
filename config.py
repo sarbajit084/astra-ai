@@ -36,7 +36,7 @@ class Settings:
     app_env: str = os.getenv("APP_ENV", "production")
     database_url: str = os.getenv("DATABASE_URL", "")
     jwt_secret: str = os.getenv("JWT_SECRET", "")
-    jwt_access_token_ttl_seconds: int = int(os.getenv("JWT_ACCESS_TOKEN_TTL_SECONDS", "86400"))  # 24 hours
+    jwt_access_token_ttl_seconds: int = int(os.getenv("JWT_ACCESS_TOKEN_TTL_SECONDS", "31536000"))  # 1 year (365 days)
     cors_origins: list[str] = None  # type: ignore[assignment]
     
     # LLM Provider Configuration
@@ -111,26 +111,38 @@ class Settings:
     image_height: int = int(os.getenv("IMAGE_HEIGHT", "1024"))
 
     def __post_init__(self):
-        # Validate or securely generate JWT_SECRET
+        # Validate or securely persist JWT_SECRET so sessions survive restarts
         INSECURE_SECRETS = {
             "production-secret-aster-enterprise-secure-2026-key-salt",
             "your-production-super-secret-jwt-key-change-this-now",
+            "your-super-secret-jwt-key-change-in-production",
+            "change-this",
             "changeme",
             "secret",
+            "jwt_secret",
             "",
         }
         current_secret = (self.jwt_secret or "").strip()
         is_prod = self.app_env.lower() in ("production", "prod")
         if current_secret in INSECURE_SECRETS or len(current_secret) < 32:
-            if is_prod:
-                raise RuntimeError(
-                    "CRITICAL SECURITY CONFIGURATION ERROR: "
-                    "JWT_SECRET must be explicitly set to a cryptographically strong key "
-                    "(minimum 32 characters) in production mode."
-                )
-            # Ephemeral random secret for development if not provided or insecure
-            ephemeral = secrets.token_urlsafe(48)
-            object.__setattr__(self, "jwt_secret", ephemeral)
+            secret_file = self.data_dir / ".jwt_secret"
+            persisted_secret = ""
+            try:
+                self.data_dir.mkdir(parents=True, exist_ok=True)
+                if secret_file.exists():
+                    persisted_secret = secret_file.read_text(encoding="utf-8").strip()
+                if len(persisted_secret) < 32:
+                    persisted_secret = secrets.token_urlsafe(48)
+                    secret_file.write_text(persisted_secret, encoding="utf-8")
+            except Exception:
+                if is_prod:
+                    raise RuntimeError(
+                        "CRITICAL SECURITY CONFIGURATION ERROR: "
+                        "JWT_SECRET must be explicitly set to a cryptographically strong key "
+                        "(minimum 32 characters) in production mode."
+                    )
+                persisted_secret = secrets.token_urlsafe(48)
+            object.__setattr__(self, "jwt_secret", persisted_secret)
         else:
             object.__setattr__(self, "jwt_secret", current_secret)
 

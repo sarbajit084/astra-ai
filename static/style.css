@@ -1,10 +1,36 @@
 /* ==========================================================================
-   ASTRA UI - 100% IDENTICAL BESPOKE GLASSMORPHISM STYLESHEET
+   ASTRA UI - BESPOKE GLASSMORPHISM STYLESHEET (anthropicSerif Typography)
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+@font-face {
+  font-family: 'anthropicSerif';
+  src: local('anthropicSerif'), local('Anthropic Serif'), local('anthropicSerif-Regular'), local('Instrument Serif'), local('Georgia');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'anthropicSerif';
+  src: local('anthropicSerif-Italic'), local('Anthropic Serif Italic'), local('Instrument Serif Italic'), local('Georgia Italic');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'anthropicSerif';
+  src: local('anthropicSerif-Medium'), local('Anthropic Serif Medium'), local('anthropicSerif-SemiBold'), local('Anthropic Serif SemiBold'), local('Georgia Bold');
+  font-weight: 500 700;
+  font-style: normal;
+  font-display: swap;
+}
 
 :root {
+  --font-serif: 'anthropicSerif', 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'DM Mono', Consolas, 'Courier New', monospace;
   --primary-dark: #111827;
   --text-charcoal: #1e293b;
   --text-muted: #64748b;
@@ -99,6 +125,7 @@
 button, input, textarea, a, select {
   -webkit-tap-highlight-color: transparent !important;
   outline: none !important;
+  font-family: var(--font-serif);
 }
 
 button:focus,
@@ -114,7 +141,7 @@ html, body {
   height: 100%;
   min-height: 100dvh;
   overflow-x: hidden !important;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   color: var(--text-charcoal);
   -webkit-font-smoothing: antialiased;
   scrollbar-width: none !important;
@@ -331,7 +358,7 @@ img, video, canvas, svg {
 }
 
 .sidebar-brand-title {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 27px;
   font-weight: 500;
   letter-spacing: 5.5px;
@@ -377,7 +404,7 @@ img, video, canvas, svg {
 }
 
 .new-conv-text {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: 1.2px;
@@ -392,7 +419,7 @@ img, video, canvas, svg {
 }
 
 .section-title {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 1.4px;
@@ -430,7 +457,7 @@ img, video, canvas, svg {
 }
 
 .muted-box-msg {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 12.5px;
   color: #64748b;
   text-align: center;
@@ -444,7 +471,7 @@ img, video, canvas, svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 14.5px;
   color: #1e293b;
   padding: 3px 6px;
@@ -539,7 +566,7 @@ img, video, canvas, svg {
 }
 
 .upload-main-text {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13.5px;
   font-weight: 700;
   letter-spacing: 0.8px;
@@ -548,7 +575,7 @@ img, video, canvas, svg {
 }
 
 .upload-sub-text {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 11.5px;
   color: #64748b;
   margin-top: 1px;
@@ -588,7 +615,7 @@ img, video, canvas, svg {
 }
 
 .try-premium-text {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: 1px;
@@ -621,7 +648,7 @@ img, video, canvas, svg {
 }
 
 .user-profile-name {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13.5px;
   font-weight: 600;
   letter-spacing: 1.2px;
@@ -672,7 +699,7 @@ img, video, canvas, svg {
   border: none;
   box-shadow: 0 4px 12px -2px rgba(15, 35, 65, 0.06), inset 0 1px 1px rgba(255, 255, 255, 0.50);
   color: #1e293b;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -876,7 +903,7 @@ img, video, canvas, svg {
 }
 
 .welcome-brand-title {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: clamp(52px, 8.5vw, 84px);
   font-weight: 400;
   letter-spacing: 6px;
@@ -909,7 +936,7 @@ img, video, canvas, svg {
   border: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.7), 0 2px 8px rgba(0, 0, 0, 0.03);
   cursor: pointer;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13px;
   letter-spacing: 0.8px;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -934,7 +961,7 @@ img, video, canvas, svg {
 }
 
 .welcome-hero-tagline {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: clamp(14px, 1.8vw, 18px);
   font-weight: 400;
   letter-spacing: 2.5px;
@@ -1035,7 +1062,7 @@ img, video, canvas, svg {
   border: 1px solid rgba(255, 255, 255, 0.45) !important;
   border-radius: 18px;
   padding: 10px 24px;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 22px;
   line-height: 1.35;
   font-weight: 400;
@@ -1130,7 +1157,7 @@ img, video, canvas, svg {
 }
 
 .assistant-content {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 23px;
   line-height: 1.45;
   color: #111827;
@@ -1233,7 +1260,7 @@ img, video, canvas, svg {
   align-items: center;
   gap: 10px;
   margin-top: 4px;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 14px;
   color: #78716c;
 }
@@ -1334,7 +1361,7 @@ img, video, canvas, svg {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 220px;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 11.5px;
   color: #1e293b;
 }
@@ -1399,7 +1426,7 @@ img, video, canvas, svg {
   background: transparent;
   outline: none;
   resize: none;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 22px;
   color: #24303e;
   font-weight: 500;
@@ -1422,7 +1449,7 @@ img, video, canvas, svg {
 
 #message::placeholder {
   color: rgba(62, 80, 98, 0.68);
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 22px;
   font-style: normal;
   font-weight: 500;
@@ -1496,7 +1523,7 @@ img, video, canvas, svg {
 }
 
 .composer-sub-disclaimer {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 14.5px;
   color: #475569;
   font-style: normal;
@@ -1529,7 +1556,7 @@ img, video, canvas, svg {
 }
 
 .model-spec-label {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 15px;
   color: #1e293b;
   font-weight: 500;
@@ -1561,7 +1588,7 @@ img, video, canvas, svg {
 }
 
 .engine-mode-tag {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 10px;
   padding: 1px 6px;
   border-radius: 8px;
@@ -1664,7 +1691,7 @@ img, video, canvas, svg {
 }
 
 .attach-menu-info strong {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13.5px;
   font-weight: 600;
   color: #0f172a;
@@ -1672,7 +1699,7 @@ img, video, canvas, svg {
 }
 
 .attach-menu-info small {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 11px;
   font-weight: 400;
   color: #64748b;
@@ -1826,7 +1853,7 @@ img, video, canvas, svg {
 
 /* Model Specifier Label */
 .model-spec-label {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 16px;
   font-weight: 500;
   letter-spacing: 0.5px;
@@ -1845,14 +1872,14 @@ img, video, canvas, svg {
 }
 
 .composer-disclaimer-text {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13px;
   color: #52525b;
   font-style: italic;
 }
 
 .model-spec-label {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13.5px;
   color: #3f3f46;
   letter-spacing: 0.3px;
@@ -1898,7 +1925,7 @@ img, video, canvas, svg {
 }
 
 .bubble-content h1, .bubble-content h2, .bubble-content h3 {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   margin: 14px 0 8px;
   color: #111827;
 }
@@ -1968,13 +1995,46 @@ img, video, canvas, svg {
   }
 }
 
-.source-chips,
-.source-chip {
-  display: none !important;
+.message-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
-.source-chip:hover {
-  background: rgba(255, 255, 255, 0.9);
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  padding: 4px 10px;
+  border-radius: 10px;
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+
+.source-chip.source-link:hover {
+  background: #ffffff;
+  border-color: #2563eb;
+  color: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+[data-bg-theme="dark"] .source-chip {
+  color: #f8fafc;
+  background: rgba(30, 41, 59, 0.85);
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+[data-bg-theme="dark"] .source-chip.source-link:hover {
+  background: rgba(51, 65, 85, 0.95);
+  border-color: #60a5fa;
+  color: #93c5fd;
 }
 
 /* ==========================================================================
@@ -2029,7 +2089,7 @@ img, video, canvas, svg {
 }
 
 .modal-brand-title {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 2px;
@@ -2044,7 +2104,7 @@ img, video, canvas, svg {
 }
 
 .modal-h2 {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 22px;
   color: #111827;
   margin-top: 4px;
@@ -2389,7 +2449,7 @@ img, video, canvas, svg {
   }
 
   .mobile-nav-brand {
-    font-family: 'Instrument Serif', Georgia, serif;
+    font-family: var(--font-serif);
     font-size: 20px;
     font-weight: 600;
     letter-spacing: 2px;
@@ -2855,7 +2915,7 @@ img, video, canvas, svg {
 }
 
 .deep-research-badge-title {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 12px;
   font-weight: 600;
   color: #1e293b;
@@ -2863,7 +2923,7 @@ img, video, canvas, svg {
 }
 
 .deep-research-badge-meta {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 11px;
   color: #64748b;
   font-weight: 400;
@@ -3596,36 +3656,6 @@ img, video, canvas, svg {
   font-size: 14px;
 }
 
-/* Live Demo Button */
-.live-demo-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  color: #ffffff !important;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
-  user-select: none;
-  text-decoration: none;
-}
-
-.live-demo-btn:hover {
-  background: linear-gradient(135deg, #1d4ed8, #2563eb);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.48);
-}
-
-.live-demo-btn:active {
-  transform: translateY(0);
-}
-
 /* Enhanced Copy Code Button */
 .copy-code-btn {
   display: inline-flex;
@@ -3634,7 +3664,7 @@ img, video, canvas, svg {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.16);
   color: #d1d5db;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-serif);
   font-size: 13px;
   font-weight: 500;
   padding: 4px 10px;
@@ -3657,38 +3687,6 @@ img, video, canvas, svg {
   color: #34d399;
 }
 
-/* Live Demo Button */
-.live-demo-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.85), rgba(59, 130, 246, 0.75));
-  border: 1px solid rgba(96, 165, 250, 0.5);
-  color: #ffffff;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.18s ease;
-  user-select: none;
-  white-space: nowrap;
-}
-
-.live-demo-btn:hover {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 1), rgba(59, 130, 246, 0.95));
-  border-color: rgba(96, 165, 250, 0.8);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
-}
-
-.live-demo-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
 /* Code Editor Tabs Bar */
 .code-editor-tabs-bar {
   display: flex;
@@ -3705,7 +3703,7 @@ img, video, canvas, svg {
 .code-editor-tab {
   padding: 5px 14px;
   border-radius: 6px;
-  font-family: 'Consolas', 'Fira Code', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
   color: rgba(209, 213, 219, 0.65);
@@ -3725,80 +3723,6 @@ img, video, canvas, svg {
   color: #60a5fa;
   background: rgba(37, 99, 235, 0.18);
   border-color: rgba(96, 165, 250, 0.35);
-}
-
-
-.live-demo-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  max-width: 780px;
-  margin: 12px 0 6px 0;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.14) 0%, rgba(59, 130, 246, 0.08) 100%);
-  border: 1px solid rgba(96, 165, 250, 0.4);
-  border-radius: 12px;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.1);
-  box-sizing: border-box;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.live-demo-banner:hover {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.22) 0%, rgba(59, 130, 246, 0.14) 100%);
-  border-color: rgba(96, 165, 250, 0.6);
-  transform: translateY(-1px);
-}
-
-.demo-banner-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.demo-rocket-icon {
-  font-size: 22px;
-  animation: rocket-pulse 2s infinite ease-in-out;
-}
-
-@keyframes rocket-pulse {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px) scale(1.08); }
-}
-
-.demo-banner-title {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14.5px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.demo-banner-sub {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 12.5px;
-  color: #475569;
-}
-
-.demo-banner-launch-btn {
-  background: #2563eb;
-  color: #ffffff;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.35);
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.demo-banner-launch-btn:hover {
-  background: #1d4ed8;
-  transform: scale(1.04);
 }
 
 /* Tab Panels */
@@ -3925,7 +3849,7 @@ body.incognito-mode .composer-recessed-pill {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.4);
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 13px;
   letter-spacing: 0.5px;
   color: var(--theme-text-color, #334155);
@@ -4023,7 +3947,7 @@ body.incognito-mode .composer-recessed-pill {
 }
 
 .popover-row-label {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 19px;
   color: #1e293b;
   font-weight: 500;
@@ -4044,7 +3968,7 @@ body.incognito-mode .composer-recessed-pill {
 
 /* Gold PREMIUM badge matching screenshot */
 .popover-gold-badge {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 14.5px;
   font-weight: 700;
   color: #c98a2c;
@@ -4217,7 +4141,7 @@ body.incognito-mode .user-bubble {
 
 /* Homescreen input text styling */
 .astra-center-stage.welcome-mode #message {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 23px;
   line-height: 30px;
   padding: 0;
@@ -4225,7 +4149,7 @@ body.incognito-mode .user-bubble {
 }
 
 .astra-center-stage.welcome-mode #message::placeholder {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 23px;
   color: rgba(62, 80, 98, 0.65);
 }
@@ -4282,7 +4206,7 @@ body.incognito-mode .user-bubble {
 }
 
 .astra-center-stage.welcome-mode .model-spec-label {
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 18px;
   color: #334155;
   letter-spacing: 0.3px;
@@ -5071,8 +4995,7 @@ body.temporary-chat-mode .chat-emoji,
   }
 
   .copy-code-btn,
-  .download-code-btn,
-  .live-demo-btn {
+  .download-code-btn {
     font-size: 11px !important;
     padding: 3px 6px !important;
   }
@@ -5171,7 +5094,7 @@ body.temporary-chat-mode .chat-emoji,
 
 .rec-text {
   flex: 1;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 17px;
   font-weight: 500;
   color: #991b1b;
@@ -5284,31 +5207,66 @@ body.temporary-chat-mode .chat-emoji,
 }
 
 /* ==========================================================================
-   SETTINGS & APPEARANCE MODAL (Frost Level & Custom Wallpaper)
+   SETTINGS & APPEARANCE MODAL (WCAG AA High Contrast Light & Dark Themes)
    ========================================================================== */
+
+#settingsModal {
+  background: rgba(15, 23, 42, 0.55);
+}
 
 .settings-modal-card {
   max-width: 480px;
   width: 90vw;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.05) 80%, rgba(255, 255, 255, 0.18) 100%),
-    radial-gradient(ellipse at 40% 10%, rgba(255, 255, 255, 0.25) 0%, transparent 60%) !important;
-  backdrop-filter: blur(var(--glass-blur, 24px)) saturate(115%) brightness(104%) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur, 24px)) saturate(115%) brightness(104%) !important;
-  border: none !important;
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(var(--glass-blur, 24px)) saturate(120%) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur, 24px)) saturate(120%) !important;
+  border: 1.5px solid rgba(15, 23, 42, 0.16) !important;
   border-radius: 32px !important;
   box-shadow:
-    0 32px 64px -12px rgba(0, 0, 0, 0.18),
-    0 16px 32px -8px rgba(0, 0, 0, 0.08),
-    inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.70) !important;
+    0 32px 64px -12px rgba(15, 23, 42, 0.28),
+    0 16px 32px -8px rgba(15, 23, 42, 0.14) !important;
   padding: 26px 28px !important;
+  color: #0f172a !important;
   box-sizing: border-box;
+}
+
+#settingsModal .modal-brand-title {
+  color: #0f172a !important;
+  font-weight: 700;
+}
+
+#settingsModal .modal-eyebrow {
+  color: #334155 !important;
+  font-weight: 600;
+}
+
+#settingsModal .modal-h2 {
+  color: #0f172a !important;
+  font-weight: 700;
+}
+
+#settingsModal .modal-subtitle {
+  color: #334155 !important;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+#settingsModal .close-icon-btn {
+  background: #f1f5f9 !important;
+  color: #0f172a !important;
+  border: 1px solid #94a3b8 !important;
+}
+
+#settingsModal .close-icon-btn:hover {
+  background: #e2e8f0 !important;
+  color: #000000 !important;
+  border-color: #475569 !important;
 }
 
 .settings-content {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
   margin-top: 18px;
 }
 
@@ -5318,8 +5276,9 @@ body.temporary-chat-mode .chat-emoji,
   gap: 12px;
   padding: 16px;
   border-radius: 20px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.08) 100%);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.6), 0 2px 8px rgba(0, 0, 0, 0.03);
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
 .settings-group-header {
@@ -5329,12 +5288,13 @@ body.temporary-chat-mode .chat-emoji,
 }
 
 .settings-group-icon {
-  font-size: 24px;
+  font-size: 22px;
   line-height: 1;
-  padding: 6px;
+  padding: 7px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.35);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.8);
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
 }
 
 .settings-group-text {
@@ -5343,21 +5303,21 @@ body.temporary-chat-mode .chat-emoji,
 
 .settings-group-title {
   display: block;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 19px;
-  font-weight: 600;
+  font-weight: 700;
   color: #0f172a;
   letter-spacing: 0.2px;
 }
 
 .settings-group-desc {
-  font-size: 14px;
-  color: #64748b;
-  margin-top: 2px;
-  line-height: 1.35;
+  font-size: 14.5px;
+  color: #334155;
+  margin-top: 3px;
+  line-height: 1.42;
 }
 
-/* Glass Frost Slider */
+/* Glass Frost Slider (WCAG AA 3:1+ Control Contrast) */
 .frost-slider-wrapper {
   display: flex;
   flex-direction: column;
@@ -5371,9 +5331,9 @@ body.temporary-chat-mode .chat-emoji,
   width: 100%;
   height: 8px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.08);
+  background: #cbd5e1;
+  border: 1px solid #64748b;
   outline: none;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
   cursor: pointer;
 }
 
@@ -5383,46 +5343,50 @@ body.temporary-chat-mode .chat-emoji,
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 1px #ffffff;
+  background: #0f172a;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
   cursor: pointer;
-  transition: transform 0.15s ease;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
 
 .glass-range-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
+  transform: scale(1.12);
+  background: #1e293b;
 }
 
 .glass-range-slider::-moz-range-thumb {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 100%);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 1px #ffffff;
+  background: #0f172a;
+  border: 2px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.35);
   cursor: pointer;
-  border: none;
-  transition: transform 0.15s ease;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
 
 .glass-range-slider::-moz-range-thumb:hover {
-  transform: scale(1.15);
+  transform: scale(1.12);
+  background: #1e293b;
 }
 
 .slider-labels {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
-  color: #64748b;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #334155;
 }
 
 .slider-val-badge {
   font-weight: 700;
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.5);
-  padding: 2px 8px;
+  color: #ffffff;
+  background: #0f172a;
+  border: 1px solid #0f172a;
+  padding: 2px 10px;
   border-radius: 10px;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.9);
 }
 
 /* Custom Background Upload Buttons */
@@ -5436,44 +5400,148 @@ body.temporary-chat-mode .chat-emoji,
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Instrument Serif', Georgia, serif;
+  font-family: var(--font-serif);
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 9px 16px;
   border-radius: 14px;
-  border: none;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .primary-glass-btn {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.18) 100%);
-  color: #0f172a;
-  box-shadow: inset 0 1.5px 1px rgba(255, 255, 255, 0.85), 0 3px 10px rgba(0, 0, 0, 0.05);
+  background: #0f172a;
+  color: #ffffff;
+  border: 1.5px solid #0f172a;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.15);
 }
 
 .primary-glass-btn:hover {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.60) 0%, rgba(255, 255, 255, 0.28) 100%);
+  background: #1e293b;
+  border-color: #1e293b;
   transform: translateY(-1px);
-  box-shadow: inset 0 1.5px 1px rgba(255, 255, 255, 0.95), 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 .secondary-glass-btn {
-  background: rgba(0, 0, 0, 0.05);
-  color: #475569;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  background: #ffffff;
+  color: #0f172a;
+  border: 1.5px solid #475569;
 }
 
 .secondary-glass-btn:hover {
-  background: rgba(0, 0, 0, 0.09);
-  color: #1e293b;
+  background: #f1f5f9;
+  color: #000000;
+  border-color: #0f172a;
+}
+
+.settings-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.settings-btn:focus-visible,
+.glass-range-slider:focus-visible,
+#settingsModal .close-icon-btn:focus-visible {
+  outline: 2px solid #2563eb !important;
+  outline-offset: 2px !important;
 }
 
 .custom-bg-status-msg {
-  font-size: 13px;
-  color: #64748b;
+  font-size: 13.5px;
+  color: #334155;
+  font-weight: 500;
   font-style: italic;
   margin-top: 4px;
+}
+
+/* Dark Theme Settings Contrast Overrides (WCAG AA >= 4.5:1 text, >= 3:1 controls) */
+[data-bg-theme="dark"] .settings-modal-card {
+  background: rgba(15, 23, 42, 0.96) !important;
+  border: 1.5px solid rgba(148, 163, 184, 0.38) !important;
+  color: #f8fafc !important;
+}
+
+[data-bg-theme="dark"] #settingsModal .modal-brand-title,
+[data-bg-theme="dark"] #settingsModal .modal-h2,
+[data-bg-theme="dark"] .settings-group-title {
+  color: #f8fafc !important;
+}
+
+[data-bg-theme="dark"] #settingsModal .modal-eyebrow,
+[data-bg-theme="dark"] #settingsModal .modal-subtitle,
+[data-bg-theme="dark"] .settings-group-desc,
+[data-bg-theme="dark"] .slider-labels,
+[data-bg-theme="dark"] .custom-bg-status-msg {
+  color: #cbd5e1 !important;
+}
+
+[data-bg-theme="dark"] #settingsModal .close-icon-btn {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid #64748b !important;
+}
+
+[data-bg-theme="dark"] #settingsModal .close-icon-btn:hover {
+  background: #334155 !important;
+  color: #ffffff !important;
+  border-color: #94a3b8 !important;
+}
+
+[data-bg-theme="dark"] .settings-group {
+  background: #1e293b;
+  border: 1px solid #475569;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+[data-bg-theme="dark"] .settings-group-icon {
+  background: #334155;
+  border-color: #64748b;
+  color: #f8fafc;
+}
+
+[data-bg-theme="dark"] .glass-range-slider {
+  background: #334155;
+  border-color: #94a3b8;
+}
+
+[data-bg-theme="dark"] .glass-range-slider::-webkit-slider-thumb {
+  background: #f8fafc;
+  border-color: #0f172a;
+}
+
+[data-bg-theme="dark"] .glass-range-slider::-moz-range-thumb {
+  background: #f8fafc;
+  border-color: #0f172a;
+}
+
+[data-bg-theme="dark"] .slider-val-badge {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #f8fafc;
+}
+
+[data-bg-theme="dark"] .primary-glass-btn {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #f8fafc;
+}
+
+[data-bg-theme="dark"] .primary-glass-btn:hover {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+}
+
+[data-bg-theme="dark"] .secondary-glass-btn {
+  background: #0f172a;
+  color: #f8fafc;
+  border-color: #94a3b8;
+}
+
+[data-bg-theme="dark"] .secondary-glass-btn:hover {
+  background: #334155;
+  color: #ffffff;
+  border-color: #f8fafc;
 }
 
 /* ==========================================================================

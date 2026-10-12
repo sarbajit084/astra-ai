@@ -11,7 +11,7 @@ import time
 import uuid
 import urllib.parse
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from html import unescape
 from pathlib import Path
 from typing import Any
@@ -311,7 +311,19 @@ class ProductionRAGService:
                         break
             self.qdrant_mode = "local-persistent"
         self.collection_ready = False
+        self._http_loop: Any = None
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), verify=True, follow_redirects=True)
+
+    def _ensure_http_client(self) -> httpx.AsyncClient:
+        """Ensures self.http is open and bound to the currently running asyncio event loop."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if getattr(self.http, "is_closed", False) or (loop is not None and self._http_loop is not None and self._http_loop is not loop):
+            self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), verify=True, follow_redirects=True)
+        self._http_loop = loop
+        return self.http
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -717,6 +729,60 @@ class ProductionRAGService:
                 "research_trace": None,
             }
 
+        # Phase 0.68: Strict Website Generation Prohibition & Code Mode Policy Enforcement
+        if self._is_website_request(query):
+            notice = self._build_no_website_response(query)
+            total_ms = max(1.0, round((time.perf_counter() - total_start) * 1000, 1))
+            return {
+                "answer": notice,
+                "is_chemistry": False,
+                "sources": [
+                    {
+                        "id": "POLICY",
+                        "label": "🛡️ Astra System Policy",
+                        "type": "ai",
+                        "snippet": "Website and web application generation is permanently disabled.",
+                    }
+                ],
+                "model_used": "Astra",
+                "has_context": False,
+                "rewritten_query": query,
+                "timings_ms": {
+                    "rewrite": 0.5,
+                    "retrieval": 0.0,
+                    "rerank": 0.0,
+                    "generation": total_ms,
+                    "total": total_ms,
+                },
+                "research_trace": None,
+            }
+
+        if mode != "code" and self._is_coding_request(query):
+            total_ms = max(1.0, round((time.perf_counter() - total_start) * 1000, 1))
+            return {
+                "answer": "Code can only be generated in Code Mode.",
+                "is_chemistry": False,
+                "sources": [
+                    {
+                        "id": "POLICY",
+                        "label": "🛡️ Astra Mode Policy",
+                        "type": "ai",
+                        "snippet": "Switch to Code Mode to generate programming solutions and code snippets.",
+                    }
+                ],
+                "model_used": "Astra",
+                "has_context": False,
+                "rewritten_query": query,
+                "timings_ms": {
+                    "rewrite": 0.5,
+                    "retrieval": 0.0,
+                    "rerank": 0.0,
+                    "generation": total_ms,
+                    "total": total_ms,
+                },
+                "research_trace": None,
+            }
+
         # Phase 0.7: Dedicated Interactive 3D Model Generator (strictly for standalone scientific simulations)
         is_3d, answer_3d = self._is_3d_request(query, history=clean_history)
         if is_3d:
@@ -781,6 +847,60 @@ class ProductionRAGService:
         sub_queries = await self._decompose_research_queries(rewritten or query, clean_history)
         rewrite_ms = max(0.5, round((time.perf_counter() - rewrite_start) * 1000, 1))
 
+        # Re-validate website/coding policy on contextually rewritten follow-up query
+        if self._is_website_request(rewritten):
+            notice = self._build_no_website_response(query)
+            total_ms = max(1.0, round((time.perf_counter() - total_start) * 1000, 1))
+            return {
+                "answer": notice,
+                "is_chemistry": False,
+                "sources": [
+                    {
+                        "id": "POLICY",
+                        "label": "🛡️ Astra System Policy",
+                        "type": "ai",
+                        "snippet": "Website and web application generation is permanently disabled.",
+                    }
+                ],
+                "model_used": "Astra",
+                "has_context": False,
+                "rewritten_query": rewritten,
+                "timings_ms": {
+                    "rewrite": rewrite_ms,
+                    "retrieval": 0.0,
+                    "rerank": 0.0,
+                    "generation": total_ms,
+                    "total": total_ms,
+                },
+                "research_trace": None,
+            }
+
+        if mode != "code" and self._is_coding_request(rewritten):
+            total_ms = max(1.0, round((time.perf_counter() - total_start) * 1000, 1))
+            return {
+                "answer": "Code can only be generated in Code Mode.",
+                "is_chemistry": False,
+                "sources": [
+                    {
+                        "id": "POLICY",
+                        "label": "🛡️ Astra Mode Policy",
+                        "type": "ai",
+                        "snippet": "Switch to Code Mode to generate programming solutions and code snippets.",
+                    }
+                ],
+                "model_used": "Astra",
+                "has_context": False,
+                "rewritten_query": rewritten,
+                "timings_ms": {
+                    "rewrite": rewrite_ms,
+                    "retrieval": 0.0,
+                    "rerank": 0.0,
+                    "generation": total_ms,
+                    "total": total_ms,
+                },
+                "research_trace": None,
+            }
+
         # Phase 2: Dense Retrieval from Qdrant
         retrieve_start = time.perf_counter()
         candidates = await self._retrieve_async(rewritten, owner_id, document_id)
@@ -788,7 +908,7 @@ class ProductionRAGService:
 
         # Phase 3: Cross-Encoder Reranking
         rerank_start = time.perf_counter()
-        ranked = (await self.reranker.rerank_async(rewritten, candidates))[:6]
+        ranked = (await self.reranker.rerank_async(rewritten, candidates))[:6] if candidates else []
         rerank_ms = max(0.5, round((time.perf_counter() - rerank_start) * 1000, 1))
 
         # Check if retrieved document chunks have genuine topical relevance
@@ -852,39 +972,9 @@ class ProductionRAGService:
             ]
         else:
             is_creative = self._is_creative_request(query)
-            is_website = self._is_website_request(query)
-
-            # Prevent generating website code when user is NOT in Code Mode
-            if is_website:
-                notice = self._build_no_website_response(query)
-                total_ms = max(2.0, round((time.perf_counter() - total_start) * 1000, 1))
-                return {
-                    "answer": notice,
-                    "is_chemistry": False,
-                    "sources": [
-                        {
-                            "id": "POLICY",
-                            "label": "🛡️ Astra System Policy",
-                            "type": "ai",
-                            "snippet": "Website and web application generation is permanently disabled.",
-                        }
-                    ],
-                    "model_used": "Astra",
-                    "has_context": False,
-                    "rewritten_query": query,
-                    "timings_ms": {
-                        "rewrite": 1.0,
-                        "retrieval": 0.0,
-                        "rerank": 0.0,
-                        "generation": total_ms,
-                        "total": total_ms,
-                    },
-                }
-
             is_3d_model = not is_creative and self._is_3d_model_request(query)
-            is_coding = not is_creative and ((mode == "code") or self._is_coding_request(query))
+            is_coding = not is_creative and (mode == "code") and (self._is_coding_request(query) or self._is_coding_request(rewritten))
             if is_3d_model:
-                # Dedicated 3D Creation Request: bypass external web search entirely!
                 web_results = None
                 if settings.grok_configured:
                     answer = await self._general_llm_answer(query, None, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
@@ -902,7 +992,6 @@ class ProductionRAGService:
                     }
                 ]
             elif is_coding and not self._is_live_external_query(query):
-                # Dedicated Code Generation & Software Engineering: bypass slow web search
                 web_results = None
                 if settings.grok_configured:
                     answer = await self._general_llm_answer(query, None, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
@@ -916,11 +1005,10 @@ class ProductionRAGService:
                         "id": "CODE",
                         "label": "💻 Astra Code Studio Engine",
                         "type": "ai",
-                        "snippet": "Production-grade code generation with interactive preview and syntax highlighting",
+                        "snippet": "Production-grade code generation and debugging in Code Mode",
                     }
                 ]
             elif is_creative:
-                # Dedicated Creative Writing (Story, Narrative, Creative Script, Screenplay, Poetry): bypass web search & code generation
                 web_results = None
                 if settings.grok_configured:
                     answer = await self._general_llm_answer(query, None, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
@@ -938,16 +1026,30 @@ class ProductionRAGService:
                     }
                 ]
             else:
-                # Query is outside document: execute web search
-                web_results = await self._multi_angle_web_search(sub_queries)
-                if not web_results:
+                needs_live_web = self._is_live_external_query(rewritten or query) or self._is_live_external_query(query)
+                web_results = []
+                if needs_live_web:
                     web_results = await self._web_search(rewritten or query)
 
                 if settings.grok_configured:
-                    answer = await self._general_llm_answer(query, web_results, history=clean_history, rewritten_query=rewritten, incognito=incognito, detailed=detailed, mode=mode)
-                    model_used = "Astra (SSR Core)"
+                    answer = await self._general_llm_answer(
+                        query,
+                        web_results,
+                        history=clean_history,
+                        rewritten_query=rewritten,
+                        incognito=incognito,
+                        detailed=detailed,
+                        mode=mode,
+                        live_search_attempted=needs_live_web,
+                    )
+                    model_used = "Astra Code Studio" if mode == "code" else "Astra (SSR Core)"
                 else:
-                    answer = "I am Astra! What's on your mind today? Ask me anything or upload files to explore."
+                    if needs_live_web and web_results:
+                        answer = web_results[0].get("snippet", "")
+                    elif needs_live_web:
+                        answer = "Live web search is temporarily unavailable, so I cannot verify real-time information for that request right now."
+                    else:
+                        answer = "I am Astra! What's on your mind today? Ask me anything or upload files to explore."
                     model_used = "Astra (SSR Core)"
 
                 if web_results:
@@ -957,6 +1059,7 @@ class ProductionRAGService:
                             "label": f"🌐 {w['title']}",
                             "type": "web",
                             "snippet": w["snippet"],
+                            "url": w.get("url", ""),
                         }
                         for i, w in enumerate(web_results[:4])
                     ]
@@ -974,11 +1077,19 @@ class ProductionRAGService:
         total_ms = max(2.0, round((time.perf_counter() - total_start) * 1000, 1))
 
         cleaned_answer = clean_agent_response(answer)
+        # Post-generation safeguard: never output executable code blocks in normal mode
+        if mode != "code" and re.search(
+            r"```(?:python|py|c\+\+|cpp|c|java|javascript|js|typescript|ts|sql|rust|go|golang|csharp|cs|bash|sh|powershell|html|css|php|ruby|swift|kotlin)\b",
+            cleaned_answer,
+            flags=re.IGNORECASE,
+        ):
+            cleaned_answer = "Code can only be generated in Code Mode."
+
         is_chem = is_chemistry_query(query, cleaned_answer)
 
         # Formulate structured trajectory
         research_trace = {
-            "mode": "Astra Assistant",
+            "mode": "Astra Code Studio" if mode == "code" else "Astra Assistant",
             "query": query,
             "angles": sub_queries,
             "sources_analyzed": len(sources),
@@ -1213,72 +1324,141 @@ class ProductionRAGService:
         return False
 
     def _is_website_request(self, query: str) -> bool:
-        """Determines if query is requesting website, landing page, or web UI creation/generation."""
+        """Intent-aware classifier determining if the user is requesting website, landing page, web app, or frontend project creation."""
         q = query.lower().strip()
-        if self._is_creative_request(query):
+        if not q or self._is_creative_request(query):
             return False
 
-        website_terms = [
-            "website", "web site", "webpage", "web page", "landing page",
-            "hero section", "portfolio site", "portfolio website", "cafe website",
-            "restaurant website", "ecommerce site", "ecommerce website",
-            "storefront", "web app", "webapp", "3d website", "full stack website",
-            "frontend template", "web template", "html website", "html page",
-            "html and css", "html css js", "threejs website", "three.js website"
-        ]
-        if any(re.search(rf"\b{re.escape(term)}\b", q) for term in website_terms):
-            return True
+        # Purely informational/conceptual questions about websites (without creation/coding verbs) must NOT be blocked
+        info_prefix = re.match(
+            r"^(?:what\s+is|what\s+are|what's|how\s+does|how\s+do|why\s+is|why\s+do|why\s+are|who\s+invented|who\s+created|when\s+was|where\s+is|explain\s+(?:what|how|why)|define|difference\s+between|what\s+is\s+the\s+difference\s+between)\b",
+            q,
+        )
+        creation_verbs = r"(?:make|create|build|generate|design|develop|code|construct|write|give\s+me|show\s+me|produce|craft|scaffold|clone|need|want)"
+        has_creation_verb = bool(re.search(rf"\b{creation_verbs}\b", q))
 
+        if info_prefix and not has_creation_verb:
+            return False
+
+        # Explicit creation/generation patterns for websites, landing pages, web apps, and frontend projects
         explicit_patterns = [
-            r"\b(?:make|create|build|generate|design|develop|code|construct)\s+(?:me\s+)?(?:a\s+|an\s+)?[\w\s-]{0,30}\s*(?:website|site|landing\s+page|webpage|web\s+page|web\s+app|webapp|storefront|portfolio)\b",
-            r"\b(?:html|css|frontend|front-end)\s+(?:website|site|landing\s+page|template|page)\b"
+            rf"\b{creation_verbs}\s+(?:me\s+)?(?:a\s+|an\s+|the\s+)?(?:complete\s+|full\s+|modern\s+|responsive\s+|interactive\s+)?[\w\s-]{{0,35}}?\b(?:website|web\s+site|webpage|web\s+page|landing\s+page|web\s+app|webapp|web\s+application|storefront|portfolio\s+site|portfolio\s+website|frontend\s+project|front-end\s+project|website\s+template|web\s+template|frontend\s+template)\b",
+            r"\b(?:website|webpage|landing\s+page|web\s+app|webapp|frontend\s+project)\s+(?:for|about|with|using|in\s+html|in\s+react|code|template|layout)\b",
+            r"\b(?:html|css|frontend|front-end)\s+(?:website|site|landing\s+page|template|webpage|web\s+page|project)\b",
+            r"\b(?:html\s+and\s+css|html\s+css\s+js|three\.?js\s+website|3d\s+website|full\s+stack\s+website|portfolio\s+website|portfolio\s+site|cafe\s+website|restaurant\s+website|ecommerce\s+website|ecommerce\s+site)\b",
         ]
         if any(re.search(pat, q) for pat in explicit_patterns):
             return True
 
+        # Short direct noun-phrase prompts asking for a website/landing page (e.g., "a bakery website", "landing page")
+        if len(q.split()) <= 6 and not q.endswith("?"):
+            short_web_targets = [
+                "website", "web site", "webpage", "web page", "landing page",
+                "web app", "webapp", "web application", "website template", "frontend template",
+                "frontend project", "storefront",
+            ]
+            if any(re.search(rf"\b{re.escape(t)}\b", q) for t in short_web_targets):
+                return True
+
         return False
 
     def _build_no_website_response(self, query: str = "") -> str:
-        """Explicitly refuses website generation."""
+        """Explicitly refuses website generation across all modes."""
         return (
             "Websites and web applications cannot be generated.\n\n"
-            "Website generation has been disabled. I can only assist with general queries, questions, stories, scripts, or small code snippets in languages like Python, C++, and C."
+            "Website generation is disabled across this application. In **Code Mode**, I can assist with programming questions, debugging, algorithms, functions, and code snippets in languages such as Python, C, C++, Java, JavaScript, and SQL."
         )
 
     _build_website_mode_notice = _build_no_website_response
 
     def _is_coding_request(self, query: str) -> bool:
-        """Determines if a query is requesting small code, function, algorithm, or program in Python, C++, C, etc."""
+        """Intent-aware classifier determining if a query requests executable code, scripts, functions, algorithms, or programming solutions."""
         q = query.lower().strip()
-        if self._is_creative_request(query):
+        if not q or self._is_creative_request(query):
             return False
 
-        # Strictly exclude any website requests
+        # Website requests are handled by _is_website_request
         if self._is_website_request(query):
             return False
 
-        coding_terms = [
-            "code", "program", "function", "class", "python", "c++", "cpp",
-            "c code", "c program", "java", "sql", "rust", "golang", "go code", "bash",
-            "shell script", "python script", "algorithm", "binary search", "linked list",
-            "sorting algorithm", "recursion", "regex", "leetcode", "json parsing",
-            "unit test", "star pattern", "pattern in python", "print star",
-            "write code", "give me code", "write a code", "snippet"
+        # Exclude non-programming usages of words like 'code', 'program', 'function', 'class'
+        non_coding_phrases = [
+            "morse code", "genetic code", "zip code", "postal code", "area code", "country code",
+            "dress code", "penal code", "civil code", "criminal code", "building code", "tax code",
+            "honor code", "code of conduct", "code of ethics", "code of law", "bar code", "barcode",
+            "qr code", "cheat code", "promo code", "discount code", "coupon code", "passcode",
+            "space program", "apollo program", "tv program", "television program", "training program",
+            "fitness program", "workout program", "degree program", "loyalty program", "rewards program",
+            "function of the", "function of a", "function of an", "biological function", "kidney function",
+            "liver function", "heart function", "brain function", "mitochondria",
+            "social class", "middle class", "working class", "upper class", "first class", "economy class",
+            "business class", "class of animals", "world class",
         ]
-        if any(re.search(rf"\b{re.escape(term)}\b", q) for term in coding_terms):
+        if any(phrase in q for phrase in non_coding_phrases):
+            return False
+
+        # 1. Presence of actual code syntax or fenced code blocks to debug/analyze
+        if "```" in q or any(sig in query for sig in ["#include <", "int main(", "public static void main", "def ", "console.log(", "SELECT ", "std::"]):
             return True
-        if re.search(r"\b(?:print|write|code|create|show|solve)\s+[\w\s-]{1,30}\s+in\s+(?:python|c\+\+|cpp|c|java|rust|golang|go|sql|bash)\b", q):
+
+        # 2. Explicit coding action verb + programming target or language
+        coding_verbs = r"(?:write|generate|create|build|implement|code|develop|give(?:\s+me)?|show(?:\s+me)?|provide|solve|debug|fix|optimize|refactor|convert|translate|print)"
+        coding_targets = (
+            r"(?:a\s+|an\s+|the\s+|some\s+|this\s+|my\s+)?"
+            r"(?:[\w+#.-]+\s+){0,3}?"
+            r"(?:code|program|script|function|class|method|algorithm|snippet|implementation|solution|sql\s+query|regex|regular\s+expression|unit\s+test|loop|star\s+pattern|linked\s+list|binary\s+search|sorting\s+algorithm|bubble\s+sort|merge\s+sort|quick\s+sort|quicksort|dfs|bfs|dynamic\s+programming)"
+        )
+        languages = r"(?:python|c\+\+|cpp|c|java|javascript|js|typescript|ts|sql|rust|golang|go|bash|shell|powershell|c#|csharp|php|ruby|swift|kotlin|r|matlab)"
+
+        if re.search(rf"\b{coding_verbs}\s+{coding_targets}\b", q):
             return True
+
+        if re.search(rf"\b{coding_verbs}\b[\s\S]{{1,60}}?\b(?:in|using|with|for)\s+{languages}\b", q):
+            return True
+
+        # 3. Direct noun-phrase requests for scripts, code, or classic coding tasks
+        direct_coding_patterns = [
+            rf"\b{languages}\s+(?:code|program|script|function|class|snippet|implementation|solution)\b",
+            r"\b(?:code|program|script|function)\s+(?:to|for|that|in)\s+\w+",
+            r"\b(?:bash|shell|python|powershell|sql|automation)\s+script\b",
+            r"\b(?:star\s+pattern|pattern\s+in\s+python|print\s+star|reverse\s+a\s+linked\s+list| reverse\s+a\s+string|two\s+sum|leetcode)\b",
+            rf"\bhow\s+to\s+(?:write|implement|code|create|build)\b[\s\S]{{1,50}}?\b(?:in\s+{languages}|function|algorithm|program|script|code)\b",
+        ]
+        if any(re.search(pat, q) for pat in direct_coding_patterns):
+            return True
+
         return False
 
     def _is_live_external_query(self, query: str) -> bool:
-        """Determines if query explicitly requires live real-time web facts, news, or weather."""
+        """Determines if query asks about recent events, relative dates (today/yesterday), live prices, weather, scores, or current facts."""
         q = query.lower().strip()
-        return any(w in q for w in [
-            "news", "latest version", "release date", "weather", "stock price", "stock",
-            "today's", "market ticker", "score", "match", "current price", "cryptocurrency price",
-            "who won", "breaking news"
-        ])
+        if not q:
+            return False
+
+        live_keywords = [
+            "yesterday", "today", "today's", "tonight", "this week", "last week",
+            "this month", "this year", "last year", "latest", "recent", "recently",
+            "current", "currently", "right now", "live", "breaking", "news",
+            "weather", "temperature", "forecast", "climate", "rain", "raining", "humidity", "aqi", "air quality",
+            "stock", "stocks", "share price", "market", "nasdaq", "nyse", "nifty", "sensex", "s&p", "dow jones",
+            "gold price", "silver price", "crude oil", "current price", "price of", "worth of",
+            "usd", "inr", "rupee", "rupees", "dollar", "eur", "euro", "gbp", "pound", "yen", "jpy", "aed", "dirham",
+            "exchange rate", "forex", "currency", "convert",
+            "crypto", "cryptocurrency", "bitcoin", "btc", "ethereum", "eth", "solana", "dogecoin", "xrp",
+            "score", "match", "winner", "who won", "champion", "championship", "tournament",
+            "grand prix", " gp", "world cup", "ipl", "nba", "nfl", "fifa", "uefa", "wimbledon", "super bowl", "olympics",
+            "election", "president of", "prime minister of", "ceo of", "richest", "net worth",
+            "subscribers", "subscriber count", "followers", "youtube", "instagram",
+            "release date", "box office", "standings", "what happened",
+            "2025", "2026", "2027",
+        ]
+        if any(w in q for w in live_keywords):
+            return True
+
+        if re.search(r"\b(?:who\s+is\s+the\s+current|what\s+is\s+the\s+current|what\s+is\s+the\s+latest)\b", q):
+            return True
+
+        return False
 
     def _build_3d_model_directive(self, query: str) -> str:
         """3D website generation is completely disabled."""
@@ -1288,33 +1468,24 @@ class ProductionRAGService:
         """3D website generation is disabled. Offers small Python/Blender scripts or algorithmic solutions."""
         return (
             "I do not generate websites, 3D web viewports, or HTML templates.\n\n"
-            "I specialize in small, focused code snippets and scripts in languages like **Python**, **C++**, and **C**."
+            "In **Code Mode**, I can help with focused code snippets and scripts in languages like **Python**, **C++**, **C**, **Java**, **JavaScript**, and **SQL**."
         )
 
     def _heuristic_resolve(self, query: str, history: list[dict]) -> str:
         """Instant heuristic coreference resolver that replaces pronouns and clarifies follow-up queries using previous dialogue context."""
-        if not history:
-            return query
+        q = query.strip()
+        # Expand common sports/F1 shorthand in queries (e.g. "italian go" or "singapore gp")
+        q = re.sub(r"\b([a-zA-Z]+)\s+go\b", r"\1 Grand Prix", q, flags=re.IGNORECASE)
 
-        # Check project state first for follow-up website updates
-        project_state = self._detect_project_state(history, query)
-        if project_state["is_active_project"] and project_state["is_modification"]:
-            domain_label = {
-                "automotive": "futuristic car 3D website",
-                "horology_watch": "luxury watch 3D website",
-                "architecture": "modern architecture 3D website",
-                "luxury_goods": "luxury boutique 3D website",
-                "creative_tech": "creative tech 3D website",
-                "restaurant": "restaurant website",
-            }.get(project_state["domain"], "website project")
-            return f"Update the {domain_label}: {query.strip()}"
+        if not history:
+            return q
 
         last_user = next((m.get("content") or m.get("text") or "" for m in reversed(history) if m.get("role") == "user"), "")
         last_asst = next((m.get("content") or m.get("text") or "" for m in reversed(history) if m.get("role") == "assistant"), "")
 
         subject = ""
         clean_u = re.sub(r"^(who is|what is|tell me about|explain|who was|what was|what are|where is|how does)\s+", "", last_user.strip("?., "), flags=re.IGNORECASE).strip()
-        if clean_u and len(clean_u.split()) <= 6:
+        if clean_u and len(clean_u.split()) <= 7:
             subject = clean_u
         elif last_asst:
             bolds = re.findall(r"\*\*([^*]+)\*\*", last_asst)
@@ -1322,18 +1493,17 @@ class ProductionRAGService:
                 subject = bolds[0].strip()
             else:
                 first_sent = re.split(r"[.!?\n]", last_asst)[0]
-                words = [w for w in first_sent.split() if w and w[0].isupper() and w.lower() not in ("aster", "i", "the", "a", "an", "in", "on", "it", "here", "sure", "hey")]
+                words = [w for w in first_sent.split() if w and w[0].isupper() and w.lower() not in ("astra", "aster", "i", "the", "a", "an", "in", "on", "it", "here", "sure", "hey")]
                 if words:
                     subject = " ".join(words[:3])
 
         if not subject:
             subject = clean_u
 
-        q = query.strip()
         q_lower = q.lower()
 
         # Follow-up meta triggers (e.g. 'tell me more', 'why?', 'explain that')
-        meta_triggers = ["tell me more", "explain more", "summarize", "why", "what else", "continue", "more details", "expand on that", "can you elaborate"]
+        meta_triggers = ["tell me more", "explain more", "summarize", "why", "what else", "continue", "more details", "expand on that", "can you elaborate", "what about"]
         if any(q_lower == m or q_lower.startswith(m) for m in meta_triggers) or len(q.split()) <= 3:
             if subject and subject.lower() not in q_lower:
                 return f"{q} regarding {subject}".strip()
@@ -1347,83 +1517,11 @@ class ProductionRAGService:
         return q
 
     async def _rewrite_with_context(self, query: str, history: list[dict] | None) -> str:
-        """Contextually resolves co-references and pronouns using conversation history into a standalone search query."""
+        """Fast contextual coreference resolution (<1ms) without extra blocking LLM round-trips."""
         if not history:
             return await self._rewrite(query)
-
-        # Quick heuristic candidate as instant baseline
-        heuristic_rewritten = self._heuristic_resolve(query, history)
-
-        project_state = self._detect_project_state(history, query)
-
-        # Check if query contains pronouns, project continuation, or follow-up indicators
-        q_lower = query.lower().strip()
-        words = set(re.findall(r"\w+", q_lower))
-        pronoun_tokens = {
-            "he", "she", "it", "they", "this", "that", "these", "those",
-            "his", "her", "its", "their", "him", "them",
-            "more", "continue", "summarize", "tell me more",
-            "second", "third", "another", "else", "elaborate",
-            "make", "change", "add", "turn", "update", "switch", "replace",
-            "color", "black", "white", "dark", "rotate", "hero", "model"
-        }
-        has_pronoun_or_continuation = bool(words & pronoun_tokens) or (
-            project_state["is_active_project"] and project_state["is_modification"]
-        )
-        if not has_pronoun_or_continuation:
-            return await self._rewrite(query)
-
-        if settings.grok_configured:
-            # Build clean conversational context
-            context_lines = []
-            for m in history[-4:]:
-                role_label = "USER" if m.get("role") == "user" else "ASSISTANT"
-                content_snippet = (m.get("content") or m.get("text") or "")[:280]
-                if content_snippet:
-                    context_lines.append(f"{role_label}: {content_snippet}")
-
-            if context_lines:
-                context_str = "\n".join(context_lines)
-                sys_prompt = (
-                    "You are a conversational query reformulation engine with human-like understanding. "
-                    "The user is asking a follow-up question or modification in an ongoing conversation. "
-                    "Your job is to rewrite the user's latest question into a self-contained, unambiguous search and task query by replacing pronouns ('he', 'she', 'it', 'they', 'this', 'that') and definite references ('the car', 'the watch', 'the hero', 'the website') with the actual entities and project context discussed. "
-                    "Rules:\n"
-                    "1. If the question is already fully self-contained, return it as-is.\n"
-                    "2. If the user is modifying, updating, or adding to an ongoing website or software project (e.g. 'Make the car black', 'Add rotating 3D model to hero section'), rewrite it to explicitly identify the project subject and requested change (e.g. 'Update the futuristic car 3D website: make the car body color black', 'Add an interactive rotating 3D watch model to the hero section of the luxury watch website').\n"
-                    "3. Resolve all pronouns and ambiguous references using the conversation context.\n"
-                    "4. Expand abbreviations and acronyms accurately (e.g., 'GP' to 'Grand Prix', 'F1' to 'Formula 1'). NEVER truncate names or terms.\n"
-                    "5. Correct common keyboard typos and misspellings (e.g., 'go' to 'GP / Grand Prix' in racing/sports context, 'roughyl' to 'roughly', 'ewhat' to 'what').\n"
-                    "6. Do NOT answer the question. Output ONLY the complete rewritten standalone query in plain text without quotes or formatting."
-                )
-                try:
-                    payload = {
-                        "model": settings.active_model,
-                        "messages": [
-                            {"role": "system", "content": sys_prompt},
-                            {"role": "user", "content": f"CONVERSATION HISTORY:\n{context_str}\n\nUSER'S LATEST QUESTION:\n{query}\n\nSTANDALONE SEARCH QUERY:"},
-                        ],
-                        "temperature": 0.1,
-                        "max_tokens": 100,
-                    }
-                    headers = {
-                        "Authorization": f"Bearer {settings.active_llm_key}",
-                        "Content-Type": "application/json",
-                    }
-                    res = await self.http.post(settings.llm_endpoint, headers=headers, json=payload, timeout=3.0)
-                    if res.status_code == 200:
-                        data = res.json()
-                        choices = data.get("choices", [])
-                        if choices and "message" in choices[0]:
-                            rewritten = choices[0]["message"].get("content", "").strip(" \"'")
-                            if rewritten and len(rewritten) >= 3:
-                                logger.info("contextual_rewrite query='%s' -> rewritten='%s'", query, rewritten)
-                                return rewritten
-                except Exception as e:
-                    logger.warning("contextual_rewrite_failed error=%s", e)
-
-        # Fallback to smart heuristic resolution if LLM rewrite is unavailable or timed out
-        return heuristic_rewritten or await self._rewrite(query)
+        resolved = self._heuristic_resolve(query, history)
+        return resolved or await self._rewrite(query)
 
     async def _decompose_research_queries(self, query: str, history: list[dict] | None = None) -> list[str]:
         """Decomposes a user query into multi-disciplinary research angles for comprehensive deep research."""
@@ -1431,7 +1529,6 @@ class ProductionRAGService:
         if not clean_q or (len(clean_q.split()) <= 2 and clean_q.lower() in {"hi", "hello", "hey", "hola", "thanks", "thank you"}):
             return [clean_q]
 
-        # Fast, deterministic multi-angle decomposition (zero extra LLM latency)
         return [
             clean_q,
             f"{clean_q} verified data",
@@ -1441,28 +1538,17 @@ class ProductionRAGService:
         """Executes fast, targeted web search across queries and deduplicates evidence."""
         if not sub_queries:
             return []
-
-        # Primary query search first (instant ~300ms)
-        primary = sub_queries[0]
-        results = await self._web_search(primary)
-        if len(results) >= 2:
-            return results[:6]
-
-        # If primary had few/no results, check remaining queries concurrently
-        if len(sub_queries) > 1:
-            remaining_tasks = [self._web_search(sq) for sq in sub_queries[1:]]
-            nested = await asyncio.gather(*remaining_tasks, return_exceptions=True)
-            seen_urls = {r.get("url", "") for r in results}
-            for res_list in nested:
-                if isinstance(res_list, list):
-                    for item in res_list:
-                        url = item.get("url", "").strip()
-                        if url and url not in seen_urls:
-                            seen_urls.add(url)
-                            results.append(item)
-        return results[:6]
+        return await self._web_search(sub_queries[0])
 
     def _system_prompt(self, is_grounded: bool, incognito: bool, now_str: str, detailed: bool = False, mode: str = "general") -> str:
+        now_dt = datetime.now().astimezone()
+        yesterday_dt = now_dt - timedelta(days=1)
+        tz_str = now_dt.strftime("%Z (UTC%z)")
+        temporal_header = (
+            f"REAL-TIME TEMPORAL CONTEXT: Current local date & time is {now_str} ({tz_str}). "
+            f"Today is {now_dt.strftime('%A, %B %d, %Y')}. Yesterday was {yesterday_dt.strftime('%A, %B %d, %Y')}."
+        )
+
         if incognito:
             mode_desc = "DETAILED INCOGNITO MODE (Comprehensive & Exhaustive)" if detailed else "CONCISE INCOGNITO MODE (Crisp & To-The-Point)"
             detail_rule = (
@@ -1473,7 +1559,7 @@ class ProductionRAGService:
             )
             identity_block = (
                 f"You are Astra operating in 100% UNRESTRICTED {mode_desc}.\n"
-                f"REAL-TIME TEMPORAL CONTEXT: Current system date is {now_str}.\n"
+                f"{temporal_header}\n"
                 "INCOGNITO MODE ACTIVE (ZERO RESTRICTIONS):\n"
                 "- Incognito mode is active. You operate with ZERO conversational restrictions, zero moralizing, zero censorship, zero disclaimers, and zero hesitation.\n"
                 "- Answer the user's inquiry with maximum wit, depth, and unfiltered precision.\n"
@@ -1510,7 +1596,7 @@ class ProductionRAGService:
                 )
             identity_block = (
                 "You are Astra, an advanced, highly intelligent AI assistant created and built by SSR Group.\n"
-                f"REAL-TIME TEMPORAL CONTEXT: Current system date is {now_str}.\n\n"
+                f"{temporal_header}\n\n"
                 "IDENTITY, ATTRIBUTION & STRICT PRIVACY GUARDRAILS:\n"
                 "- You were created, engineered, and built exclusively by SSR Group. Never state or imply you were built by OpenAI or any other entity.\n"
                 "- If asked who created you, who made you, or who built you, always answer: 'I'm Astra, an advanced AI assistant created and built by SSR Group.'\n"
@@ -1524,33 +1610,46 @@ class ProductionRAGService:
             "- If the question spans beyond the uploaded documents, seamlessly augment with verified facts, clearly distinguishing document findings from broader knowledge.\n"
             if is_grounded
             else
-            "- Ground your answer directly on the provided LIVE SEARCH CONTEXT and verified real-world facts. Do NOT include bracketed citation codes like [W1], [W2], or 【W1】.\n"
-            "- You have full real-time internet connectivity and live tools for weather, global stock markets, forex/currency rates, crypto, sports, and web news.\n"
-            "- When LIVE SEARCH CONTEXT is provided (such as live weather reports, stock prices, currency rates, crypto prices, or web results), ALWAYS use this data to deliver a direct, accurate, and authoritative answer.\n"
-            "- ABSOLUTE PROHIBITION ON REFUSALS OR EVASIVE ANSWERS: NEVER say 'The current live search results don't include information about...', 'I don't have access to...', 'I cannot find...', or give up on answering. You are an omniscient, deeply knowledgeable AI. If live search results are brief or do not explicitly state an answer, seamlessly synthesize your extensive parametric knowledge to answer the user's question completely, accurately, and authoritatively.\n"
-            "- SPORTS, RACING & TOURNAMENTS: When asked about sports championships, Grand Prix races, or tournaments (e.g., Formula 1 Italian Grand Prix, Singapore GP, Monaco GP, World Cup, UEFA Champions League, Wimbledon, Super Bowl): ALWAYS extract and state the exact verified winner/champion and the exact year from the live search results or official records. For example: Singapore GP was won by George Russell in 2025, Lando Norris in 2024, Carlos Sainz in 2023; Italian GP was won by Kimi Antonelli in 2026, Charles Leclerc in 2024, Max Verstappen in 2023. NEVER guess or attribute a win to another driver/team without verified proof. When asked about 'last year' or 'this year', explicitly name both the year and the champion.\n"
-            "- USER TYPO & SHORTHAND TOLERANCE: Decipher user typos and keyboard proximity slips naturally (e.g. 'italian go' means Italian GP / Grand Prix; 'roughyl ewhat' means roughly what; 'who won world cup' means FIFA or Cricket World Cup). Always answer the user's intended question directly and brilliantly without commenting on the typo.\n"
-            "- UNIVERSAL TOPIC COVERAGE: You answer questions on ANY topic: sports, engineering, college admissions and placements (e.g. SRM, IITs, NITs average packages and companies), coding, science, philosophy, history, cinema, geography, and daily advice. Deliver smart, sharp, direct, and insightful answers every single time.\n"
+            "- Ground your answer on the provided LIVE SEARCH CONTEXT and verified real-world facts. Do NOT include raw internal bracketed tags like [W1], [W2], or 【W1】.\n"
+            "- When LIVE SEARCH CONTEXT is provided (such as live weather reports, stock prices, currency rates, crypto prices, or web news), verify that the dates correspond to the requested period and prioritize primary sources, official announcements, and trustworthy reporting.\n"
+            "- Clearly distinguish confirmed facts from conflicting reports, estimates, or unverified claims.\n"
+            "- If the user asks about a current/live event (e.g., today, yesterday, current prices) and LIVE SEARCH CONTEXT is empty or unavailable, state clearly that live verification could not be completed rather than inventing current information or silently substituting outdated knowledge.\n"
+            "- Ask a concise clarifying question if a request genuinely lacks essential information needed to answer accurately.\n"
+            "- USER TYPO & SHORTHAND TOLERANCE: Decipher user typos and keyboard proximity slips naturally (e.g. 'italian go' means Italian GP / Grand Prix; 'roughyl ewhat' means roughly what). Answer the user's intended question directly.\n"
             "- If asked about weather: state the current temperature, conditions, feels-like, humidity, wind, and expected range immediately.\n"
-            "- If asked about currency (e.g., 1 USD to INR, 1 USD to EUR and INR): state the live rates immediately. When converting to multiple currencies, put each conversion on its OWN SEPARATE LINE (e.g. • 1 USD = ... EUR\n• 1 USD = ... INR). Never merge conversions onto one line.\n"
+            "- If asked about currency (e.g., 1 USD to INR, 1 USD to EUR and INR): state the live rates immediately. When converting to multiple currencies, put each conversion on its OWN SEPARATE LINE.\n"
             "- If asked about stock prices or crypto: state the live price, currency, change, and market stats immediately.\n"
+        )
+
+        code_mode_policy = (
+            "CODE MODE ACTIVE (PROGRAMMING ASSISTANCE ENABLED):\n"
+            "- The user has explicitly selected Code Mode.\n"
+            "- You may assist with programming questions, algorithms, functions, debugging, error explanations, and code optimization in C, C++, Python, Java, JavaScript, TypeScript, SQL, Go, Rust, C#, Bash, and other programming languages.\n"
+            "- Provide clean, runnable, well-structured code inside standard markdown code fences (```python, ```cpp, ```c, ```java, ```javascript, ```sql, etc.).\n"
+            "- Even in Code Mode, NEVER generate complete websites, landing pages, web applications, HTML/CSS templates, or frontend projects. If asked to build a website, politely explain that website generation is disabled.\n\n"
+            if mode == "code"
+            else
+            "NORMAL MODE CODE RESTRICTION (CODE GENERATION DISABLED):\n"
+            "- You are currently in Normal/Default Mode (NOT Code Mode).\n"
+            "- Answer ordinary questions, explain concepts, summarize information, and provide general assistance.\n"
+            "- Do NOT generate executable programs, complete source-code files, website code, or programming solutions.\n"
+            "- If the user requests code or a programming solution in Normal Mode, return ONLY this exact sentence: Code can only be generated in Code Mode.\n\n"
         )
 
         return (
             f"{identity_block}\n"
             "FACTUAL REALITY & ACCURACY:\n"
             "- State confirmed real-world facts with precision. Never fabricate winners, events, figures, or metrics.\n"
-            "- Ground answers directly on the verified live search context or document evidence. Do NOT include citation tags like [W1], [W2], [S1], 【W1】 in your text.\n"
+            "- Ground answers directly on the verified live search context or document evidence.\n"
             f"{grounding_rule}\n"
+            f"{code_mode_policy}"
             "STRICT CREATIVE WRITING & NON-CODE PROTOCOL:\n"
             "- When a user asks to write a story, narrative, creative script (movie script, drama, video script, youtube script, podcast script, dialogue, play, screenplay, skit), poem, essay, article, speech, or joke:\n"
             "  1. ALWAYS write the story, script, poem, or creative piece directly in rich, expressive, engaging prose and standard markdown dialogue/paragraphs.\n"
             "  2. STRICTLY PROHIBITED: NEVER generate HTML code, CSS code, JavaScript code, or a website layout when asked for a story, script, or creative piece!\n"
             "  3. NEVER wrap stories or creative scripts in HTML tags (<div class=\"story\">, <p>, etc.) or code fences (```html, ```python, etc.). Output pure, clean markdown prose.\n\n"
             "WEBSITE GENERATION PROHIBITION:\n"
-            "- Website generation, HTML/CSS layouts, landing pages, storefronts, and web templates are STRICTLY DISABLED and PERMANENTLY PROHIBITED.\n"
-            "- NEVER generate HTML, CSS, or JavaScript code blocks for websites or web pages under ANY circumstances.\n"
-            "- If a user requests a website or web page, refuse the request and clarify that you only generate small, focused code snippets, algorithms, and functions in languages like Python, C++, and C.\n\n"
+            "- Website generation, HTML/CSS layouts, landing pages, storefronts, web applications, and web templates are STRICTLY DISABLED and PERMANENTLY PROHIBITED across all modes.\n\n"
             "INTERACTIVE CHARTS & GRAPHS:\n"
             "- When presenting quantitative data, comparisons, or metrics, or when asked for a chart/graph/plot, generate an interactive chart using a ```chart block with valid Chart.js JSON:\n"
             "```chart\n"
@@ -1571,13 +1670,6 @@ class ProductionRAGService:
             "```\n\n"
             "DIAGRAMS & ARCHITECTURES:\n"
             "- When explaining workflows, logic flows, state machines, or system components, use ```mermaid code blocks (graph TD, sequenceDiagram, etc.).\n\n"
-            "SMALL CODE SNIPPETS & ALGORITHMS ONLY (PYTHON, C++, C):\n"
-            "- You only generate small, self-contained code snippets, functions, and algorithmic solutions in Python, C++, and C.\n"
-            "- You NEVER generate websites, web pages, HTML documents, or frontend UI templates.\n"
-            "- When providing code:\n"
-            "  1. Provide concise, clean, bug-free, copy-paste ready code inside standard markdown fences (```python, ```cpp, ```c).\n"
-            "  2. Focus on clear algorithms, data structures, math computations, and utility scripts.\n"
-            "  3. Include brief usage examples or test runs.\n\n"
             "ADVANCED MATHEMATICAL PROBLEM SOLVING & RIGOROUS REASONING:\n"
             "- You are an exceptional mathematician and analytical scientist proficient across Algebra, Single and Multivariable Calculus, Differential Equations, Linear Algebra, Real Analysis, Probability, Statistics, Geometry, Trigonometry, Number Theory, Discrete Mathematics, and Engineering Mathematics.\n"
             "- For any mathematical problem:\n"
@@ -1608,6 +1700,19 @@ class ProductionRAGService:
         if document_id:
             conditions.append(models.FieldCondition(key="document_id", match=models.MatchValue(value=document_id)))
 
+        q_filter = models.Filter(must=conditions)
+
+        # Fast pre-check: if owner has 0 chunks in Qdrant, skip expensive BGE embedding & vector search
+        def _has_docs() -> bool:
+            try:
+                cnt = self.client.count(COLLECTION, count_filter=q_filter, exact=False)
+                return bool(cnt and cnt.count > 0)
+            except Exception:
+                return True
+
+        if not await asyncio.to_thread(_has_docs):
+            return []
+
         # BGE query representation prefix
         query_text = f"Represent this sentence for searching relevant passages: {query}"
         vectors = await self.embedder.encode_async([query_text])
@@ -1617,7 +1722,7 @@ class ProductionRAGService:
             return self.client.query_points(
                 COLLECTION,
                 query=query_vector,
-                query_filter=models.Filter(must=conditions),
+                query_filter=q_filter,
                 limit=24,
                 with_payload=True,
             )
@@ -1648,6 +1753,11 @@ class ProductionRAGService:
         mode: str = "general",
     ) -> str:
         """Call Groq or xAI Grok using OpenAI-compatible chat completions."""
+        if self._is_website_request(original_query):
+            return self._build_no_website_response(original_query)
+        if mode != "code" and self._is_coding_request(original_query):
+            return "Code can only be generated in Code Mode."
+
         evidence_blocks = []
         for s in sources:
             # Defang any injection tags inside document text
@@ -1659,7 +1769,7 @@ class ProductionRAGService:
             )
         evidence_text = "\n\n".join(evidence_blocks)
 
-        now_str = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
+        now_str = datetime.now().astimezone().strftime("%A, %B %d, %Y, %I:%M %p")
         system_prompt = self._deep_research_system_prompt(is_grounded=True, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
         
         # Enforce strict system-level anti-prompt-injection boundary
@@ -1672,16 +1782,8 @@ class ProductionRAGService:
         )
         system_prompt += security_policy
 
-        project_state = self._detect_project_state(history, original_query)
         is_creative = self._is_creative_request(original_query)
-        is_website = self._is_website_request(original_query)
-
-        # Prevent generating website code when user is NOT in Code Mode
-        if is_website:
-            return self._build_no_website_response(original_query)
-
-        is_coding = not is_creative and ((mode == "code") or self._is_coding_request(original_query))
-
+        is_coding = not is_creative and (mode == "code")
 
         user_prompt = (
             f"<user_query>\n{original_query}\n</user_query>\n\n"
@@ -1698,8 +1800,8 @@ class ProductionRAGService:
         payload = {
             "model": settings.active_model,
             "messages": llm_messages,
-            "temperature": 0.2 if is_coding else 0.2,
-            "max_tokens": 8192 if is_coding else (2000 if detailed else 600),
+            "temperature": 0.2,
+            "max_tokens": 4096 if is_coding else (2000 if detailed else 500),
         }
 
         headers = {
@@ -1707,7 +1809,6 @@ class ProductionRAGService:
             "Content-Type": "application/json",
         }
 
-        # Multi-model retry with rate-limit backoff resilience
         candidate_models = []
         if settings.llm_provider == "xai":
             provider_candidates = [settings.active_model, "grok-2-latest", "grok-2", "grok-beta"]
@@ -1719,8 +1820,14 @@ class ProductionRAGService:
             if m and m not in candidate_models:
                 candidate_models.append(m)
 
+        self._ensure_http_client()
+
         for attempt, model_candidate in enumerate(candidate_models):
             payload["model"] = model_candidate
+            if "gpt-oss" in model_candidate:
+                payload["reasoning_effort"] = "medium" if (detailed or is_coding) else "low"
+            else:
+                payload.pop("reasoning_effort", None)
             if settings.llm_provider == "groq" and "120b" in model_candidate:
                 payload["max_tokens"] = min(payload.get("max_tokens", 3800), 3800)
             elif is_coding:
@@ -1731,7 +1838,7 @@ class ProductionRAGService:
                     settings.llm_endpoint,
                     headers=headers,
                     json=payload,
-                    timeout=50.0 if is_coding else 16.0,
+                    timeout=35.0 if is_coding else 12.0,
                 )
                 if response.status_code == 200:
                     data = response.json()
@@ -1743,19 +1850,18 @@ class ProductionRAGService:
                 elif response.status_code in (413, 429):
                     logger.warning("grounded_llm_rate_or_size_limited attempt=%d model=%s status=%d", attempt, model_candidate, response.status_code)
                     payload["max_tokens"] = min(payload.get("max_tokens", 3000), 2500)
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.15)
                     continue
                 else:
                     logger.warning("grounded_llm_non_200 attempt=%d model=%s status=%d body=%s", attempt, model_candidate, response.status_code, response.text[:200])
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.15)
                     continue
             except Exception as exc:
                 if "closed" in str(exc).lower():
                     self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), verify=True, follow_redirects=True)
                 logger.warning("llm_api_call_failed attempt=%d model=%s error=%s", attempt, model_candidate, exc)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.15)
 
-        # Graceful fallback to grounded extractive synthesis
         return self._extractive_answer(original_query, sources)
 
     def _solve_math_locally(self, query: str) -> str | None:
@@ -2395,9 +2501,9 @@ class ProductionRAGService:
         incognito: bool = False,
         detailed: bool = False,
         mode: str = "general",
+        live_search_attempted: bool = False,
     ) -> str:
-        """Answer general greetings, outside questions, or follow-ups conversationally like ChatGPT/Grok, incorporating web search facts and dialogue context."""
-        project_state = self._detect_project_state(history, query)
+        """Answer general greetings, outside questions, or follow-ups conversationally, incorporating live web search facts and dialogue context."""
         is_creative = self._is_creative_request(query)
         is_website = self._is_website_request(query)
 
@@ -2405,35 +2511,40 @@ class ProductionRAGService:
         if is_website:
             return self._build_no_website_response(query)
 
+        if mode != "code" and self._is_coding_request(query):
+            return "Code can only be generated in Code Mode."
+
         is_3d_model = not is_creative and self._is_3d_model_request(query)
-        is_coding = not is_creative and ((mode == "code") or is_3d_model or self._is_coding_request(query))
-        if is_3d_model:
-            is_coding = True
+        is_coding = not is_creative and ((mode == "code") or is_3d_model)
         if not is_coding:
             math_sol = self._solve_math_locally(query)
             if math_sol:
                 return math_sol
 
         web_context_text = ""
-        if web_results and not is_coding and not is_creative:
+        if web_results and not is_creative:
             blocks = []
             for w in web_results:
-                blocks.append(f"[Live Source: {w['title']}]\n{w['snippet']}")
+                u_str = f" ({w['url']})" if w.get("url") else ""
+                blocks.append(f"[Live Source: {w['title']}{u_str}]\n{w['snippet']}")
             web_context_text = "\n\n".join(blocks)
 
-        now_dt = datetime.now()
+        now_dt = datetime.now().astimezone()
+        yesterday_dt = now_dt - timedelta(days=1)
+        tz_str = now_dt.strftime("%Z (UTC%z)")
         now_str = now_dt.strftime("%A, %B %d, %Y, %I:%M %p")
         today_date_str = now_dt.strftime("%d %B %Y")
-        
+        yesterday_date_str = yesterday_dt.strftime("%A, %d %B %Y")
+
         if is_coding:
             system_prompt = (
-                "You are Astra Code Studio, a software development assistant specializing strictly in small, self-contained algorithms, functions, and scripts.\n\n"
-                "CRITICAL CODE GENERATION RULES:\n"
-                "1. SMALL CODE ONLY: You ONLY generate concise algorithms, functions, and scripts in languages like Python, C++, and C.\n"
-                "2. NO WEBSITES: You NEVER generate websites, web pages, HTML documents, or frontend UI templates.\n"
-                "3. DIRECT CODE: Provide the clean, runnable, copy-paste ready code inside standard markdown code fences (```python, ```cpp, ```c).\n"
-                "4. ZERO PLACEHOLDERS: Implement the requested logic completely without empty placeholders.\n"
-                "5. ZERO FILLER: Focus 100% on delivering the exact code snippet requested."
+                "You are Astra Code Studio, an expert software engineering assistant operating in Code Mode.\n"
+                f"REAL-TIME TEMPORAL CONTEXT: Current local date & time is {now_str} ({tz_str}). Today is {today_date_str}; yesterday was {yesterday_date_str}.\n\n"
+                "CODE MODE CAPABILITIES & RULES:\n"
+                "1. SUPPORTED LANGUAGES & TASKS: Provide expert programming assistance in C, C++, Python, Java, JavaScript, TypeScript, SQL, Go, Rust, C#, Bash, and other programming languages. Solve coding problems, debug existing code, explain errors, and optimize algorithms.\n"
+                "2. NO WEBSITES OR WEB APPS: Website generation is strictly disabled even in Code Mode. NEVER generate complete websites, landing pages, web applications, HTML/CSS templates, or frontend projects. If a programming request is actually a request to build an entire website, politely explain that website generation is disabled.\n"
+                "3. CLEAN CODE BLOCKS: Provide runnable, well-structured code snippets and functions inside standard markdown code fences (```python, ```cpp, ```c, ```java, ```javascript, ```sql, etc.).\n"
+                "4. ZERO PLACEHOLDERS: Implement requested functions and algorithms completely and accurately."
             )
         else:
             system_prompt = self._deep_research_system_prompt(is_grounded=False, incognito=incognito, now_str=now_str, detailed=detailed, mode=mode)
@@ -2446,7 +2557,7 @@ class ProductionRAGService:
         elif is_coding:
             user_content = (
                 f"{query}\n\n"
-                "Please generate the clean, robust, small code snippet in standard markdown code fences (e.g. ```python, ```cpp, ```c):"
+                "Provide a clear, accurate programming response or code solution in Code Mode (remembering that complete website/web-app generation is disabled):"
             )
         elif is_creative:
             is_script_req = any(w in query.lower() for w in ["script", "screenplay", "dialogue", "play", "skit", "scene"])
@@ -2457,21 +2568,27 @@ class ProductionRAGService:
         elif web_context_text:
             user_content = (
                 f"{query}\n\n"
-                f"=== SYSTEM TEMPORAL CONTEXT: CURRENT DATE IS {now_dt.strftime('%A').upper()}, {now_dt.strftime('%B').upper()} {now_dt.day}, {now_dt.year} ({today_date_str}) ===\n"
+                f"=== SYSTEM TEMPORAL CONTEXT: TODAY IS {now_dt.strftime('%A').upper()}, {today_date_str} ({tz_str}) | YESTERDAY WAS {yesterday_date_str} ===\n"
                 f"=== LIVE SEARCH & FACTUAL CONTEXT ===\n"
                 f"{web_context_text}\n\n"
                 "INSTRUCTIONS FOR ANSWERING:\n"
-                "- Answer the user's question directly, insightfully, and authoritatively.\n"
-                "- Seamlessly combine the live context and your vast internal knowledge base. NEVER refuse with 'search results don't include information'.\n"
-                "- If asked about annual events, sports championships, or Grand Prix races (e.g. Singapore GP, Italian GP, World Cup): accurately identify the exact winner and year from live search facts. If asked about 'last year' or 'this year', clarify the race year and driver/team explicitly.\n"
-                "- Fix and understand any user typos or colloquial shorthand naturally.\n"
-                f"- Deliver a {'comprehensive, deeply detailed' if detailed else 'direct, engaging, clear'} response in clean prose without bracketed citation codes like [W1], [W2]:"
+                "- Answer the user's question directly, accurately, and concisely using the verified live context above.\n"
+                "- Verify that dates in the retrieved sources match the requested time period (e.g., today, yesterday, or specific year).\n"
+                "- Clearly distinguish confirmed facts from estimates or conflicting reports.\n"
+                f"- Deliver a {'comprehensive, deeply detailed' if detailed else 'direct, clear, concise'} response in clean prose without raw internal bracketed tags like [W1], [W2]:"
+            )
+        elif live_search_attempted:
+            user_content = (
+                f"{query}\n\n"
+                f"=== SYSTEM TEMPORAL CONTEXT: TODAY IS {now_dt.strftime('%A').upper()}, {today_date_str} ({tz_str}) | YESTERDAY WAS {yesterday_date_str} ===\n"
+                "=== LIVE SEARCH NOTICE ===\n"
+                "Live web search returned no verified real-time sources for this query. If answering requires real-time or post-cutoff information (such as today's/yesterday's events or live prices), clearly explain that live verification is currently unavailable rather than inventing or guessing current facts:"
             )
         else:
             user_content = (
                 f"{query}\n\n"
-                f"=== SYSTEM TEMPORAL CONTEXT: CURRENT DATE IS {now_dt.strftime('%A').upper()}, {now_dt.strftime('%B').upper()} {now_dt.day}, {now_dt.year} ({today_date_str}) ===\n"
-                "Please provide a direct, insightful, and authoritative answer drawing upon your complete knowledge base:"
+                f"=== SYSTEM TEMPORAL CONTEXT: TODAY IS {now_dt.strftime('%A').upper()}, {today_date_str} ({tz_str}) | YESTERDAY WAS {yesterday_date_str} ===\n"
+                f"Please provide a {'comprehensive, deeply detailed' if detailed else 'direct, clear, and concise'} answer:"
             )
 
         llm_messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -2483,23 +2600,19 @@ class ProductionRAGService:
         payload = {
             "model": settings.active_model,
             "messages": llm_messages,
-            "temperature": 0.2 if is_coding else 0.2,
-            "max_tokens": 4096 if is_coding else (2000 if detailed else 600),
+            "temperature": 0.2,
+            "max_tokens": 4096 if is_coding else (2000 if detailed else 900),
         }
         headers = {
             "Authorization": f"Bearer {settings.active_llm_key}",
             "Content-Type": "application/json",
         }
 
-        # Multi-model retry with rate-limit and size resilience
         candidate_models = []
         if settings.llm_provider == "xai":
             provider_candidates = [settings.active_model, "grok-2-latest", "grok-2", "grok-beta"]
         elif settings.llm_provider == "groq":
-            if is_coding:
-                provider_candidates = [settings.active_model, "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
-            else:
-                provider_candidates = [settings.active_model, "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+            provider_candidates = [settings.active_model, "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
         else:
             provider_candidates = [settings.active_model, "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"]
 
@@ -2507,24 +2620,29 @@ class ProductionRAGService:
             if m and m not in candidate_models:
                 candidate_models.append(m)
 
+        self._ensure_http_client()
+
         for attempt, model_candidate in enumerate(candidate_models):
             payload["model"] = model_candidate
+            if "gpt-oss" in model_candidate:
+                payload["reasoning_effort"] = "medium" if (detailed or is_coding) else "low"
+            else:
+                payload.pop("reasoning_effort", None)
 
-            # Safe token capping for Groq
             if settings.llm_provider == "groq":
                 if "120b" in model_candidate:
-                    payload["max_tokens"] = min(payload.get("max_tokens", 3800), 3800)
+                    payload["max_tokens"] = min(4096 if is_coding else (2000 if detailed else 900), 3800)
                 else:
-                    payload["max_tokens"] = 4096 if is_coding else (2000 if detailed else 600)
+                    payload["max_tokens"] = 4096 if is_coding else (2000 if detailed else 900)
             else:
-                payload["max_tokens"] = 8192 if is_coding else (2000 if detailed else 600)
+                payload["max_tokens"] = 8192 if is_coding else (2000 if detailed else 900)
 
             try:
                 response = await self.http.post(
                     settings.llm_endpoint,
                     headers=headers,
                     json=payload,
-                    timeout=50.0 if is_coding else 16.0,
+                    timeout=35.0 if is_coding else 12.0,
                 )
                 if response.status_code == 200:
                     data = response.json()
@@ -2536,19 +2654,18 @@ class ProductionRAGService:
                 elif response.status_code in (413, 429):
                     logger.warning("general_llm_rate_or_size_limited attempt=%d model=%s status=%d", attempt, model_candidate, response.status_code)
                     payload["max_tokens"] = min(payload.get("max_tokens", 3000), 2500)
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.15)
                     continue
                 else:
                     logger.warning("general_llm_non_200 attempt=%d model=%s status=%d body=%s", attempt, model_candidate, response.status_code, response.text[:200])
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.15)
                     continue
             except Exception as exc:
                 if "closed" in str(exc).lower():
-                    self.http = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0), verify=True, follow_redirects=True)
+                    self._ensure_http_client()
                 logger.warning("general_llm_call_failed attempt=%d model=%s error=%s", attempt, model_candidate, exc)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.15)
 
-        # High-intelligence fallbacks when remote LLMs are unavailable
         if is_creative:
             return self._build_creative_fallback(query)
 
@@ -2562,6 +2679,9 @@ class ProductionRAGService:
             top_snippet = web_results[0].get("snippet", "")
             if top_snippet:
                 return f"{top_snippet}"
+
+        if live_search_attempted:
+            return "I could not verify real-time information for that query because live search tools are currently unreachable."
 
         return "I am Astra! I am ready to help you. Ask me anything or upload files to explore."
 
@@ -2797,6 +2917,7 @@ class ProductionRAGService:
 
     async def _web_search(self, query: str) -> list[dict]:
         """Real-time multi-source retrieval across live weather, global stock markets, crypto, YouTube stats, Instagram profiles, live forex, and public search."""
+        self._ensure_http_client()
         clean_q = re.sub(r"[^\w\s]", " ", query).strip()
         if not clean_q or len(clean_q) < 2:
             return []
@@ -3173,170 +3294,145 @@ class ProductionRAGService:
             except Exception as e_ig:
                 logger.warning("instagram_lookup_failed query=%s error=%s", clean_q, e_ig)
 
-        # 7. DuckDuckGo Instant Answer API (Zero-click factual answers)
+        # 7-10. Concurrent Live Web & News Retrieval (DDG Instant, DDG Lite, Google News RSS, Wikipedia)
         if len(results) < 3:
-            try:
-                ia_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(clean_q)}&format=json&no_html=1&skip_disambig=1"
-                ia_res = await self.http.get(ia_url, headers=headers, timeout=2.5)
-                if ia_res.status_code == 200:
-                    ia_data = ia_res.json()
-                    abstract = ia_data.get("AbstractText", "").strip()
-                    answer = ia_data.get("Answer", "").strip()
-                    heading = ia_data.get("Heading", clean_q)
-                    source_url = ia_data.get("AbstractURL", "")
-                    if answer:
-                        results.append({
-                            "title": f"Direct Answer: {heading}",
-                            "snippet": f"VERIFIED DIRECT ANSWER: {answer}",
-                            "url": source_url or f"https://duckduckgo.com/?q={urllib.parse.quote(clean_q)}",
-                        })
-                    elif abstract and len(abstract) > 30:
-                        results.append({
-                            "title": f"Reference: {heading}",
-                            "snippet": abstract[:400],
-                            "url": source_url or f"https://duckduckgo.com/?q={urllib.parse.quote(clean_q)}",
-                        })
-            except Exception as e_ia:
-                logger.debug("ddg_instant_answer_failed error=%s", e_ia)
-
-        # 8. DuckDuckGo Lite Search (Fast, uncensored, 100% current factual answers & breaking events)
-        if len(results) < 4:
-            try:
-                ddg_q = clean_q
-                ddg_q = re.sub(r"\b([a-zA-Z]+)\s+go\b", r"\1 Grand Prix", ddg_q, flags=re.IGNORECASE)
-                if "gp" in ddg_q.lower():
-                    ddg_q = re.sub(r"\bgp\b", "Grand Prix", ddg_q, flags=re.IGNORECASE)
-
-                d_res = await self.http.post(
-                    "https://lite.duckduckgo.com/lite/",
-                    data={"q": ddg_q},
-                    headers=headers,
-                    timeout=3.0,
-                )
-                if d_res.status_code == 200:
-                    snippets = re.findall(r'<td[^>]+class=[\'"]result-snippet[\'"][^>]*>(.*?)</td>', d_res.text, flags=re.DOTALL)
-                    titles = re.findall(r'<a[^>]+class=[\'"]result-link[\'"][^>]*>(.*?)</a>', d_res.text, flags=re.DOTALL)
-                    for idx, s in enumerate(snippets[:4]):
-                        clean_s = unescape(re.sub(r'<[^>]+>', '', s)).strip()
-                        if len(clean_s) > 20:
-                            clean_t = unescape(re.sub(r'<[^>]+>', '', titles[idx])).strip() if idx < len(titles) else f"Web: {ddg_q}"
-                            results.append({
-                                "title": clean_t,
-                                "snippet": clean_s,
-                                "url": f"https://duckduckgo.com/?q={urllib.parse.quote(ddg_q)}",
+            async def _fetch_ddg_ia() -> list[dict]:
+                out = []
+                try:
+                    ia_url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(clean_q)}&format=json&no_html=1&skip_disambig=1"
+                    ia_res = await self.http.get(ia_url, headers=headers, timeout=2.0)
+                    if ia_res.status_code == 200:
+                        ia_data = ia_res.json()
+                        abstract = ia_data.get("AbstractText", "").strip()
+                        answer = ia_data.get("Answer", "").strip()
+                        heading = ia_data.get("Heading", clean_q)
+                        source_url = ia_data.get("AbstractURL", "")
+                        if answer:
+                            out.append({
+                                "title": f"Direct Answer: {heading}",
+                                "snippet": f"VERIFIED DIRECT ANSWER: {answer}",
+                                "url": source_url or f"https://duckduckgo.com/?q={urllib.parse.quote(clean_q)}",
                             })
-            except Exception as e_ddg_lite:
-                logger.debug("ddg_lite_failed error=%s", e_ddg_lite)
-
-        # 9. Wikipedia Live Search & Factual Extracts
-        wiki_headers = {
-            "User-Agent": "AstraBot/3.0 (Windows NT 10.0; Win64; x64; contact@example.com)",
-            "Accept": "application/json",
-        }
-        if len(results) < 4:
-            try:
-                wiki_term = re.sub(r"^(who won|who is|what is|winner of|who is the winner of|result of|tell me about)\s+", "", clean_q, flags=re.IGNORECASE).strip()
-                wiki_term = re.sub(r"\b([a-zA-Z]+)\s+go\b", r"\1 Grand Prix", wiki_term, flags=re.IGNORECASE)
-                if "gp" in wiki_term.lower():
-                    wiki_term = re.sub(r"\bgp\b", "Grand Prix", wiki_term, flags=re.IGNORECASE)
-                wiki_term = wiki_term or clean_q
-
-                search_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(wiki_term)}&srlimit=8&format=json"
-                res = await self.http.get(search_url, headers=wiki_headers, timeout=2.5)
-                if res.status_code == 200:
-                    search_data = res.json().get("query", {}).get("search", [])
-                    if search_data:
-                        def year_key(item: dict) -> int:
-                            t = item.get("title", "")
-                            m = re.search(r"\b(19\d\d|20\d\d)\b", t)
-                            return int(m.group(1)) if m else 0
-                        sorted_items = sorted(search_data, key=year_key, reverse=True)
-                        candidate_titles = [it.get("title") for it in sorted_items if it.get("title")][:4]
-
-                        if candidate_titles:
-                            titles_param = "|".join(candidate_titles)
-                            ext_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles={urllib.parse.quote(titles_param)}&format=json"
-                            ext_res = await self.http.get(ext_url, headers=wiki_headers, timeout=3.0)
-                            if ext_res.status_code == 200:
-                                pages = ext_res.json().get("query", {}).get("pages", {})
-                                for it_title in candidate_titles:
-                                    p = next((page for page in pages.values() if page.get("title") == it_title), None)
-                                    if p and p.get("extract"):
-                                        ext = p.get("extract", "").strip()
-                                        if len(ext) > 30:
-                                            outcome_sentences = []
-                                            for s in re.split(r"(?<=[.!?])\s+", ext):
-                                                s_clean = s.strip()
-                                                if any(w in s_clean.lower() for w in ["won by", " won ", "winner", "won from", "first win", "took victory", "took his", "finished first", "podium"]):
-                                                    outcome_sentences.append(s_clean)
-                                            outcome_str = " ".join(outcome_sentences[:2])
-                                            clean_intro = re.sub(r"\s+", " ", ext).strip()
-                                            snippet_text = f"{outcome_str} (Details: {clean_intro[:320]})" if outcome_str else clean_intro[:400]
-                                            results.append({
-                                                "title": f"Wikipedia: {it_title}",
-                                                "snippet": snippet_text,
-                                                "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(it_title.replace(' ', '_'))}",
-                                            })
-                                            if len(results) >= 5:
-                                                break
-            except Exception as exc:
-                logger.debug("wikipedia_search_failed query=%s error=%s", clean_q, exc)
-
-        # 10. LIVE Google News RSS Search (breaking records, live events, sports outcomes)
-        if len(results) < 4:
-            try:
-                news_search_term = clean_q
-                if "gp" in news_search_term.lower():
-                    news_search_term = re.sub(r"\bgp\b", "Grand Prix", news_search_term, flags=re.IGNORECASE)
-                news_url = f"https://news.google.com/rss/search?q={urllib.parse.quote(news_search_term)}&hl=en-US&gl=US&ceid=US:en"
-                news_res = await self.http.get(news_url, headers=headers, timeout=2.0)
-                if news_res.status_code == 200 and news_res.text:
-                    root = ET.fromstring(news_res.text)
-                    items = root.findall(".//item")[:3]
-                    for item in items:
-                        title_elem = item.find("title")
-                        pub_elem = item.find("pubDate")
-                        link_elem = item.find("link")
-                        if title_elem is not None and title_elem.text:
-                            pub_text = f" ({pub_elem.text})" if pub_elem is not None and pub_elem.text else ""
-                            results.append({
-                                "title": f"News: {title_elem.text[:80]}",
-                                "snippet": f"{title_elem.text}{pub_text}",
-                                "url": link_elem.text if link_elem is not None else f"https://news.google.com/search?q={urllib.parse.quote(news_search_term)}",
+                        elif abstract and len(abstract) > 30:
+                            out.append({
+                                "title": f"Reference: {heading}",
+                                "snippet": abstract[:400],
+                                "url": source_url or f"https://duckduckgo.com/?q={urllib.parse.quote(clean_q)}",
                             })
-                            if len(results) >= 5:
-                                break
-            except Exception as e_news:
-                logger.debug("google_news_rss_failed query=%s error=%s", clean_q, e_news)
+                except Exception as e_ia:
+                    logger.debug("ddg_instant_answer_failed error=%s", e_ia)
+                return out
 
-        # 11. Bing Snippet Search (broad web backup)
-        if len(results) < 3:
-            try:
-                b_url = f"https://www.bing.com/search?q={urllib.parse.quote(clean_q)}"
-                b_res = await self.http.get(b_url, headers=headers, timeout=2.5)
-                if b_res.status_code == 200:
-                    items = re.findall(r'<li class="b_algo"[^>]*>(.*?)</li>', b_res.text, flags=re.DOTALL)
-                    for it in items[:3]:
-                        t_m = re.search(r'<h2><a[^>]*>(.*?)</a></h2>', it, flags=re.DOTALL)
-                        p_m = re.search(r'<p[^>]*>(.*?)</p>', it, flags=re.DOTALL)
-                        u_m = re.search(r'<h2><a[^>]+href="([^"]+)"', it)
-                        title = unescape(re.sub(r'<[^>]+>', '', t_m.group(1))).strip() if t_m else clean_q
-                        snippet = unescape(re.sub(r'<[^>]+>', '', p_m.group(1))).strip() if p_m else ""
-                        link = u_m.group(1) if u_m else ""
-                        if snippet and len(snippet) > 25:
-                            snip_lower = snippet.lower()
-                            is_spam = any(spam in snip_lower for spam in [
-                                "william hill", "betting experience", "bet in-play", "horse racing betting", "casino bonus",
-                                "definition of won", "definition & meaning", "participle of win", "divided into 100 jeon"
-                            ])
-                            if not is_spam:
-                                results.append({
-                                    "title": title,
-                                    "snippet": snippet,
-                                    "url": link,
+            async def _fetch_ddg_lite() -> list[dict]:
+                out = []
+                try:
+                    ddg_q = re.sub(r"\b([a-zA-Z]+)\s+go\b", r"\1 Grand Prix", clean_q, flags=re.IGNORECASE)
+                    if "gp" in ddg_q.lower():
+                        ddg_q = re.sub(r"\bgp\b", "Grand Prix", ddg_q, flags=re.IGNORECASE)
+                    d_res = await self.http.post(
+                        "https://lite.duckduckgo.com/lite/",
+                        data={"q": ddg_q},
+                        headers=headers,
+                        timeout=2.2,
+                    )
+                    if d_res.status_code == 200:
+                        snippets = re.findall(r'<td[^>]+class=[\'"]result-snippet[\'"][^>]*>(.*?)</td>', d_res.text, flags=re.DOTALL)
+                        links_and_titles = re.findall(r'<a[^>]+href=[\'"]([^\'"]+)[\'"][^>]*class=[\'"]result-link[\'"][^>]*>(.*?)</a>', d_res.text, flags=re.DOTALL)
+                        titles = re.findall(r'<a[^>]+class=[\'"]result-link[\'"][^>]*>(.*?)</a>', d_res.text, flags=re.DOTALL)
+                        for idx, s in enumerate(snippets[:3]):
+                            clean_s = unescape(re.sub(r'<[^>]+>', '', s)).strip()
+                            if len(clean_s) > 20:
+                                clean_t = unescape(re.sub(r'<[^>]+>', '', titles[idx])).strip() if idx < len(titles) else f"Web: {ddg_q}"
+                                link_url = links_and_titles[idx][0] if idx < len(links_and_titles) else f"https://duckduckgo.com/?q={urllib.parse.quote(ddg_q)}"
+                                out.append({
+                                    "title": clean_t,
+                                    "snippet": clean_s,
+                                    "url": link_url,
                                 })
-            except Exception as e_b:
-                logger.debug("bing_search_failed query=%s error=%s", clean_q, e_b)
+                except Exception as e_ddg_lite:
+                    logger.debug("ddg_lite_failed error=%s", e_ddg_lite)
+                return out
+
+            async def _fetch_news_rss() -> list[dict]:
+                out = []
+                try:
+                    news_search_term = clean_q
+                    if "gp" in news_search_term.lower():
+                        news_search_term = re.sub(r"\bgp\b", "Grand Prix", news_search_term, flags=re.IGNORECASE)
+                    news_url = f"https://news.google.com/rss/search?q={urllib.parse.quote(news_search_term)}&hl=en-US&gl=US&ceid=US:en"
+                    news_res = await self.http.get(news_url, headers=headers, timeout=2.0)
+                    if news_res.status_code == 200 and news_res.text:
+                        root = ET.fromstring(news_res.text)
+                        for item in root.findall(".//item")[:3]:
+                            title_elem = item.find("title")
+                            pub_elem = item.find("pubDate")
+                            link_elem = item.find("link")
+                            if title_elem is not None and title_elem.text:
+                                pub_text = f" (Published: {pub_elem.text})" if pub_elem is not None and pub_elem.text else ""
+                                out.append({
+                                    "title": f"News: {title_elem.text[:80]}",
+                                    "snippet": f"{title_elem.text}{pub_text}",
+                                    "url": link_elem.text if link_elem is not None else f"https://news.google.com/search?q={urllib.parse.quote(news_search_term)}",
+                                })
+                except Exception as e_news:
+                    logger.debug("google_news_rss_failed query=%s error=%s", clean_q, e_news)
+                return out
+
+            async def _fetch_wiki() -> list[dict]:
+                out = []
+                wiki_headers = {
+                    "User-Agent": "AstraBot/3.0 (Windows NT 10.0; Win64; x64; contact@example.com)",
+                    "Accept": "application/json",
+                }
+                try:
+                    wiki_term = re.sub(r"^(who won|who is|what is|winner of|who is the winner of|result of|tell me about)\s+", "", clean_q, flags=re.IGNORECASE).strip()
+                    wiki_term = re.sub(r"\b([a-zA-Z]+)\s+go\b", r"\1 Grand Prix", wiki_term, flags=re.IGNORECASE)
+                    if "gp" in wiki_term.lower():
+                        wiki_term = re.sub(r"\bgp\b", "Grand Prix", wiki_term, flags=re.IGNORECASE)
+                    wiki_term = wiki_term or clean_q
+
+                    search_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(wiki_term)}&srlimit=4&format=json"
+                    res = await self.http.get(search_url, headers=wiki_headers, timeout=2.0)
+                    if res.status_code == 200:
+                        search_data = res.json().get("query", {}).get("search", [])
+                        if search_data:
+                            def year_key(item: dict) -> int:
+                                t = item.get("title", "")
+                                m = re.search(r"\b(19\d\d|20\d\d)\b", t)
+                                return int(m.group(1)) if m else 0
+                            sorted_items = sorted(search_data, key=year_key, reverse=True)
+                            candidate_titles = [it.get("title") for it in sorted_items if it.get("title")][:2]
+                            if candidate_titles:
+                                titles_param = "|".join(candidate_titles)
+                                ext_url = f"https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles={urllib.parse.quote(titles_param)}&format=json"
+                                ext_res = await self.http.get(ext_url, headers=wiki_headers, timeout=2.0)
+                                if ext_res.status_code == 200:
+                                    pages = ext_res.json().get("query", {}).get("pages", {})
+                                    for it_title in candidate_titles:
+                                        p = next((page for page in pages.values() if page.get("title") == it_title), None)
+                                        if p and p.get("extract"):
+                                            ext = p.get("extract", "").strip()
+                                            if len(ext) > 30:
+                                                clean_intro = re.sub(r"\s+", " ", ext).strip()
+                                                out.append({
+                                                    "title": f"Wikipedia: {it_title}",
+                                                    "snippet": clean_intro[:400],
+                                                    "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(it_title.replace(' ', '_'))}",
+                                                })
+                except Exception as exc:
+                    logger.debug("wikipedia_search_failed query=%s error=%s", clean_q, exc)
+                return out
+
+            gathered = await asyncio.gather(
+                _fetch_ddg_ia(),
+                _fetch_news_rss(),
+                _fetch_ddg_lite(),
+                _fetch_wiki(),
+                return_exceptions=True,
+            )
+            for batch in gathered:
+                if isinstance(batch, list):
+                    results.extend(batch)
 
         return results[:6]
 

@@ -22,7 +22,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js">
-    <link rel="stylesheet" href="static/style.css?v=3062">
+    <link rel="stylesheet" href="static/style.css?v=3063">
 
   </head>
   <body>
@@ -379,22 +379,28 @@
                       <!-- Row 3: Astracore O (Coming Soon) -->
                       <div class="popover-row popover-option-row coming-soon-row" id="popoverModelAstracoreO" role="menuitem" style="opacity: 0.75; cursor: default;">
                         <span class="popover-row-label">Astracore O</span>
-                        <span class="coming-soon-badge" style="font-family: 'Instrument Serif', Georgia, serif; font-size: 13px; font-weight: 600; color: #64748b; background: rgba(0, 0, 0, 0.06); padding: 2px 8px; border-radius: 12px; letter-spacing: 0.5px;">COMING SOON</span>
+                        <span class="coming-soon-badge" style="font-family: 'anthropicSerif', 'Instrument Serif', Georgia, serif; font-size: 13px; font-weight: 600; color: #64748b; background: rgba(0, 0, 0, 0.06); padding: 2px 8px; border-radius: 12px; letter-spacing: 0.5px;">COMING SOON</span>
                       </div>
 
                       <!-- Divider line -->
                       <hr class="popover-divider">
 
-                      <!-- Row 3: Quick (Simple mode) -->
+                      <!-- Row 4: Quick (Simple mode) -->
                       <div class="popover-row popover-option-row active" id="popoverModeQuick" role="menuitem">
                         <span class="popover-row-label">Quick</span>
                         <span class="popover-check-icon" id="popoverQuickCheck">✓</span>
                       </div>
 
-                      <!-- Row 4: Extended (Detailed mode) -->
+                      <!-- Row 5: Extended (Detailed mode) -->
                       <div class="popover-row popover-option-row" id="popoverModeExtended" role="menuitem">
                         <span class="popover-row-label">Extended</span>
                         <span class="popover-check-icon hidden" id="popoverExtendedCheck">✓</span>
+                      </div>
+
+                      <!-- Row 6: Code Mode (Explicit programming assistance mode) -->
+                      <div class="popover-row popover-option-row" id="popoverModeCode" role="menuitem">
+                        <span class="popover-row-label">Code Mode</span>
+                        <span class="popover-check-icon hidden" id="popoverCodeCheck">✓</span>
                       </div>
                     </div>
 
@@ -646,25 +652,6 @@
             </div>
             <div id="customBgStatus" class="custom-bg-status-msg">Default fluid wallpaper active</div>
           </div>
-
-          <!-- 3. Account & Data Management -->
-          <div class="settings-group">
-            <div class="settings-group-header">
-              <span class="settings-group-icon">🛡️</span>
-              <div class="settings-group-text">
-                <strong class="settings-group-title">Privacy & Security Policies</strong>
-                <p class="settings-group-desc">Review your data privacy protections and service guidelines.</p>
-              </div>
-            </div>
-            <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
-              <a href="/terms" target="_blank" class="settings-btn secondary-glass-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                <span>📜</span> Terms & Conditions
-              </a>
-              <a href="/privacy" target="_blank" class="settings-btn secondary-glass-btn" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
-                <span>🔒</span> Privacy Policy
-              </a>
-            </div>
-          </div>
         </div>
       </div>
     </div>
@@ -673,7 +660,7 @@
     <div id="deleteConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Confirm Deletion">
       <div class="glass-modal-card" style="max-width: 380px; text-align: center;">
         <div style="font-size: 2rem; margin-bottom: 10px;">🗑️</div>
-        <h3 style="font-family: 'Instrument Serif', Georgia, serif; font-size: 1.35rem; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Remove Document?</h3>
+        <h3 style="font-family: 'anthropicSerif', 'Instrument Serif', Georgia, serif; font-size: 1.35rem; font-weight: 600; margin-bottom: 8px; color: #1e293b;">Remove Document?</h3>
         <p id="deleteDocNameText" class="delete-confirm-text"></p>
         <div style="display: flex; gap: 12px; justify-content: center; margin-top: 20px;">
           <button id="cancelDeleteBtn" class="modal-secondary-btn" style="flex: 1;">Cancel</button>
@@ -756,6 +743,6 @@
     <div id="toast" class="toast hidden"></div>
 
     <script src="config.js"></script>
-    <script src="static/app.js?v=3062"></script>
+    <script src="static/app.js?v=3063"></script>
   </body>
 </html>
